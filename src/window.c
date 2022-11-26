@@ -1,5 +1,5 @@
 #include "window.h"
-
+#include "base.h"
 #include "device.h"
 #include "memory.h"
 
@@ -49,7 +49,7 @@ lida_WindowCreate(const lida_WindowDesc* desc)
   g_window->window = SDL_CreateWindow(desc->name, desc->x, desc->y, desc->w, desc->h,
                                     SDL_WINDOW_VULKAN);
   if (!SDL_Vulkan_CreateSurface(g_window->window, lida_GetVulkanInstance(), &g_window->surface)) {
-    printf("failed to create vulkan surface with error %s\n", SDL_GetError());
+    LIDA_LOG_FATAL("failed to create vulkan surface with error %s", SDL_GetError());
     goto error;
   }
 
@@ -151,7 +151,7 @@ lida_WindowBeginCommands()
   Frame* frame = &g_window->frames[g_window->frame_counter % FRAMES_IN_FLIGHT];
   VkResult err = vkWaitForFences(lida_GetLogicalDevice(), 1, &frame->fence, VK_TRUE, UINT64_MAX);
   if (err != VK_SUCCESS) {
-    printf("failed to wait for fence to start commands with error %d\n", err);
+    LIDA_LOG_ERROR("failed to wait for fence to start commands with error %d", err);
     return VK_NULL_HANDLE;
   }
   VkCommandBufferBeginInfo begin_info = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
@@ -169,17 +169,14 @@ lida_WindowBeginRendering(float clear_color[4])
                                        frame->image_available,
                                        VK_NULL_HANDLE,
                                        &g_window->current_image);
-  if (err != VK_SUCCESS && err != VK_SUBOPTIMAL_KHR) {
-    printf("failed");
-  }
   switch (err) {
   case VK_SUCCESS:
     break;
   case VK_SUBOPTIMAL_KHR:
-    printf("warning: got VK_SUBOPTIMAL_KHR when acquiring next swapchain image\n");
+    LIDA_LOG_WARN("warning: got VK_SUBOPTIMAL_KHR when acquiring next swapchain image");
     break;
   default:
-    printf("failed to acquire next swapchain image with error %d\n", err);
+    LIDA_LOG_ERROR("failed to acquire next swapchain image with error %d", err);
     return err;
   }
   // start render pass
@@ -229,12 +226,12 @@ lida_WindowPresent()
   };
   err = vkResetFences(dev, 1, &frame->fence);
   if (err != VK_SUCCESS) {
-    printf("failed to reset fences before presenting image with error %d\n", err);
+    LIDA_LOG_ERROR("failed to reset fences before presenting image with error %d", err);
     return err;
   }
   err = lida_QueueSubmit(&submit_info, 1, frame->fence);
   if (err != VK_SUCCESS) {
-    printf("failed to submit commands to graphics queue with error %d\n", err);
+    LIDA_LOG_ERROR("failed to submit commands to graphics queue with error %d", err);
     return err;
   }
   frame->submit_time = SDL_GetPerformanceCounter();
@@ -253,7 +250,7 @@ lida_WindowPresent()
   };
   err = lida_QueuePresent(&present_info);
   if (err != VK_SUCCESS) {
-    printf("queue failed to present with error %d\n", err);
+    LIDA_LOG_ERROR("queue failed to present with error %d", err);
     return err;
   }
   g_window->frame_counter++;
@@ -377,7 +374,7 @@ CreateSwapchain(VkPresentModeKHR present_mode)
   // whether or not oldSwapchain is VK_NULL_HANDLE.
   err = vkCreateSwapchainKHR(log_dev, &swapchain_info, NULL, &g_window->swapchain);
   if (err != VK_SUCCESS) {
-    printf("failed to create swapchain with error %d\n", err);
+    LIDA_LOG_FATAL("failed to create swapchain with error %d", err);
     return err;
   }
 
@@ -386,7 +383,7 @@ CreateSwapchain(VkPresentModeKHR present_mode)
     if (g_window->render_pass) vkDestroyRenderPass(log_dev, g_window->render_pass, NULL);
     err = CreateRenderPass(g_window);
     if (err != VK_SUCCESS) {
-      printf("failed to create render pass with errror %d\n", err);
+      LIDA_LOG_ERROR("failed to create render pass with errror %d", err);
       return err;
     }
   }
@@ -424,12 +421,12 @@ CreateSwapchain(VkPresentModeKHR present_mode)
     image_view_info.image = swapchain_images[i];
     err = vkCreateImageView(log_dev, &image_view_info, NULL, &g_window->images[i].image_view);
     if (err != VK_SUCCESS) {
-      printf("failed to create image view no. %u with error %d\n", i, err);
+      LIDA_LOG_ERROR("failed to create image view no. %u with error %d", i, err);
     }
     framebuffer_info.pAttachments = &g_window->images[i].image_view;
     err = vkCreateFramebuffer(log_dev, &framebuffer_info, NULL, &g_window->images[i].framebuffer);
     if (err != VK_SUCCESS) {
-      printf("failed to create framebuffer no. %u with error %d\n", i, err);
+      LIDA_LOG_ERROR("failed to create framebuffer no. %u with error %d", i, err);
     }
   }
   lida_TempFree(swapchain_images);
@@ -498,7 +495,7 @@ CreateFrames()
   err = lida_AllocateCommandBuffers(command_buffers, FRAMES_IN_FLIGHT,
                                     VK_COMMAND_BUFFER_LEVEL_PRIMARY);
   if (err != VK_SUCCESS) {
-    printf("failed to allocate command buffers with error %d\n", err);
+    LIDA_LOG_ERROR("failed to allocate command buffers with error %d", err);
     return err;
   }
   VkSemaphoreCreateInfo semaphore_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
@@ -509,17 +506,17 @@ CreateFrames()
     g_window->frames[i].cmd = command_buffers[i];
     err = vkCreateSemaphore(dev, &semaphore_info, NULL, &g_window->frames[i].image_available);
     if (err != VK_SUCCESS) {
-      printf("failed to create semaphore with error %d\n", err);
+      LIDA_LOG_ERROR("failed to create semaphore with error %d", err);
       return err;
     }
     err = vkCreateSemaphore(dev, &semaphore_info, NULL, &g_window->frames[i].render_finished);
     if (err != VK_SUCCESS) {
-      printf("failed to create semaphore with error %d\n", err);
+      LIDA_LOG_ERROR("failed to create semaphore with error %d", err);
       return err;
     }
     err = vkCreateFence(dev, &fence_info, NULL, &g_window->frames[i].fence);
     if (err != VK_SUCCESS) {
-      printf("failed to create fence with error %d\n", err);
+      LIDA_LOG_ERROR("failed to create fence with error %d", err);
       return err;
     }
   }

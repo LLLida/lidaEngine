@@ -58,6 +58,8 @@ TempRealloc(lida_Allocator* a, void* ptr, uint32_t bytes)
   if (ptr < chunk->ptr || (char*)ptr > (char*)chunk->ptr + chunk->offset) {
     return NULL;
   }
+  // TODO: proper implementation
+  assert(0);
   TempFree(a, ptr);
   return TempAllocate(a, bytes);
 }

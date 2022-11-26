@@ -3,7 +3,7 @@ project(lidaEngine2)
 
 find_package(SDL2 REQUIRED)
 
-add_executable(tst src/main.c src/device.c src/memory.c src/window.c src/volk.c)
+add_executable(tst src/main.c src/device.c src/memory.c src/window.c src/base.c src/volk.c)
 target_link_libraries(tst SDL2::SDL2)
 
 set_target_properties(tst PROPERTIES
@@ -26,7 +26,7 @@ else ()
   # enable all warnings from compiler
   target_compile_options(tst PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>                         # MSVC
-    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic> # g++ or clang
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic> # gcc or clang
   )
 endif()
 

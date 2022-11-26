@@ -1,9 +1,9 @@
 #include "device.h"
+#include "base.h"
 #include "memory.h"
 
 #include <SDL_rwops.h>
 #include <string.h>
-#include <stdio.h> // for printf
 
 typedef struct {
 
@@ -51,23 +51,23 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
   // load vulkan functions
   VkResult err = volkInitialize();
   if (err != VK_SUCCESS) {
-    printf("vulkan driver is not present on this platform\n");
+    LIDA_LOG_FATAL("vulkan driver is not present on this platform");
     return err;
   }
   // allocate memory for our big structure
   g_device = lida_TempAllocate(sizeof(lida_Device));
   err = CreateInstance(desc);
   if (err != VK_SUCCESS) {
-    printf("failed to create instance %d\n", err);
+    LIDA_LOG_FATAL("failed to create instance %d", err);
     return err;
   }
   err = PickPhysicalDevice(desc);
   if (err != VK_SUCCESS) {
-    printf("failed to pick a GPU with error %d\n", err);
+    LIDA_LOG_FATAL("failed to pick a GPU with error %d", err);
   }
   err =  CreateLogicalDevice(desc);
   if (err != VK_SUCCESS) {
-    printf("failed to create vulkan device with error %d\n", err);
+    LIDA_LOG_FATAL("failed to create vulkan device with error %d", err);
   }
   // we use only 1 device in the application
   // so load device-related Vulkan entrypoints directly from the driver
@@ -77,7 +77,7 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
                    &g_device->graphics_queue);
   err = CreateCommandPool();
   if (err != VK_SUCCESS) {
-    printf("failed to create command pool with error %d\n", err);
+    LIDA_LOG_ERROR("failed to create command pool with error %d", err);
   }
   return err;
 }
@@ -207,7 +207,7 @@ lida_LoadShader(const char* path)
   size_t buffer_size = 0;
   uint32_t* buffer = SDL_LoadFile(path, &buffer_size);
   if (!buffer) {
-    printf("failed to load shader from file '%s' with error '%s'\n", path, SDL_GetError());
+    LIDA_LOG_ERROR("failed to load shader from file '%s' with error '%s'", path, SDL_GetError());
     return VK_NULL_HANDLE;
   }
   VkShaderModuleCreateInfo module_info = {
@@ -220,7 +220,7 @@ lida_LoadShader(const char* path)
                                       NULL, &ret);
   SDL_free(buffer);
   if (err != VK_SUCCESS) {
-    printf("failed to create shader module with error %d\n", err);
+    LIDA_LOG_ERROR("failed to create shader module with error %d", err);
     return VK_NULL_HANDLE;
   }
   return ret;
@@ -243,10 +243,23 @@ DebugLogCallback(VkDebugReportFlagsEXT flags,
   (void)obj_type;
   (void)obj;
   (void)location;
-  (void)code;
-  (void)layer_prefix;
   (void)user_data;
-  printf("Vulkan error: %s\n", msg);
+  if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
+    LIDA_LOG_ERROR("[Vulkan:%d: %s]: %s\n", code, layer_prefix, msg);
+    return 0;
+  } else if ((flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) ||
+             (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) {
+    LIDA_LOG_WARN("[Vulkan:%d: %s]: %s\n", code, layer_prefix, msg);
+    return 1;
+  }
+  else if (flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) {
+    LIDA_LOG_DEBUG("[Vulkan:%d: %s]: %s\n", code, layer_prefix, msg);
+    return 1;
+  }
+  else if (flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT) {
+    LIDA_LOG_DEBUG("[Vulkan:%d: %s]: %s\n", code, layer_prefix, msg);
+    return 1;
+  }
   return 1;
 }
 
@@ -352,7 +365,7 @@ CreateInstance(const lida_DeviceDesc* desc)
       err = vkCreateDebugReportCallbackEXT(g_device->instance, &callback_info,
                                            NULL, &g_device->debug_report_callback);
       if (err != VK_SUCCESS) {
-        printf("Failed to create debug report callback\n");
+        LIDA_LOG_ERROR("Failed to create debug report callback");
       }
     }
   }
@@ -371,7 +384,7 @@ PickPhysicalDevice(const lida_DeviceDesc* desc)
   if (desc->gpu_id <= count) {
     g_device->physical_device = devices[desc->gpu_id];
   } else {
-    printf("warning: lida_DeviceDesc->gpu_id is out of bounds, picking GPU0\n");
+    LIDA_LOG_WARN("lida_DeviceDesc->gpu_id is out of bounds, picking GPU0");
     g_device->physical_device = devices[0];
   }
   lida_TempFree(devices);
@@ -399,7 +412,7 @@ PickPhysicalDevice(const lida_DeviceDesc* desc)
   err = vkEnumerateDeviceExtensionProperties(g_device->physical_device, NULL,
                                              &g_device->num_available_device_extensions, NULL);
   if (err != VK_SUCCESS) {
-    printf("failed to enumerate device extensions with error %d\n", err);
+    LIDA_LOG_ERROR("failed to enumerate device extensions with error %d", err);
   }
   g_device->available_device_extensions =
     lida_TempAllocate(g_device->num_available_device_extensions * sizeof(VkExtensionProperties));

@@ -3,12 +3,14 @@
 #include "device.h"
 #include "memory.h"
 #include "window.h"
+#include "base.h"
 
 VkPipeline createTrianglePipeline();
 
 int main(int argc, char** argv) {
   SDL_Init(SDL_INIT_VIDEO);
   lida_TempAllocatorCreate(32 * 1024);
+  lida_InitPlatformSpecificLoggers();
 
   LIDA_DEVICE_CREATE(.enable_debug_layers = 1,
                      .gpu_id = 0,
@@ -23,7 +25,8 @@ int main(int argc, char** argv) {
                      .w = 1080,
                      .h = 720,
                      .preferred_present_mode = VK_PRESENT_MODE_MAILBOX_KHR);
-  printf("num images in swapchain: %u\n", lida_WindowGetNumImages());
+  // printf("num images in swapchain: %u\n", lida_WindowGetNumImages());
+  LIDA_LOG_DEBUG("num images in swapchain: %u\n", lida_WindowGetNumImages());
 
   // for (uint32_t i = 0; i < lida_GetNumAvailableDeviceExtensions(); i++) {
   //   printf("%s\n", lida_GetAvailableDeviceExtensions()[i].extensionName);
