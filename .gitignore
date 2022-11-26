@@ -1,0 +1,6 @@
+GPATH
+GRTAGS
+GTAGS
+build/
+SDL2
+vulkan
