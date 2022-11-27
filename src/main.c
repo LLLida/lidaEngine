@@ -41,6 +41,9 @@ int main(int argc, char** argv) {
 
   VkPipeline pipeline = createTrianglePipeline();
 
+  lida_VideoMemory memory;
+  lida_VideoMemoryAllocate(&memory, 128*1024*1024, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT|VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, UINT32_MAX);
+
   SDL_Event event;
   int running = 1;
   while (running) {
@@ -53,7 +56,7 @@ int main(int argc, char** argv) {
         if (event.key.keysym.sym == SDLK_ESCAPE)
           running = 0;
         if (event.key.keysym.sym == SDLK_SPACE)
-          printf("FPS=%f\n", lida_WindowGetFPS());
+          LIDA_LOG_INFO("FPS=%f", lida_WindowGetFPS());
         break;
       }
     }
@@ -74,6 +77,8 @@ int main(int argc, char** argv) {
 
   vkDeviceWaitIdle(lida_GetLogicalDevice());
 
+  lida_VideoMemoryFree(&memory);
+  
   vkDestroyPipeline(lida_GetLogicalDevice(), pipeline, NULL);
 
   lida_WindowDestroy();

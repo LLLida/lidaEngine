@@ -13,6 +13,14 @@ typedef struct {
   uint32_t num_device_extensions;
 } lida_DeviceDesc;
 
+typedef struct {
+  VkDeviceMemory handle;
+  VkDeviceSize size;
+  VkDeviceSize offset;
+  uint32_t type;
+  void* mapped;
+} lida_VideoMemory;
+
 VkResult lida_DeviceCreate(const lida_DeviceDesc* desc);
 #define LIDA_DEVICE_CREATE(...) lida_DeviceCreate(&(lida_DeviceDesc) { __VA_ARGS__ })
 
@@ -41,6 +49,11 @@ uint32_t lida_GetGraphicsQueueFamily();
 VkResult lida_AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCommandBufferLevel level);
 VkResult lida_QueueSubmit(VkSubmitInfo* submits, uint32_t count, VkFence fence);
 VkResult lida_QueuePresent(VkPresentInfoKHR* present_info);
+
+VkResult lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
+                                  VkMemoryPropertyFlags flags, uint32_t memory_type_bits);
+void lida_VideoMemoryFree(lida_VideoMemory* memory);
+VkMemoryPropertyFlags lida_VideoMemoryGetFlags(const lida_VideoMemory* memory);
 
 VkShaderModule lida_LoadShader(const char* path);
 

@@ -201,6 +201,60 @@ lida_QueuePresent(VkPresentInfoKHR* present_info)
   return vkQueuePresentKHR(g_device->graphics_queue, present_info);
 }
 
+VkResult
+lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
+                         VkMemoryPropertyFlags flags, uint32_t memory_type_bits)
+{
+  uint32_t best_type = 0;
+  for (uint32_t i = 0; i < g_device->memory_properties.memoryTypeCount; i++) {
+    if ((g_device->memory_properties.memoryTypes[i].propertyFlags & flags) &&
+        (1 << i) & memory_type_bits) {
+      uint32_t a = g_device->memory_properties.memoryTypes[i].propertyFlags ^ flags;
+      uint32_t b = g_device->memory_properties.memoryTypes[best_type].propertyFlags ^ flags;
+      if (a < b) best_type = i;
+    }
+  }
+  VkMemoryAllocateInfo allocate_info = {
+    .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+    .allocationSize = size,
+    .memoryTypeIndex = best_type,
+  };
+  VkResult err = vkAllocateMemory(g_device->logical_device, &allocate_info, NULL, &memory->handle);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to allocate memory with error %d", err);
+    return err;
+  }
+  memory->offset = 0;
+  memory->size = size;
+  memory->type = best_type;
+  if (lida_VideoMemoryGetFlags(memory) & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+    err = vkMapMemory(g_device->logical_device, memory->handle, 0, VK_WHOLE_SIZE, 0, &memory->mapped);
+    if (err != VK_SUCCESS) {
+      LIDA_LOG_ERROR("failed to map memory with error %d", err);
+      return err;
+    }
+  } else {
+    memory->mapped = NULL;
+  }
+  return VK_SUCCESS;
+}
+
+void
+lida_VideoMemoryFree(lida_VideoMemory* memory)
+{
+  if (memory->mapped) {
+    vkUnmapMemory(g_device->logical_device, memory->handle);
+  }
+  vkFreeMemory(g_device->logical_device, memory->handle, NULL);
+  memory->handle = VK_NULL_HANDLE;
+}
+
+VkMemoryPropertyFlags
+lida_VideoMemoryGetFlags(const lida_VideoMemory* memory)
+{
+  return g_device->memory_properties.memoryTypes[memory->type].propertyFlags;
+}
+
 VkShaderModule
 lida_LoadShader(const char* path)
 {
