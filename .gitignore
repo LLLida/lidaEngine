@@ -2,5 +2,6 @@ GPATH
 GRTAGS
 GTAGS
 build/
+bin/
 SDL2
 vulkan
