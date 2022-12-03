@@ -3,7 +3,7 @@ project(lidaEngine2)
 
 find_package(SDL2 REQUIRED)
 
-add_executable(tst src/main.c src/device.c src/memory.c src/window.c src/base.c src/volk.c)
+add_executable(tst src/main.c src/device.c src/memory.c src/window.c src/base.c src/voxel.cc src/volk.c)
 target_link_libraries(tst SDL2::SDL2)
 
 set_target_properties(tst PROPERTIES
