@@ -11,6 +11,9 @@ target_link_libraries(tst lidaEngine)
 set(ENABLE_ASAN 0)
 
 add_subdirectory(shaders)
-
 add_shader(tst "triangle.vert")
 add_shader(tst "triangle.frag")
+
+include(CTest)
+add_subdirectory(test)
+enable_testing()
