@@ -53,7 +53,8 @@ void lida_InitPlatformSpecificLoggers();
 typedef uint32_t(*lida_HashFunction)(void* data);
 
 enum {
-  LIDA_HT_NO_DELETIONS = (1<<31),
+  LIDA_HT_BUMP_ALLOCATOR = (1<<29),
+  LIDA_HT_NO_DELETIONS = (1<<30),
 };
 
 typedef struct {
@@ -67,7 +68,15 @@ typedef struct {
   lida_Allocator* allocator;
 } lida_HashTable;
 
-#define LIDA_HASH_TABLE_EMPTY(type, hashEr, allocatOr, flaGs) (lida_HashTable) { .ptr = NULL, .allocated = 0, .size = 0, .flags = flaGs|sizeof(type), hasher = hashEr, .allocator = allocatOr }
+#define LIDA_HT_EMPTY(type, hashEr, allocatOr, flaGs) (lida_HashTable) { .ptr = NULL, .allocated = 0, .size = 0, .flags = flaGs|sizeof(type), hasher = hashEr, .allocator = allocatOr }
+#define LIDA_HT_DATA(ht, type) (type*)((ht)->ptr)
+#define LIDA_HT_CAPACITY(ht) ((ht)->allocated)
+#define LIDA_HT_SIZE(ht) ((ht)->size)
+
+int lida_HTReserve(lida_HashTable* ht, uint32_t capacity);
+void* lida_HTInsert(lida_HashTable* ht, void* element);
+void* lida_HTSearch(const lida_HashTable* ht, void* element);
+void lida_HTDelete(lida_HashTable* ht);
 
 
 /// Dynamic array(std::vector)
@@ -82,6 +91,10 @@ typedef struct {
 } lida_Array;
 
 #define LIDA_ARRAY_EMPTY(type, allocatOr, flaGs) (lida_Array) { .ptr = NULL, .allocated = 0, .size = 0, .flags = flaGs|sizeof(type), .allocator = allocatOr }
+#define LIDA_ARRAY_DATA(array, type) (type*)((array)->ptr)
+#define LIDA_ARRAY_CAPACITY(array) ((array)->allocated)
+#define LIDA_ARRAY_SIZE(array) ((array)->size)
+#define LIDA_ARRAY_GET(array, type, index) (type*)lida_ArrayGet((array), index)
 
 void* lida_ArrayGet(lida_Array* array, uint32_t index);
 int lida_ArrayReserve(lida_Array* array, uint32_t new_size);
@@ -90,11 +103,6 @@ void* lida_ArrayPushBack(lida_Array* array);
 int lida_ArrayPopBack(lida_Array* array);
 void* lida_ArrayInsert(lida_Array* array, uint32_t index);
 int lida_ArrayDelete(lida_Array* array, uint32_t index);
-
-#define LIDA_ARRAY_DATA(array, type) (type*)((array)->ptr)
-#define LIDA_ARRAY_CAPACITY(array) ((array)->allocated)
-#define LIDA_ARRAY_SIZE(array) ((array)->size)
-#define LIDA_ARRAY_GET(array, type, index) (type*)lida_ArrayGet((array), index)
 
 #ifdef __cplusplus
 }

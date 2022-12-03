@@ -13,7 +13,7 @@ typedef struct {
   VkFence fence;
   uint64_t submit_time;
 } Frame;
-#define FRAMES_IN_FLIGHT 2
+#define FRAMES_IN_FLIGHT 3
 
 typedef struct {
   SDL_Window* window;
