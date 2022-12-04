@@ -9,6 +9,12 @@
 extern "C" {
 #endif
 
+#ifdef __GNUC__
+#define LIDA_ATTRIBUTE_PRINTF(i) __attribute__((format (printf, i, i+1)))
+#else
+#define LIDA_ATTRIBUTE_PRINTF(i)
+#endif
+
 
 /// Logging
 
@@ -40,7 +46,7 @@ typedef struct {
 typedef void(*lida_LogFunction)(const lida_LogEvent* event);
 
 // log a message with level=[LIDA_LOG_LEVEL...LIDA_NUM_LOG_LEVELS]
-void lida_Log(int level, const char* file, int line, const char* fmt, ...);
+void lida_Log(int level, const char* file, int line, const char* fmt, ...) LIDA_ATTRIBUTE_PRINTF(4);
 
 #define LIDA_LOG(level, ...) lida_Log(level, __FILE__, __LINE__, __VA_ARGS__)
 #define LIDA_LOG_TRACE(...)  LIDA_LOG(LIDA_LOG_LEVEL_TRACE, __VA_ARGS__)

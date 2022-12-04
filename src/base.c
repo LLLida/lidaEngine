@@ -311,7 +311,7 @@ lida_HashString(const char* str)
   uint32_t hash_value = 0;
   uint32_t p_pow = 1;
   char c;
-  while (c = *str) {
+  while ((c = *str)) {
     hash_value = (hash_value + (c - 'a' + 1) * p_pow) % HASH_M;
     p_pow = (p_pow * HASH_P) % HASH_M;
     str++;
@@ -323,12 +323,10 @@ uint64_t
 lida_HashString64(const char* str)
 {
   // https://cp-algorithms.com/string/string-hashing.html
-  const int p = 31;
-  const int m = 1e9 + 9;
   uint32_t hash_value = 0;
   uint32_t p_pow = 1;
   char c;
-  while (c = *str) {
+  while ((c = *str)) {
     hash_value = (hash_value + (c - 'a' + 1) * p_pow) % HASH_M;
     p_pow = (p_pow * HASH_P) % HASH_M;
     str++;
