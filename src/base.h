@@ -2,6 +2,7 @@
 
 #include "memory.h"
 
+#include <stdlib.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -51,6 +52,7 @@ void lida_InitPlatformSpecificLoggers();
 /// Hash table
 
 typedef uint32_t(*lida_HashFunction)(void* data);
+typedef int(*lida_EqualFunction)(void* lhs, void* rhs);
 
 enum {
   LIDA_HT_BUMP_ALLOCATOR = (1<<29),
@@ -64,19 +66,25 @@ typedef struct {
   // 0-15 bits - element size
   // 31 bit - whether hash table supports deletions
   uint32_t flags;
+  // a pure function which returns a 32 bit unsigned integer based on input
   lida_HashFunction hasher;
+  // a pure function which compares two objects
+  lida_EqualFunction equal;
   lida_Allocator* allocator;
 } lida_HashTable;
 
-#define LIDA_HT_EMPTY(type, hashEr, allocatOr, flaGs) (lida_HashTable) { .ptr = NULL, .allocated = 0, .size = 0, .flags = flaGs|sizeof(type), hasher = hashEr, .allocator = allocatOr }
+#define LIDA_HT_EMPTY(type, hashEr, equAl, allocatOr, flaGs) (lida_HashTable) { .ptr = NULL, .allocated = 0, .size = 0, .flags = flaGs|sizeof(type), .hasher = hashEr, .equal = equAl, .allocator = allocatOr }
 #define LIDA_HT_DATA(ht, type) (type*)((ht)->ptr)
 #define LIDA_HT_CAPACITY(ht) ((ht)->allocated)
 #define LIDA_HT_SIZE(ht) ((ht)->size)
+#define LIDA_HT_INSERT(ht, key, type) (type*)lida_HT_Insert(ht, key)
+#define LIDA_HT_SEARCH(ht, key, type) (type*)lida_HT_Search(ht, key)
 
-int lida_HTReserve(lida_HashTable* ht, uint32_t capacity);
-void* lida_HTInsert(lida_HashTable* ht, void* element);
-void* lida_HTSearch(const lida_HashTable* ht, void* element);
-void lida_HTDelete(lida_HashTable* ht);
+int lida_HT_Reserve(lida_HashTable* ht, uint32_t capacity);
+void* lida_HT_Insert(lida_HashTable* ht, void* element);
+void* lida_HT_Search(const lida_HashTable* ht, void* element);
+void* lida_HT_SearchEx(const lida_HashTable* ht, void* element, uint32_t hash);
+void lida_HT_Delete(lida_HashTable* ht);
 
 
 /// Dynamic array(std::vector)

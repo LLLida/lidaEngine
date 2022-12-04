@@ -80,28 +80,33 @@ lida_GetLastLogEvent(int* length)
   return g_log_event.str;
 }
 
-static const char* const levels[] = { "TRACE",
-                         "DEBUG",
-                         "INFO",
-                         "WARN",
-                         "ERROR",
-                         "FATAL" };
-static const char* const colors[] = { "\x1b[94m",
-                         "\x1b[36m",
-                         "\x1b[32m",
-                         "\x1b[33m",
-                         "\x1b[31m",
-                         "\x1b[35m" };
+static const char* const levels[] = {
+  "TRACE",
+  "DEBUG",
+  "INFO",
+  "WARN",
+  "ERROR",
+  "FATAL"
+};
+static const char* const colors[] = {
+  "\x1b[94m",
+  "\x1b[36m",
+  "\x1b[32m",
+  "\x1b[33m",
+  "\x1b[31m",
+  "\x1b[35m"
+};
 static const char* const white_color = "\x1b[0m";
 static const char* const gray_color = "\x1b[90m";
 
 static void
 printf_logger(const lida_LogEvent* ev) {
+  size_t filename_offset = (size_t)ev->udata;
 #ifdef _WIN32
-  printf("[%s] %s:%d %s\n", levels[ev->level], ev->file, ev->line, ev->str);
+  printf("[%s] %s:%d %s\n", levels[ev->level], ev->file + filename_offset, ev->line, ev->str);
 #else
   printf("[%s%s%s] %s%s:%d%s %s\n", colors[ev->level], levels[ev->level], white_color,
-         gray_color, ev->file, ev->line,
+         gray_color, ev->file + filename_offset, ev->line,
          white_color, ev->str);
 #endif
 }
@@ -109,7 +114,14 @@ printf_logger(const lida_LogEvent* ev) {
 void
 lida_InitPlatformSpecificLoggers()
 {
-  lida_AddLogger(printf_logger, LIDA_LOG_LEVEL_TRACE, 0);
+  size_t filename_offset = 0;
+#ifndef LIDA_SOURCE_DIR
+#  define LIDA_SOURCE_DIR ""
+#endif
+  while (LIDA_SOURCE_DIR[filename_offset] == __FILE__[filename_offset]) {
+    filename_offset++;
+  }
+  lida_AddLogger(printf_logger, LIDA_LOG_LEVEL_TRACE, (void*)filename_offset);
 }
 
 
@@ -123,20 +135,30 @@ typedef struct {
 #define HT_NUM_BYTES(ht, number) (((ht->flags & 0xFFFF) + sizeof(uint32_t) + sizeof(char)) * number)
 #define HT_PTR_GET(ht, ptr, i) ((char*)ptr + HT_NUM_BYTES(ht, i))
 #define HT_PTR_GET_MAGIC(ht, ptr, i) (HT_PTR_GET(ht, ptr, i) + (ht->flags & 0xFFFF) + sizeof(uint32_t))
+#define HT_PTR_GET_HASH(ht, ptr, i) (uint32_t*)(HT_PTR_GET(ht, ptr, i) + (ht->flags & 0xFFFF))
 #define HT_GET(ht, i) HT_PTR_GET(ht, ht->ptr, i)
 #define HT_GET_MAGIC(ht, i) HT_PTR_GET_MAGIC(ht, ht->ptr, i)
+#define HT_GET_HASH(ht, i) HT_PTR_GET_HASH(ht, ht->ptr, i)
 #define HT_NODE_NULL 0
 #define HT_NODE_VALID 1
 #define HT_NODE_DELETED 2
 
 static void*
-HTInsert_no_check(lida_HashTable* ht, void* element)
+HT_Insert_no_check(lida_HashTable* ht, void* element, uint32_t hash)
 {
-
+  uint32_t id = hash % ht->allocated;
+  while (*HT_GET_MAGIC(ht, id) == HT_NODE_VALID)
+    id = hash++ % ht->allocated;
+  void* node = HT_GET(ht, id);
+  memcpy(node, element, ht->flags & 0xFFFF);
+  *HT_GET_HASH(ht, id) = hash;
+  *HT_GET_MAGIC(ht, id) = HT_NODE_VALID;
+  ht->size++;
+  return node;
 }
 
 int
-lida_HTReserve(lida_HashTable* ht, uint32_t capacity)
+lida_HT_Reserve(lida_HashTable* ht, uint32_t capacity)
 {
   if (capacity <= ht->allocated) return 0;
   void* tmp;
@@ -161,8 +183,8 @@ lida_HTReserve(lida_HashTable* ht, uint32_t capacity)
       uint32_t old_size = ht->size;
       ht->size = 0;
       for (uint32_t i = 0; i < old_capacity; i++) {
-        if (HT_PTR_GET_MAGIC(ht, tmp, i) == HT_NODE_VALID) {
-          HTInsert_no_check(ht, HT_PTR_GET(ht, tmp, i));
+        if (*HT_PTR_GET_MAGIC(ht, tmp, i) == HT_NODE_VALID) {
+          HT_Insert_no_check(ht, HT_PTR_GET(ht, tmp, i), *HT_PTR_GET_HASH(ht, tmp, i));
           if (ht->size == old_size)
             break;
         }
@@ -178,21 +200,48 @@ lida_HTReserve(lida_HashTable* ht, uint32_t capacity)
 }
 
 void*
-lida_HTInsert(lida_HashTable* ht, void* element)
+lida_HT_Insert(lida_HashTable* ht, void* element)
 {
-
+  if (ht->size >= ht->allocated) {
+    if (lida_HT_Reserve(ht, (ht->allocated == 0) ? 1 : (ht->allocated * 2)) != 0)
+      return NULL;
+  }
+  uint32_t hash = ht->hasher(element);
+  return HT_Insert_no_check(ht, element, hash);
 }
 
 void*
-lida_HTSearch(const lida_HashTable* ht, void* element)
+lida_HT_Search(const lida_HashTable* ht, void* element)
 {
+  uint32_t hash = ht->hasher(element);
+  return lida_HT_SearchEx(ht, element, hash);
+}
 
+void*
+lida_HT_SearchEx(const lida_HashTable* ht, void* element, uint32_t hash)
+{
+  for (uint32_t i = 0; i < ht->size;) {
+    uint32_t id = hash++ % ht->allocated;
+    if (*HT_GET_MAGIC(ht, id) == HT_NODE_VALID) {
+      LIDA_LOG_DEBUG("hash=%u", *HT_GET_HASH(ht, id));
+      if (*HT_GET_HASH(ht, id) == hash &&
+          ht->equal(HT_GET(ht, id), element) == 0)
+        return HT_GET(ht, id);
+      i++;
+    } else if (*HT_GET_MAGIC(ht, id) == HT_NODE_NULL) {
+      break;
+    }
+  }
+  return NULL;
 }
 
 void
-lida_HTDelete(lida_HashTable* ht)
+lida_HT_Delete(lida_HashTable* ht)
 {
-
+  if (ht->ptr) {
+    lida_Free(ht->allocator, ht->ptr);
+    memset(ht, 0, sizeof(lida_HashTable));
+  }
 }
 
 

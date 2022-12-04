@@ -5,6 +5,8 @@ add_library(lidaEngine STATIC
   device.c memory.c window.c base.c voxel.cc volk.c)
 target_link_libraries(lidaEngine PUBLIC SDL2::SDL2)
 target_include_directories(lidaEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(lidaEngine PRIVATE
+  LIDA_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 set_target_properties(lidaEngine PROPERTIES
   C_STANDARD 99
