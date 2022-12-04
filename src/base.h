@@ -23,16 +23,23 @@ enum {
 };
 
 typedef struct {
+  // log message
   const char* str;
+  // name of file where message was send from
   const char* file;
+  // line of file where message was send from
   int line;
+  // precomputed message length
   int strlen;
+  // log level
   int level;
+  // user-defined data
   void* udata;
 } lida_LogEvent;
 
 typedef void(*lida_LogFunction)(const lida_LogEvent* event);
 
+// log a message with level=[LIDA_LOG_LEVEL...LIDA_NUM_LOG_LEVELS]
 void lida_Log(int level, const char* file, int line, const char* fmt, ...);
 
 #define LIDA_LOG(level, ...) lida_Log(level, __FILE__, __LINE__, __VA_ARGS__)
@@ -43,6 +50,9 @@ void lida_Log(int level, const char* file, int line, const char* fmt, ...);
 #define LIDA_LOG_ERROR(...)  LIDA_LOG(LIDA_LOG_LEVEL_ERROR, __VA_ARGS__)
 #define LIDA_LOG_FATAL(...)  LIDA_LOG(LIDA_LOG_LEVEL_FATAL, __VA_ARGS__)
 
+// add a callback which will be called on every log message
+// level - minimal level which logger accepts, set it to 0 so logger will be called on every message
+// udata - user-defined data which will be passed to func
 int lida_AddLogger(lida_LogFunction func, int level, void* udata);
 int lida_RemoveLogger(lida_LogFunction func);
 const char* lida_GetLastLogMessage(int* length);
@@ -73,6 +83,12 @@ typedef struct {
   lida_Allocator* allocator;
 } lida_HashTable;
 
+typedef struct {
+  void* ptr;
+  uint32_t size;
+  uint32_t flags;
+} lida_HT_Iterator;
+
 #define LIDA_HT_EMPTY(type, hashEr, equAl, allocatOr, flaGs) (lida_HashTable) { .ptr = NULL, .allocated = 0, .size = 0, .flags = flaGs|sizeof(type), .hasher = hashEr, .equal = equAl, .allocator = allocatOr }
 #define LIDA_HT_DATA(ht, type) (type*)((ht)->ptr)
 #define LIDA_HT_CAPACITY(ht) ((ht)->allocated)
@@ -80,10 +96,18 @@ typedef struct {
 #define LIDA_HT_INSERT(ht, key, type) (type*)lida_HT_Insert(ht, key)
 #define LIDA_HT_SEARCH(ht, key, type) (type*)lida_HT_Search(ht, key)
 
+// preallocate some space for hash table
+// when used in right way this can significantly improve performance
 int lida_HT_Reserve(lida_HashTable* ht, uint32_t capacity);
+// insert an element to hash table
+// best case - O(1), worst case - O(N), average case - O(1)
 void* lida_HT_Insert(lida_HashTable* ht, void* element);
+// check if hash table has element
+// returns pointer to an element in hash table if found and NULL otherwise
 void* lida_HT_Search(const lida_HashTable* ht, void* element);
+// same as lida_HT_Search but search with precomputed hash
 void* lida_HT_SearchEx(const lida_HashTable* ht, void* element, uint32_t hash);
+// free memory used by hash table
 void lida_HT_Delete(lida_HashTable* ht);
 
 
@@ -111,6 +135,15 @@ void* lida_ArrayPushBack(lida_Array* array);
 int lida_ArrayPopBack(lida_Array* array);
 void* lida_ArrayInsert(lida_Array* array, uint32_t index);
 int lida_ArrayDelete(lida_Array* array, uint32_t index);
+
+
+/// Some useful algorithms
+
+// compute 32-bit hash for string
+uint32_t lida_HashString32(const char* str);
+// compute 64-bit hash for string
+uint64_t lida_HashString64(const char* str);
+#define lida_HashString(str) lida_HashString32(str)
 
 #ifdef __cplusplus
 }

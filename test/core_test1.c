@@ -3,22 +3,84 @@
  */
 #include "base.h"
 
+#include <string.h>
+#include <assert.h>
+
+static void test1();
+static void test2();
+static void test3();
+
 int
 main(int argc, char** argv)
 {
+  lida_InitPlatformSpecificLoggers();
   /*
     1. Test logging.
    */
-  lida_InitPlatformSpecificLoggers();
+  test1();
+  LIDA_LOG_TRACE("-------------Test 1 passed--------------");
+
+  /*
+    2. Test hash tables.
+   */
+  test2();
+  LIDA_LOG_TRACE("-------------Test 2 passed--------------");
+
+  /*
+    3. Test dynamic arrays.
+   */
+  test3();
+  LIDA_LOG_TRACE("-------------Test 3 passed--------------");
+  return 0;
+}
+
+void test1() {
   LIDA_LOG_TRACE("This is a TRACE message");
   LIDA_LOG_DEBUG("This is a DEBUG message");
   LIDA_LOG_INFO("This is a INFO message");
   LIDA_LOG_WARN("This is a WARN message");
   LIDA_LOG_ERROR("This is a ERROR message");
   LIDA_LOG_FATAL("This is a FATAL message");
+}
 
-  /*
-    2. Test hash tables.
-   */
-  return 0;
+typedef struct {
+  const char* name;
+  int age;
+} Person;
+
+uint32_t hash_person(void* data) {
+  Person* person = (Person*)data;
+  return lida_HashString(person->name);
+}
+
+int cmp_person(void* lhs, void* rhs) {
+  Person* left = lhs, *right = rhs;
+  return strcmp(left->name, right->name);
+}
+
+void test2() {
+  lida_HashTable ht = LIDA_HT_EMPTY(Person, hash_person, cmp_person, lida_MallocAllocator(), 0);
+
+  Person singers[] = {
+    { "Avril", 40 },
+    { "Rihanna", 32 },
+    { "Magnus", 32 },
+    { "Levy", 28 }
+  };
+  /* lida_HT_Reserve(&ht, 5); */
+  // insert all elements
+  for (uint32_t i = 0; i < sizeof(singers) / sizeof(Person); i++) {
+    lida_HT_Insert(&ht, &singers[i]);
+  }
+  // check if hash table finds them correctly
+  for (uint32_t i = 0; i < sizeof(singers) / sizeof(Person); i++) {
+    Person* singer = lida_HT_Search(&ht, &singers[i]);
+    assert(singer->name == singers[i].name && singer->age == singers[i].age);
+  }
+
+  lida_HT_Delete(&ht);
+}
+
+void test3() {
+
 }

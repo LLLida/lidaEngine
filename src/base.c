@@ -103,8 +103,10 @@ static void
 printf_logger(const lida_LogEvent* ev) {
   size_t filename_offset = (size_t)ev->udata;
 #ifdef _WIN32
+  // monochromatic
   printf("[%s] %s:%d %s\n", levels[ev->level], ev->file + filename_offset, ev->line, ev->str);
 #else
+  // colored
   printf("[%s%s%s] %s%s:%d%s %s\n", colors[ev->level], levels[ev->level], white_color,
          gray_color, ev->file + filename_offset, ev->line,
          white_color, ev->str);
@@ -114,6 +116,7 @@ printf_logger(const lida_LogEvent* ev) {
 void
 lida_InitPlatformSpecificLoggers()
 {
+  // here we make assumption that all calls to loggers are made from engine's source files
   size_t filename_offset = 0;
 #ifndef LIDA_SOURCE_DIR
 #  define LIDA_SOURCE_DIR ""
@@ -126,6 +129,12 @@ lida_InitPlatformSpecificLoggers()
 
 
 /// Hash table
+
+/* Hash table node layout:
+  [ ht->flags & 0xFFFF bytes for actual data]
+  hash - 8 bytes
+  magic - 1 byte
+ */
 
 typedef struct {
   uint32_t hash;
@@ -144,11 +153,11 @@ typedef struct {
 #define HT_NODE_DELETED 2
 
 static void*
-HT_Insert_no_check(lida_HashTable* ht, void* element, uint32_t hash)
+HT_Insert_no_check(lida_HashTable* ht, void* element, const uint32_t hash)
 {
   uint32_t id = hash % ht->allocated;
   while (*HT_GET_MAGIC(ht, id) == HT_NODE_VALID)
-    id = hash++ % ht->allocated;
+    id = (id+1) % ht->allocated;
   void* node = HT_GET(ht, id);
   memcpy(node, element, ht->flags & 0xFFFF);
   *HT_GET_HASH(ht, id) = hash;
@@ -220,10 +229,9 @@ lida_HT_Search(const lida_HashTable* ht, void* element)
 void*
 lida_HT_SearchEx(const lida_HashTable* ht, void* element, uint32_t hash)
 {
-  for (uint32_t i = 0; i < ht->size;) {
-    uint32_t id = hash++ % ht->allocated;
+  uint32_t id = hash % ht->allocated;
+  for (uint32_t i = 0; i < ht->size; id = (id+1) % ht->allocated) {
     if (*HT_GET_MAGIC(ht, id) == HT_NODE_VALID) {
-      LIDA_LOG_DEBUG("hash=%u", *HT_GET_HASH(ht, id));
       if (*HT_GET_HASH(ht, id) == hash &&
           ht->equal(HT_GET(ht, id), element) == 0)
         return HT_GET(ht, id);
@@ -288,4 +296,42 @@ int
 lida_ArrayDelete(lida_Array* array, uint32_t index)
 {
 
+}
+
+
+/// Some useful algorithms
+
+#define HASH_P 31
+#define HASH_M 1000009
+
+uint32_t
+lida_HashString(const char* str)
+{
+  // https://cp-algorithms.com/string/string-hashing.html
+  uint32_t hash_value = 0;
+  uint32_t p_pow = 1;
+  char c;
+  while (c = *str) {
+    hash_value = (hash_value + (c - 'a' + 1) * p_pow) % HASH_M;
+    p_pow = (p_pow * HASH_P) % HASH_M;
+    str++;
+  }
+  return hash_value;
+}
+
+uint64_t
+lida_HashString64(const char* str)
+{
+  // https://cp-algorithms.com/string/string-hashing.html
+  const int p = 31;
+  const int m = 1e9 + 9;
+  uint32_t hash_value = 0;
+  uint32_t p_pow = 1;
+  char c;
+  while (c = *str) {
+    hash_value = (hash_value + (c - 'a' + 1) * p_pow) % HASH_M;
+    p_pow = (p_pow * HASH_P) % HASH_M;
+    str++;
+  }
+  return hash_value;
 }
