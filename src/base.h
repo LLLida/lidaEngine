@@ -10,9 +10,12 @@ extern "C" {
 #endif
 
 #ifdef __GNUC__
+// https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#Common-Function-Attributes
 #define LIDA_ATTRIBUTE_PRINTF(i) __attribute__((format (printf, i, i+1)))
+#define LIDA_ATTRIBUTE_NONNULL(...) __attribute__((nonnull (__VA_ARGS__)))
 #else
 #define LIDA_ATTRIBUTE_PRINTF(i)
+#define LIDA_ATTRIBUTE_NONNULL(...)
 #endif
 
 
@@ -59,8 +62,8 @@ void lida_Log(int level, const char* file, int line, const char* fmt, ...) LIDA_
 // add a callback which will be called on every log message
 // level - minimal level which logger accepts, set it to 0 so logger will be called on every message
 // udata - user-defined data which will be passed to func
-int lida_AddLogger(lida_LogFunction func, int level, void* udata);
-int lida_RemoveLogger(lida_LogFunction func);
+int lida_AddLogger(lida_LogFunction func, int level, void* udata) LIDA_ATTRIBUTE_NONNULL(1);
+int lida_RemoveLogger(lida_LogFunction func) LIDA_ATTRIBUTE_NONNULL(1);
 const char* lida_GetLastLogMessage(int* length);
 void lida_InitPlatformSpecificLoggers();
 
@@ -104,20 +107,29 @@ typedef struct {
 
 // preallocate some space for hash table
 // when used in right way this can significantly improve performance
-int lida_HT_Reserve(lida_HashTable* ht, uint32_t capacity);
+int lida_HT_Reserve(lida_HashTable* ht, uint32_t capacity)
+  LIDA_ATTRIBUTE_NONNULL(1);
 // insert an element to hash table
 // best case - O(1), worst case - O(N), average case - O(1)
-void* lida_HT_Insert(lida_HashTable* ht, void* element);
+void* lida_HT_Insert(lida_HashTable* ht, void* element)
+  LIDA_ATTRIBUTE_NONNULL(1, 2);
 // check if hash table has element
 // returns pointer to an element in hash table if found and NULL otherwise
-void* lida_HT_Search(const lida_HashTable* ht, void* element);
+void* lida_HT_Search(const lida_HashTable* ht, void* element)
+  LIDA_ATTRIBUTE_NONNULL(1, 2);
 // same as lida_HT_Search but search with precomputed hash
-void* lida_HT_SearchEx(const lida_HashTable* ht, void* element, uint32_t hash);
+void* lida_HT_SearchEx(const lida_HashTable* ht, void* element, uint32_t hash)
+  LIDA_ATTRIBUTE_NONNULL(1, 2);
 // free memory used by hash table
-void lida_HT_Delete(lida_HashTable* ht);
+void lida_HT_Delete(lida_HashTable* ht)
+  LIDA_ATTRIBUTE_NONNULL(1);
 
 
 /// Dynamic array(std::vector)
+
+enum {
+  LIDA_DA_BUMP_ALLOCATOR = (1<<29),
+};
 
 typedef struct {
   void* ptr;
@@ -126,21 +138,28 @@ typedef struct {
   // 0-15 bits - element size
   uint32_t flags;
   lida_Allocator* allocator;
-} lida_Array;
+} lida_DynArray;
 
-#define LIDA_ARRAY_EMPTY(type, allocatOr, flaGs) (lida_Array) { .ptr = NULL, .allocated = 0, .size = 0, .flags = flaGs|sizeof(type), .allocator = allocatOr }
-#define LIDA_ARRAY_DATA(array, type) (type*)((array)->ptr)
-#define LIDA_ARRAY_CAPACITY(array) ((array)->allocated)
-#define LIDA_ARRAY_SIZE(array) ((array)->size)
-#define LIDA_ARRAY_GET(array, type, index) (type*)lida_ArrayGet((array), index)
+#define LIDA_DA_EMPTY(type, allocatOr, flaGs) (lida_Array) { .ptr = NULL, .allocated = 0, .size = 0, .flags = flaGs|sizeof(type), .allocator = allocatOr }
+#define LIDA_DA_DATA(array, type) (type*)((array)->ptr)
+#define LIDA_DA_CAPACITY(array) ((array)->allocated)
+#define LIDA_DA_SIZE(array) ((array)->size)
+#define LIDA_DA_GET(array, type, index) (type*)lida_ArrayGet((array), index)
 
-void* lida_ArrayGet(lida_Array* array, uint32_t index);
-int lida_ArrayReserve(lida_Array* array, uint32_t new_size);
-int lida_ArrayResize(lida_Array* array, uint32_t new_size);
-void* lida_ArrayPushBack(lida_Array* array);
-int lida_ArrayPopBack(lida_Array* array);
-void* lida_ArrayInsert(lida_Array* array, uint32_t index);
-int lida_ArrayDelete(lida_Array* array, uint32_t index);
+void* lida_DynArrayGet(lida_DynArray* array, uint32_t index)
+  LIDA_ATTRIBUTE_NONNULL(1);
+int lida_DynArrayReserve(lida_DynArray* array, uint32_t new_capacity)
+  LIDA_ATTRIBUTE_NONNULL(1);
+int lida_DynArrayResize(lida_DynArray* array, uint32_t new_size)
+  LIDA_ATTRIBUTE_NONNULL(1);
+void* lida_DynArrayPushBack(lida_DynArray* array)
+  LIDA_ATTRIBUTE_NONNULL(1);
+int lida_DynArrayPopBack(lida_DynArray* array)
+  LIDA_ATTRIBUTE_NONNULL(1);
+void* lida_DynArrayInsert(lida_DynArray* array, uint32_t index)
+  LIDA_ATTRIBUTE_NONNULL(1);
+void lida_DynArrayDelete(lida_DynArray* array)
+  LIDA_ATTRIBUTE_NONNULL(1);
 
 
 /// Some useful algorithms

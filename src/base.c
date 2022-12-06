@@ -256,46 +256,95 @@ lida_HT_Delete(lida_HashTable* ht)
 
 /// Dynamic array
 
-void*
-lida_ArrayGet(lida_Array* array, uint32_t index)
-{
-
-}
-
-int
-lida_ArrayReserve(lida_Array* array, uint32_t new_size)
-{
-
-}
-
-int
-lida_ArrayResize(lida_Array* array, uint32_t new_size)
-{
-
-}
+#define DA_NUM_BYTES(arr, num) ((arr->flags & 0xFFFF) * num)
+#define DA_GET(arr, i) ((char*)array->ptr + i * (array->flags & 0xFFFF))
 
 void*
-lida_ArrayPushBack(lida_Array* array)
+lida_DynArrayGet(lida_DynArray* array, uint32_t index)
 {
-
+  if (index >= LIDA_DA_SIZE(array)) {
+    return NULL;
+  }
+  return DA_GET(array, index);
 }
 
 int
-lida_ArrayPopBack(lida_Array* array)
+lida_DynArrayReserve(lida_DynArray* array, uint32_t capacity)
 {
+  if (capacity <= array->allocated) {
+    return 0;
+  }
+  void* tmp;
+  if (array->flags & LIDA_DA_BUMP_ALLOCATOR) {
+    // TODO:
+    assert(0);
+  } else {
+    tmp = array->ptr;
+    array->ptr = lida_Allocate(array->allocator, DA_NUM_BYTES(array, capacity));
+    if (array->ptr == NULL) {
+      array->ptr = tmp;
+      return -1;
+    }
+  }
+  memcpy(array->ptr, tmp, DA_NUM_BYTES(array, array->size));
+  array->allocated = capacity;
+  if (array->flags & LIDA_DA_BUMP_ALLOCATOR) {
+    assert(0);
+  } else {
+    lida_Free(array->allocator, tmp);
+  }
+  return 0;
+}
 
+int
+lida_DynArrayResize(lida_DynArray* array, uint32_t new_size)
+{
+  if (lida_DynArrayReserve(array, new_size) != 0)
+    return -1;
+  // FIXME: probably we should call destructors if new_size < array->size?
+  array->size = new_size;
+  return 0;
 }
 
 void*
-lida_ArrayInsert(lida_Array* array, uint32_t index)
+lida_DynArrayPushBack(lida_DynArray* array)
 {
-
+  if (array->size >= array->allocated) {
+    if (lida_DynArrayReserve(array, array->size * 2) != 0)
+      return NULL;
+  }
+  array->size++;
+  return DA_GET(array, array->size-1);
 }
 
 int
-lida_ArrayDelete(lida_Array* array, uint32_t index)
+lida_DynArrayPopBack(lida_DynArray* array)
 {
+  if (array->size == 0)
+    return -1;
+  array->size--;
+  return 0;
+}
 
+void*
+lida_DynArrayInsert(lida_DynArray* array, uint32_t index)
+{
+  if (array->size >= array->allocated) {
+    if (lida_DynArrayReserve(array, array->size * 2) != 0)
+      return NULL;
+  }
+  memmove(DA_GET(array, index+1), DA_GET(array, index), DA_NUM_BYTES(array, array->size));
+  array->size++;
+  return DA_GET(array, index);
+}
+
+void
+lida_DynArrayDelete(lida_DynArray* array)
+{
+  if (array->ptr) {
+    lida_Free(array->allocator, array->ptr);
+    memset(array, 0, sizeof(lida_DynArray));
+  }
 }
 
 
@@ -323,8 +372,8 @@ uint64_t
 lida_HashString64(const char* str)
 {
   // https://cp-algorithms.com/string/string-hashing.html
-  uint32_t hash_value = 0;
-  uint32_t p_pow = 1;
+  uint64_t hash_value = 0;
+  uint64_t p_pow = 1;
   char c;
   while ((c = *str)) {
     hash_value = (hash_value + (c - 'a' + 1) * p_pow) % HASH_M;

@@ -6,6 +6,13 @@
 extern "C" {
 #endif
 
+#ifdef __GNUC__
+// https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#Common-Function-Attributes
+#define LIDA_ATTRIBUTE_MALLOC(free) __attribute__((malloc, malloc (free, 1)))
+#else
+#define LIDA_ATTRIBUTE_MALLOC(free)
+#endif
+
 typedef struct lida_Allocator lida_Allocator;
 
 typedef void*(*lida_AllocFunc)(lida_Allocator* a, uint32_t bytes);
@@ -29,8 +36,6 @@ int lida_TempAllocatorCreate(uint32_t initial_size);
 
 void lida_TempAllocatorDestroy();
 
-void* lida_TempAllocate(uint32_t bytes);
-
 // Allocation frees always must come in order;
 // memory allocated first must be freed last, and memory allocated last must be freed first. Example:
 /*
@@ -43,9 +48,11 @@ lida_TempFree(a1);
  */
 uint32_t lida_TempFree(void* ptr);
 
+void* lida_TempAllocate(uint32_t bytes) LIDA_ATTRIBUTE_MALLOC(lida_TempFree);
+
 lida_Allocator* lida_MallocAllocator();
-void* lida_Malloc(uint32_t bytes);
 void lida_MallocFree(void* ptr);
+void* lida_Malloc(uint32_t bytes) LIDA_ATTRIBUTE_MALLOC(lida_MallocFree);
 void* lida_Realloc(void* ptr, uint32_t bytes);
 
 #ifdef __cplusplus
