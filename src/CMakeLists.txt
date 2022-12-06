@@ -9,7 +9,7 @@ target_compile_definitions(lidaEngine PRIVATE
   LIDA_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 set_target_properties(lidaEngine PROPERTIES
-  C_STANDARD 99
+  C_STANDARD 11
   C_STANDARD_REQUIRED ON
   C_EXTENSIONS OFF
   CXX_STANDARD 11
