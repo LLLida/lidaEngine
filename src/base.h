@@ -140,11 +140,13 @@ typedef struct {
   lida_Allocator* allocator;
 } lida_DynArray;
 
-#define LIDA_DA_EMPTY(type, allocatOr, flaGs) (lida_Array) { .ptr = NULL, .allocated = 0, .size = 0, .flags = flaGs|sizeof(type), .allocator = allocatOr }
+#define LIDA_DA_EMPTY(type, allocatOr, flaGs) (lida_DynArray) { .ptr = NULL, .allocated = 0, .size = 0, .flags = flaGs|sizeof(type), .allocator = allocatOr }
 #define LIDA_DA_DATA(array, type) (type*)((array)->ptr)
 #define LIDA_DA_CAPACITY(array) ((array)->allocated)
 #define LIDA_DA_SIZE(array) ((array)->size)
 #define LIDA_DA_GET(array, type, index) (type*)lida_ArrayGet((array), index)
+#define LIDA_DA_PUSH_BACK(array, type, ...) memcpy(lida_DynArrayPushBack(array), &(type) { __VA_ARGS__ }, (array)->flags & 0xFFFFF)
+#define LIDA_DA_INSERT(array, i, type, ...) memcpy(lida_DynArrayInsert(array, i), &(type) { __VA_ARGS__ }, (array)->flags & 0xFFFFF)
 
 void* lida_DynArrayGet(lida_DynArray* array, uint32_t index)
   LIDA_ATTRIBUTE_NONNULL(1);

@@ -82,5 +82,33 @@ void test2() {
 }
 
 void test3() {
+  lida_DynArray array = LIDA_DA_EMPTY(Person, lida_MallocAllocator(), 0);
 
+  Person chads[] = {
+    { "Euler", 2718281828 },
+    { "Taylor", 10 },
+    { "Gromov", 1917 },
+    { "Bratus", 83 },
+    { "Gaga", 30 }
+  };
+
+  assert(lida_DynArrayGet(&array, 0) == NULL);
+
+  LIDA_DA_PUSH_BACK(&array, Person, .name=chads[0].name, .age=chads[0].age);
+  Person* tmp = lida_DynArrayGet(&array, 0);
+  assert(tmp->name == chads[0].name && tmp->age == chads[0].age);
+
+  LIDA_DA_PUSH_BACK(&array, Person, .name=chads[1].name, .age=chads[1].age);
+
+  LIDA_DA_PUSH_BACK(&array, Person, .name=chads[2].name, .age=chads[2].age);
+
+  LIDA_DA_PUSH_BACK(&array, Person, .name=chads[3].name, .age=chads[3].age);
+
+  LIDA_DA_INSERT(&array, 1, Person, .name=chads[4].name, .age=chads[4].age);
+  tmp = lida_DynArrayGet(&array, 1);
+  assert(tmp->name == chads[4].name && tmp->age == chads[4].age);
+
+  assert(LIDA_DA_SIZE(&array) == 5);
+
+  lida_DynArrayDelete(&array);
 }

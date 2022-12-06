@@ -256,8 +256,8 @@ lida_HT_Delete(lida_HashTable* ht)
 
 /// Dynamic array
 
-#define DA_NUM_BYTES(arr, num) ((arr->flags & 0xFFFF) * num)
-#define DA_GET(arr, i) ((char*)array->ptr + i * (array->flags & 0xFFFF))
+#define DA_NUM_BYTES(arr, num) ((arr->flags & 0xFFFF) * (num))
+#define DA_GET(arr, i) ((char*)((arr)->ptr) + (i) * ((arr)->flags & 0xFFFF))
 
 void*
 lida_DynArrayGet(lida_DynArray* array, uint32_t index)
@@ -310,7 +310,7 @@ void*
 lida_DynArrayPushBack(lida_DynArray* array)
 {
   if (array->size >= array->allocated) {
-    if (lida_DynArrayReserve(array, array->size * 2) != 0)
+    if (lida_DynArrayReserve(array, (array->size == 0) ? 1 : array->size * 2) != 0)
       return NULL;
   }
   array->size++;
@@ -330,7 +330,7 @@ void*
 lida_DynArrayInsert(lida_DynArray* array, uint32_t index)
 {
   if (array->size >= array->allocated) {
-    if (lida_DynArrayReserve(array, array->size * 2) != 0)
+    if (lida_DynArrayReserve(array, (array->size == 0) ? 1 : array->size * 2) != 0)
       return NULL;
   }
   memmove(DA_GET(array, index+1), DA_GET(array, index), DA_NUM_BYTES(array, array->size));
