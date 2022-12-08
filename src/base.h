@@ -110,9 +110,8 @@ typedef struct {
 
 typedef struct {
 
-  void* ptr;
-  uint32_t size;
-  uint32_t flags;
+  const lida_HashTable* ht;
+  uint32_t id;
 
 } lida_HT_Iterator;
 
@@ -122,6 +121,7 @@ typedef struct {
 #define LIDA_HT_SIZE(ht) ((ht)->size)
 #define LIDA_HT_INSERT(ht, key, type) (type*)lida_HT_Insert(ht, key)
 #define LIDA_HT_SEARCH(ht, key, type) (type*)lida_HT_Search(ht, key)
+#define LIDA_HT_FOREACH(ht, it) for (lida_HT_Iterator_Begin(ht, it); !lida_HT_Iterator_Empty(it); lida_HT_Iterator_Next(it))
 
 // preallocate some space for hash table
 // when used in right way this can significantly improve performance
@@ -140,6 +140,15 @@ void* lida_HT_SearchEx(const lida_HashTable* ht, void* element, uint32_t hash)
   LIDA_ATTRIBUTE_NONNULL(1, 2);
 // free memory used by hash table
 void lida_HT_Delete(lida_HashTable* ht)
+  LIDA_ATTRIBUTE_NONNULL(1);
+
+void lida_HT_Iterator_Begin(const lida_HashTable* ht, lida_HT_Iterator* it)
+  LIDA_ATTRIBUTE_NONNULL(1, 2);
+int lida_HT_Iterator_Empty(lida_HT_Iterator* it)
+  LIDA_ATTRIBUTE_NONNULL(1);
+void lida_HT_Iterator_Next(lida_HT_Iterator* it)
+  LIDA_ATTRIBUTE_NONNULL(1);
+void* lida_HT_Iterator_Get(lida_HT_Iterator* it)
   LIDA_ATTRIBUTE_NONNULL(1);
 
 

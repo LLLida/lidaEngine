@@ -252,6 +252,39 @@ lida_HT_Delete(lida_HashTable* ht)
   }
 }
 
+void
+lida_HT_Iterator_Begin(const lida_HashTable* ht, lida_HT_Iterator* it)
+{
+  it->ht = ht;
+  it->id = 0;
+  while (*HT_GET_MAGIC(ht, it->id) != HT_NODE_VALID &&
+         it->id < ht->size) {
+    it->id++;
+  }
+}
+
+int
+lida_HT_Iterator_Empty(lida_HT_Iterator* it)
+{
+  return it->id >= it->ht->size;
+}
+
+void
+lida_HT_Iterator_Next(lida_HT_Iterator* it)
+{
+  it->id++;
+  while (*HT_GET_MAGIC(it->ht, it->id) != HT_NODE_VALID &&
+         it->id < it->ht->size) {
+    it->id++;
+  }
+}
+
+void*
+lida_HT_Iterator_Get(lida_HT_Iterator* it)
+{
+  return HT_GET(it->ht, it->id);
+}
+
 
 
 /// Dynamic array

@@ -79,6 +79,13 @@ void test2() {
     assert(singer->name == singers[i].name && singer->age == singers[i].age);
   }
 
+  lida_HT_Iterator it;
+
+  LIDA_HT_FOREACH(&ht, &it) {
+    Person* person = lida_HT_Iterator_Get(&it);
+    LIDA_LOG_TRACE("{%s, %d}", person->name, person->age);
+  }
+
   lida_HT_Delete(&ht);
 }
 
