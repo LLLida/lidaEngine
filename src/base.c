@@ -229,6 +229,8 @@ lida_HT_Search(const lida_HashTable* ht, void* element)
 void*
 lida_HT_SearchEx(const lida_HashTable* ht, void* element, uint32_t hash)
 {
+  if (ht->allocated == 0)
+    return NULL;
   uint32_t id = hash % ht->allocated;
   for (uint32_t i = 0; i < ht->size; id = (id+1) % ht->allocated) {
     if (*HT_GET_MAGIC(ht, id) == HT_NODE_VALID) {

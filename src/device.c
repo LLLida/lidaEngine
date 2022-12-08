@@ -31,6 +31,9 @@ typedef struct {
   const char** enabled_device_extensions;
   uint32_t num_enabled_device_extensions;
 
+  lida_ContainerDesc shader_cache_desc;
+  lida_HashTable shader_cache;
+
   VkPhysicalDeviceProperties properties;
   VkPhysicalDeviceFeatures features;
   VkPhysicalDeviceMemoryProperties memory_properties;
@@ -39,10 +42,17 @@ typedef struct {
 
 lida_Device* g_device = NULL;
 
+typedef struct {
+  const char* name;
+  VkShaderModule module;
+} ShaderInfo;
+
 static VkResult CreateInstance(const lida_DeviceDesc* desc);
 static VkResult PickPhysicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateLogicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateCommandPool();
+static uint32_t HashShaderInfo(void* data);
+static int CompareShaderInfos(void* lhs, void* rhs);
 
 
 VkResult
@@ -79,12 +89,24 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create command pool with error %d", err);
   }
+
+  g_device->shader_cache_desc =
+    LIDA_CONTAINER_DESC(ShaderInfo, lida_MallocAllocator(), HashShaderInfo, CompareShaderInfos, 0);
+  g_device->shader_cache = LIDA_HT_EMPTY(&g_device->shader_cache_desc);
+
   return err;
 }
 
 void
 lida_DeviceDestroy(int fast)
 {
+  lida_HT_Iterator it;
+  LIDA_HT_FOREACH(&g_device->shader_cache, &it) {
+    ShaderInfo* shader = lida_HT_Iterator_Get(&it);
+    vkDestroyShaderModule(g_device->logical_device, shader->module, NULL);
+  }
+  lida_HT_Delete(&g_device->shader_cache);
+
   vkDestroyCommandPool(g_device->logical_device, g_device->command_pool, NULL);
   vkDestroyDevice(g_device->logical_device, NULL);
   if (g_device->debug_report_callback)
@@ -258,6 +280,12 @@ lida_VideoMemoryGetFlags(const lida_VideoMemory* memory)
 VkShaderModule
 lida_LoadShader(const char* path)
 {
+  // check if we already have loaded this shader
+  ShaderInfo* info = lida_HT_Search(&g_device->shader_cache, &path);
+  if (info) {
+    return info->module;
+  }
+  // load the shader
   size_t buffer_size = 0;
   uint32_t* buffer = SDL_LoadFile(path, &buffer_size);
   if (!buffer) {
@@ -276,6 +304,9 @@ lida_LoadShader(const char* path)
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create shader module with error %d", err);
     return VK_NULL_HANDLE;
+  } else {
+    // Insert shader to cache if succeeded
+    lida_HT_Insert(&g_device->shader_cache, &(ShaderInfo) { .name = path, .module = ret });
   }
   return ret;
 }
@@ -524,4 +555,20 @@ VkResult CreateCommandPool()
   VkResult err = vkCreateCommandPool(g_device->logical_device, &command_pool_info, NULL,
                                      &g_device->command_pool);
   return err;
+}
+
+uint32_t
+HashShaderInfo(void* data)
+{
+  ShaderInfo* shader = data;
+  return lida_HashString32(shader->name);
+}
+
+int
+CompareShaderInfos(void* lhs, void* rhs)
+{
+  ShaderInfo* left = lhs, *right = rhs;
+  if (left->module == right->module)
+    return 0;
+  return strcmp(left->name, right->name);
 }

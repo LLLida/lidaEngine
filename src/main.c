@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
   vkDeviceWaitIdle(lida_GetLogicalDevice());
 
   lida_VideoMemoryFree(&memory);
-  
+
   vkDestroyPipeline(lida_GetLogicalDevice(), pipeline, NULL);
 
   lida_WindowDestroy();
@@ -171,7 +171,5 @@ VkPipeline createTrianglePipeline() {
   VkPipeline ret;
   vkCreateGraphicsPipelines(lida_GetLogicalDevice(), VK_NULL_HANDLE, 1, &pipeline_info, NULL, &ret);
   vkDestroyPipelineLayout(lida_GetLogicalDevice(), pipeline_layout, NULL);
-  vkDestroyShaderModule(lida_GetLogicalDevice(), stages[0].module, NULL);
-  vkDestroyShaderModule(lida_GetLogicalDevice(), stages[1].module, NULL);
   return ret;
 }
