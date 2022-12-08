@@ -257,8 +257,8 @@ lida_HT_Iterator_Begin(const lida_HashTable* ht, lida_HT_Iterator* it)
 {
   it->ht = ht;
   it->id = 0;
-  while (*HT_GET_MAGIC(ht, it->id) != HT_NODE_VALID &&
-         it->id < ht->size) {
+  while (it->id < ht->size &&
+         *HT_GET_MAGIC(ht, it->id) != HT_NODE_VALID) {
     it->id++;
   }
 }
@@ -273,8 +273,8 @@ void
 lida_HT_Iterator_Next(lida_HT_Iterator* it)
 {
   it->id++;
-  while (*HT_GET_MAGIC(it->ht, it->id) != HT_NODE_VALID &&
-         it->id < it->ht->size) {
+  while (it->id < it->ht->size &&
+         *HT_GET_MAGIC(it->ht, it->id) != HT_NODE_VALID) {
     it->id++;
   }
 }
