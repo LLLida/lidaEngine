@@ -141,10 +141,10 @@ typedef struct {
   char magic;
 } NodeData;
 
-#define HT_NUM_BYTES(ht, number) (((ht->flags & 0xFFFF) + sizeof(uint32_t) + sizeof(char)) * number)
+#define HT_NUM_BYTES(ht, number) (((ht)->desc->elem_size + sizeof(uint32_t) + sizeof(char)) * number)
 #define HT_PTR_GET(ht, ptr, i) ((char*)ptr + HT_NUM_BYTES(ht, i))
-#define HT_PTR_GET_MAGIC(ht, ptr, i) (HT_PTR_GET(ht, ptr, i) + (ht->flags & 0xFFFF) + sizeof(uint32_t))
-#define HT_PTR_GET_HASH(ht, ptr, i) (uint32_t*)(HT_PTR_GET(ht, ptr, i) + (ht->flags & 0xFFFF))
+#define HT_PTR_GET_MAGIC(ht, ptr, i) (HT_PTR_GET(ht, ptr, i) + (ht)->desc->elem_size + sizeof(uint32_t))
+#define HT_PTR_GET_HASH(ht, ptr, i) (uint32_t*)(HT_PTR_GET(ht, ptr, i) + (ht)->desc->elem_size)
 #define HT_GET(ht, i) HT_PTR_GET(ht, ht->ptr, i)
 #define HT_GET_MAGIC(ht, i) HT_PTR_GET_MAGIC(ht, ht->ptr, i)
 #define HT_GET_HASH(ht, i) HT_PTR_GET_HASH(ht, ht->ptr, i)
@@ -159,7 +159,7 @@ HT_Insert_no_check(lida_HashTable* ht, void* element, const uint32_t hash)
   while (*HT_GET_MAGIC(ht, id) == HT_NODE_VALID)
     id = (id+1) % ht->allocated;
   void* node = HT_GET(ht, id);
-  memcpy(node, element, ht->flags & 0xFFFF);
+  memcpy(node, element, ht->desc->elem_size);
   *HT_GET_HASH(ht, id) = hash;
   *HT_GET_MAGIC(ht, id) = HT_NODE_VALID;
   ht->size++;
@@ -171,12 +171,12 @@ lida_HT_Reserve(lida_HashTable* ht, uint32_t capacity)
 {
   if (capacity <= ht->allocated) return 0;
   void* tmp;
-  if (ht->flags & LIDA_HT_BUMP_ALLOCATOR) {
+  if (ht->desc->flags & LIDA_HT_BUMP_ALLOCATOR) {
     // TODO:
     assert(0);
   } else {
     tmp = ht->ptr;
-    ht->ptr = lida_Allocate(ht->allocator, HT_NUM_BYTES(ht, capacity));
+    ht->ptr = lida_Allocate(ht->desc->allocator, HT_NUM_BYTES(ht, capacity));
     if (ht->ptr == NULL) {
       ht->ptr = tmp;
       return -1;
@@ -199,10 +199,10 @@ lida_HT_Reserve(lida_HashTable* ht, uint32_t capacity)
         }
       }
     }
-    if (ht->flags & LIDA_HT_BUMP_ALLOCATOR) {
+    if (ht->desc->flags & LIDA_HT_BUMP_ALLOCATOR) {
       assert(0);
     } else {
-      lida_Free(ht->allocator, tmp);
+      lida_Free(ht->desc->allocator, tmp);
     }
   }
   return 0;
@@ -215,14 +215,14 @@ lida_HT_Insert(lida_HashTable* ht, void* element)
     if (lida_HT_Reserve(ht, (ht->allocated == 0) ? 1 : (ht->allocated * 2)) != 0)
       return NULL;
   }
-  uint32_t hash = ht->hasher(element);
+  uint32_t hash = ht->desc->hasher(element);
   return HT_Insert_no_check(ht, element, hash);
 }
 
 void*
 lida_HT_Search(const lida_HashTable* ht, void* element)
 {
-  uint32_t hash = ht->hasher(element);
+  uint32_t hash = ht->desc->hasher(element);
   return lida_HT_SearchEx(ht, element, hash);
 }
 
@@ -233,7 +233,7 @@ lida_HT_SearchEx(const lida_HashTable* ht, void* element, uint32_t hash)
   for (uint32_t i = 0; i < ht->size; id = (id+1) % ht->allocated) {
     if (*HT_GET_MAGIC(ht, id) == HT_NODE_VALID) {
       if (*HT_GET_HASH(ht, id) == hash &&
-          ht->equal(HT_GET(ht, id), element) == 0)
+          ht->desc->equal(HT_GET(ht, id), element) == 0)
         return HT_GET(ht, id);
       i++;
     } else if (*HT_GET_MAGIC(ht, id) == HT_NODE_NULL) {
@@ -247,7 +247,7 @@ void
 lida_HT_Delete(lida_HashTable* ht)
 {
   if (ht->ptr) {
-    lida_Free(ht->allocator, ht->ptr);
+    lida_Free(ht->desc->allocator, ht->ptr);
     memset(ht, 0, sizeof(lida_HashTable));
   }
 }
@@ -256,8 +256,8 @@ lida_HT_Delete(lida_HashTable* ht)
 
 /// Dynamic array
 
-#define DA_NUM_BYTES(arr, num) ((arr->flags & 0xFFFF) * (num))
-#define DA_GET(arr, i) ((char*)((arr)->ptr) + (i) * ((arr)->flags & 0xFFFF))
+#define DA_NUM_BYTES(arr, num) ((arr)->desc->elem_size * (num))
+#define DA_GET(arr, i) ((char*)((arr)->ptr) + (i) * (arr)->desc->elem_size)
 
 void*
 lida_DynArrayGet(lida_DynArray* array, uint32_t index)
@@ -275,12 +275,12 @@ lida_DynArrayReserve(lida_DynArray* array, uint32_t capacity)
     return 0;
   }
   void* tmp;
-  if (array->flags & LIDA_DA_BUMP_ALLOCATOR) {
+  if (array->desc->flags & LIDA_DA_BUMP_ALLOCATOR) {
     // TODO:
     assert(0);
   } else {
     tmp = array->ptr;
-    array->ptr = lida_Allocate(array->allocator, DA_NUM_BYTES(array, capacity));
+    array->ptr = lida_Allocate(array->desc->allocator, DA_NUM_BYTES(array, capacity));
     if (array->ptr == NULL) {
       array->ptr = tmp;
       return -1;
@@ -288,10 +288,10 @@ lida_DynArrayReserve(lida_DynArray* array, uint32_t capacity)
   }
   memcpy(array->ptr, tmp, DA_NUM_BYTES(array, array->size));
   array->allocated = capacity;
-  if (array->flags & LIDA_DA_BUMP_ALLOCATOR) {
+  if (array->desc->flags & LIDA_DA_BUMP_ALLOCATOR) {
     assert(0);
   } else {
-    lida_Free(array->allocator, tmp);
+    lida_Free(array->desc->allocator, tmp);
   }
   return 0;
 }
@@ -342,7 +342,7 @@ void
 lida_DynArrayDelete(lida_DynArray* array)
 {
   if (array->ptr) {
-    lida_Free(array->allocator, array->ptr);
+    lida_Free(array->desc->allocator, array->ptr);
     memset(array, 0, sizeof(lida_DynArray));
   }
 }

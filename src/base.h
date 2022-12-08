@@ -68,10 +68,31 @@ const char* lida_GetLastLogMessage(int* length);
 void lida_InitPlatformSpecificLoggers();
 
 
-/// Hash table
+/// Generic container base
 
 typedef uint32_t(*lida_HashFunction)(void* data);
 typedef int(*lida_EqualFunction)(void* lhs, void* rhs);
+
+enum {
+  LIDA_CONTAINER_WITH_BUMP_ALLOCATOR = (1<<29),
+};
+
+typedef struct {
+
+  lida_Allocator* allocator;
+  // a pure function which returns a 32 bit unsigned integer based on input
+  lida_HashFunction hasher;
+  // a pure function which compares two objects
+  lida_EqualFunction equal;
+  uint16_t elem_size;
+  uint16_t flags;
+
+} lida_ContainerDesc;
+
+#define LIDA_CONTAINER_DESC(type, allocator_, hasher_, equal_, flags_) (lida_ContainerDesc) { .allocator = allocator_, .hasher = hasher_, .equal = equal_, .elem_size = sizeof(type), .flags = flags_ }
+
+
+/// Hash table
 
 enum {
   LIDA_HT_BUMP_ALLOCATOR = (1<<29),
@@ -79,26 +100,23 @@ enum {
 };
 
 typedef struct {
+
   void* ptr;
   uint32_t allocated;
   uint32_t size;
-  // 0-15 bits - element size
-  // 31 bit - whether hash table supports deletions
-  uint32_t flags;
-  // a pure function which returns a 32 bit unsigned integer based on input
-  lida_HashFunction hasher;
-  // a pure function which compares two objects
-  lida_EqualFunction equal;
-  lida_Allocator* allocator;
+  lida_ContainerDesc* desc;
+
 } lida_HashTable;
 
 typedef struct {
+
   void* ptr;
   uint32_t size;
   uint32_t flags;
+
 } lida_HT_Iterator;
 
-#define LIDA_HT_EMPTY(type, hashEr, equAl, allocatOr, flaGs) (lida_HashTable) { .ptr = NULL, .allocated = 0, .size = 0, .flags = flaGs|sizeof(type), .hasher = hashEr, .equal = equAl, .allocator = allocatOr }
+#define LIDA_HT_EMPTY(desc_) (lida_HashTable) { .ptr = NULL, .allocated = 0, .size = 0, .desc = desc_ }
 #define LIDA_HT_DATA(ht, type) (type*)((ht)->ptr)
 #define LIDA_HT_CAPACITY(ht) ((ht)->allocated)
 #define LIDA_HT_SIZE(ht) ((ht)->size)
@@ -128,25 +146,25 @@ void lida_HT_Delete(lida_HashTable* ht)
 /// Dynamic array(std::vector)
 
 enum {
-  LIDA_DA_BUMP_ALLOCATOR = (1<<29),
+  LIDA_DA_BUMP_ALLOCATOR = (1<<0),
 };
 
 typedef struct {
+
   void* ptr;
   uint32_t allocated;
   uint32_t size;
-  // 0-15 bits - element size
-  uint32_t flags;
-  lida_Allocator* allocator;
+  lida_ContainerDesc* desc;
+
 } lida_DynArray;
 
-#define LIDA_DA_EMPTY(type, allocatOr, flaGs) (lida_DynArray) { .ptr = NULL, .allocated = 0, .size = 0, .flags = flaGs|sizeof(type), .allocator = allocatOr }
+#define LIDA_DA_EMPTY(desc_) (lida_DynArray) { .ptr = NULL, .allocated = 0, .size = 0, .desc = desc_ }
 #define LIDA_DA_DATA(array, type) (type*)((array)->ptr)
 #define LIDA_DA_CAPACITY(array) ((array)->allocated)
 #define LIDA_DA_SIZE(array) ((array)->size)
 #define LIDA_DA_GET(array, type, index) (type*)lida_ArrayGet((array), index)
-#define LIDA_DA_PUSH_BACK(array, type, ...) memcpy(lida_DynArrayPushBack(array), &(type) { __VA_ARGS__ }, (array)->flags & 0xFFFFF)
-#define LIDA_DA_INSERT(array, i, type, ...) memcpy(lida_DynArrayInsert(array, i), &(type) { __VA_ARGS__ }, (array)->flags & 0xFFFFF)
+#define LIDA_DA_PUSH_BACK(array, type, ...) memcpy(lida_DynArrayPushBack(array), &(type) { __VA_ARGS__ }, (array)->desc->elem_size)
+#define LIDA_DA_INSERT(array, i, type, ...) memcpy(lida_DynArrayInsert(array, i), &(type) { __VA_ARGS__ }, (array)->desc->elem_size)
 
 void* lida_DynArrayGet(lida_DynArray* array, uint32_t index)
   LIDA_ATTRIBUTE_NONNULL(1);

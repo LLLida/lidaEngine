@@ -59,7 +59,8 @@ int cmp_person(void* lhs, void* rhs) {
 }
 
 void test2() {
-  lida_HashTable ht = LIDA_HT_EMPTY(Person, hash_person, cmp_person, lida_MallocAllocator(), 0);
+  lida_ContainerDesc desc = LIDA_CONTAINER_DESC(Person, lida_MallocAllocator(), hash_person, cmp_person, 0);
+  lida_HashTable ht = LIDA_HT_EMPTY(&desc);
 
   Person singers[] = {
     { "Avril", 40 },
@@ -82,7 +83,8 @@ void test2() {
 }
 
 void test3() {
-  lida_DynArray array = LIDA_DA_EMPTY(Person, lida_MallocAllocator(), 0);
+  lida_ContainerDesc desc = LIDA_CONTAINER_DESC(Person, lida_MallocAllocator(), NULL, NULL, 0);
+  lida_DynArray array = LIDA_DA_EMPTY(&desc);
 
   Person chads[] = {
     { "Euler", 2718281828 },
