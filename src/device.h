@@ -21,6 +21,8 @@ typedef struct {
   void* mapped;
 } lida_VideoMemory;
 
+typedef struct lida_ShaderReflect lida_ShaderReflect;
+
 VkResult lida_DeviceCreate(const lida_DeviceDesc* desc);
 #define LIDA_DEVICE_CREATE(...) lida_DeviceCreate(&(lida_DeviceDesc) { __VA_ARGS__ })
 
@@ -55,7 +57,7 @@ VkResult lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
 void lida_VideoMemoryFree(lida_VideoMemory* memory);
 VkMemoryPropertyFlags lida_VideoMemoryGetFlags(const lida_VideoMemory* memory);
 
-VkShaderModule lida_LoadShader(const char* path);
+VkShaderModule lida_LoadShader(const char* path, lida_ShaderReflect* reflect);
 
 #ifdef __cplusplus
 }

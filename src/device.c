@@ -1,6 +1,7 @@
 #include "device.h"
 #include "base.h"
 #include "memory.h"
+#include "spirv.h"
 
 #include <SDL_rwops.h>
 #include <string.h>
@@ -43,8 +44,23 @@ typedef struct {
 lida_Device* g_device = NULL;
 
 typedef struct {
+  VkDescriptorSetLayoutBinding bindings[16];
+  uint32_t binding_count;
+} BindingSetDesc;
+
+struct lida_ShaderReflect {
+  VkShaderStageFlags stages;
+  uint32_t localX, localY, localZ;
+  BindingSetDesc sets[8];
+  uint32_t set_count;
+  VkPushConstantRange ranges[4];
+  uint32_t range_count;
+};
+
+typedef struct {
   const char* name;
   VkShaderModule module;
+  lida_ShaderReflect reflect;
 } ShaderInfo;
 
 static VkResult CreateInstance(const lida_DeviceDesc* desc);
@@ -53,6 +69,7 @@ static VkResult CreateLogicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateCommandPool();
 static uint32_t HashShaderInfo(void* data);
 static int CompareShaderInfos(void* lhs, void* rhs);
+static int ReflectSPIRV(uint32_t* code, uint32_t size);
 
 
 VkResult
@@ -278,7 +295,7 @@ lida_VideoMemoryGetFlags(const lida_VideoMemory* memory)
 }
 
 VkShaderModule
-lida_LoadShader(const char* path)
+lida_LoadShader(const char* path, lida_ShaderReflect* reflect)
 {
   // check if we already have loaded this shader
   ShaderInfo* info = lida_HT_Search(&g_device->shader_cache, &path);
@@ -571,4 +588,47 @@ CompareShaderInfos(void* lhs, void* rhs)
   if (left->module == right->module)
     return 0;
   return strcmp(left->name, right->name);
+}
+
+typedef struct {
+  uint32_t opcode;
+  union {
+    struct {
+      uint32_t typeId;
+      uint32_t storageClass;
+      uint32_t binding;
+      uint32_t set;
+      uint32_t inputAttachmentIndex;
+    } binding;
+    struct {
+      uint32_t integerWidth;
+      int integerSigned;
+    } val_int;
+    struct {
+      uint32_t floatWidth;
+    } val_float;
+    struct {
+      uint32_t componentTypeId;
+      uint32_t sizeConstantId;
+    } val_vec;
+    struct {
+      const uint32_t* memberTypes;
+      uint32_t numMemberTypes;
+      SpvDecoration structType;
+    } val_struct;
+    struct {
+      uint32_t constantType;
+      uint32_t constantValue;
+    } val_const;
+  } data;
+} SPIRV_ID;
+
+int
+ReflectSPIRV(uint32_t* code, uint32_t size)
+{
+  SPIRV_ID* ids = lida_TempAllocate(sizeof(SPIRV_ID) * 512);
+  // based on https://github.com/zeux/niagara/blob/98f5d5ae2b48e15e145e3ad13ae7f4f9f1e0e297/src/shaders.cpp#L45
+  // https://www.khronos.org/registry/SPIR-V/specs/unified1/SPIRV.html#_physical_layout_of_a_spir_v_module_and_instruction
+  // this tool also helped me a lot: https://www.khronos.org/spir/visualizer/
+  lida_TempFree(ids);
 }

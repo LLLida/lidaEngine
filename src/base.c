@@ -116,7 +116,7 @@ printf_logger(const lida_LogEvent* ev) {
 void
 lida_InitPlatformSpecificLoggers()
 {
-  // here we make assumption that all calls to loggers are made from engine's source files
+  // here we make assumption that all calls to loggers are called from engine's source files
   size_t filename_offset = 0;
 #ifndef LIDA_SOURCE_DIR
 #  define LIDA_SOURCE_DIR ""

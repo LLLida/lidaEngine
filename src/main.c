@@ -100,13 +100,13 @@ VkPipeline createTrianglePipeline() {
   stages[0] = (VkPipelineShaderStageCreateInfo) {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
     .stage = VK_SHADER_STAGE_VERTEX_BIT,
-    .module = lida_LoadShader("shaders/triangle.vert.spv"),
+    .module = lida_LoadShader("shaders/triangle.vert.spv", NULL),
     .pName = "main",
   };
   stages[1] = (VkPipelineShaderStageCreateInfo) {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
     .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-    .module = lida_LoadShader("shaders/triangle.frag.spv"),
+    .module = lida_LoadShader("shaders/triangle.frag.spv", NULL),
     .pName = "main",
   };
   VkPipelineVertexInputStateCreateInfo vertex_input_state = {
