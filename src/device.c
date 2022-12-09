@@ -16,6 +16,10 @@ typedef struct {
   /* uint32_t present_queue_family; */
   VkDebugReportCallbackEXT debug_report_callback;
   VkCommandPool command_pool;
+  // for static resources
+  VkDescriptorPool static_ds_pool;
+  // for dynamic resources
+  VkDescriptorPool dynamic_ds_pool;
 
   VkExtensionProperties* available_instance_extensions;
   uint32_t num_available_instance_extensions;
@@ -67,6 +71,7 @@ static VkResult CreateInstance(const lida_DeviceDesc* desc);
 static VkResult PickPhysicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateLogicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateCommandPool();
+static VkResult CreateDescriptorPools();
 static uint32_t HashShaderInfo(void* data);
 static int CompareShaderInfos(void* lhs, void* rhs);
 static int ReflectSPIRV(uint32_t* code, uint32_t size);
@@ -107,6 +112,8 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
     LIDA_LOG_ERROR("failed to create command pool with error %d", err);
   }
 
+  err = CreateDescriptorPools();
+
   g_device->shader_cache_desc =
     LIDA_CONTAINER_DESC(ShaderInfo, lida_MallocAllocator(), HashShaderInfo, CompareShaderInfos, 0);
   g_device->shader_cache = LIDA_HT_EMPTY(&g_device->shader_cache_desc);
@@ -123,6 +130,9 @@ lida_DeviceDestroy(int fast)
     vkDestroyShaderModule(g_device->logical_device, shader->module, NULL);
   }
   lida_HT_Delete(&g_device->shader_cache);
+
+  vkDestroyDescriptorPool(g_device->logical_device, g_device->dynamic_ds_pool, NULL);
+  vkDestroyDescriptorPool(g_device->logical_device, g_device->static_ds_pool, NULL);
 
   vkDestroyCommandPool(g_device->logical_device, g_device->command_pool, NULL);
   vkDestroyDevice(g_device->logical_device, NULL);
@@ -574,6 +584,45 @@ VkResult CreateCommandPool()
   return err;
 }
 
+VkResult
+CreateDescriptorPools()
+{
+  // tweak values here to reduce memory usage of application/add more space for descriptors
+  VkDescriptorPoolSize sizes[] = {
+    // { VK_DESCRIPTOR_TYPE_SAMPLER, 0 },
+    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64 },
+    // { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 0 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 64 },
+    // { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 0 },
+    // { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 0 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 32 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 32 },
+    // { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0 },
+    // { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 0 },
+    // { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 16 },
+  };
+  VkDescriptorPoolCreateInfo pool_info = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+    .maxSets = 128,
+    .poolSizeCount = LIDA_ARR_SIZE(sizes),
+    .pPoolSizes = sizes,
+  };
+  VkResult err = vkCreateDescriptorPool(g_device->logical_device, &pool_info, NULL,
+                                        &g_device->static_ds_pool);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create pool for static resources with error %d", err);
+    return err;
+  }
+  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  err = vkCreateDescriptorPool(g_device->logical_device, &pool_info, NULL,
+                               &g_device->dynamic_ds_pool);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create pool for dynamic resources with error %d", err);
+    return err;
+  }
+  return err;
+}
+
 uint32_t
 HashShaderInfo(void* data)
 {
@@ -626,7 +675,7 @@ typedef struct {
 int
 ReflectSPIRV(uint32_t* code, uint32_t size)
 {
-  SPIRV_ID* ids = lida_TempAllocate(sizeof(SPIRV_ID) * 512);
+  SPIRV_ID* ids = lida_TempAllocate(sizeof(SPIRV_ID) * 1024);
   // based on https://github.com/zeux/niagara/blob/98f5d5ae2b48e15e145e3ad13ae7f4f9f1e0e297/src/shaders.cpp#L45
   // https://www.khronos.org/registry/SPIR-V/specs/unified1/SPIRV.html#_physical_layout_of_a_spir_v_module_and_instruction
   // this tool also helped me a lot: https://www.khronos.org/spir/visualizer/

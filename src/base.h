@@ -72,6 +72,8 @@ void lida_InitPlatformSpecificLoggers();
 
 typedef uint32_t(*lida_HashFunction)(void* data);
 typedef int(*lida_EqualFunction)(void* lhs, void* rhs);
+typedef void(*lida_ConstructorFunction)(void* obj);
+typedef void(*lida_DestructorFunction)(void* obj);
 
 enum {
   LIDA_CONTAINER_WITH_BUMP_ALLOCATOR = (1<<29),
@@ -192,6 +194,8 @@ void lida_DynArrayDelete(lida_DynArray* array)
 
 
 /// Some useful algorithms
+
+#define LIDA_ARR_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
 
 // compute 32-bit hash for string
 uint32_t lida_HashString32(const char* str);
