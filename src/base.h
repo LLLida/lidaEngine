@@ -202,6 +202,9 @@ uint32_t lida_HashString32(const char* str);
 // compute 64-bit hash for string
 uint64_t lida_HashString64(const char* str);
 #define lida_HashString(str) lida_HashString32(str)
+uint32_t lida_HashCombine32(const uint32_t* hashes, uint32_t num_hashes);
+uint64_t lida_HashCombine64(const uint64_t* hashes, uint32_t num_hashes);
+#define lida_HashCombine(hashes, num_hashes) lida_HashCombine32(hashes, num_hashes)
 
 #ifdef __cplusplus
 }

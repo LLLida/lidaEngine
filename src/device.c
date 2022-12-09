@@ -39,6 +39,9 @@ typedef struct {
   lida_ContainerDesc shader_cache_desc;
   lida_HashTable shader_cache;
 
+  lida_ContainerDesc ds_layout_cache_desc;
+  lida_HashTable ds_layout_cache;
+
   VkPhysicalDeviceProperties properties;
   VkPhysicalDeviceFeatures features;
   VkPhysicalDeviceMemoryProperties memory_properties;
@@ -67,13 +70,22 @@ typedef struct {
   lida_ShaderReflect reflect;
 } ShaderInfo;
 
+typedef struct {
+  VkDescriptorSetLayoutBinding bindings[16];
+  uint32_t num_bindings;
+  VkDescriptorSetLayout layout;
+} DS_LayoutInfo;
+
 static VkResult CreateInstance(const lida_DeviceDesc* desc);
 static VkResult PickPhysicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateLogicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateCommandPool();
 static VkResult CreateDescriptorPools();
+static VkDescriptorSetLayout Get_DS_Layout();
 static uint32_t HashShaderInfo(void* data);
 static int CompareShaderInfos(void* lhs, void* rhs);
+static uint32_t Hash_DS_LayoutInfo(void* data);
+static int Compare_DS_Layouts(void* lhs, void* rhs);
 static int ReflectSPIRV(uint32_t* code, uint32_t size);
 
 
@@ -90,16 +102,16 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
   g_device = lida_TempAllocate(sizeof(lida_Device));
   err = CreateInstance(desc);
   if (err != VK_SUCCESS) {
-    LIDA_LOG_FATAL("failed to create instance %d", err);
+    LIDA_LOG_FATAL("failed to create instance with error %s", lida_VkResultToString(err));
     return err;
   }
   err = PickPhysicalDevice(desc);
   if (err != VK_SUCCESS) {
-    LIDA_LOG_FATAL("failed to pick a GPU with error %d", err);
+    LIDA_LOG_FATAL("failed to pick a GPU with error %s", lida_VkResultToString(err));
   }
   err =  CreateLogicalDevice(desc);
   if (err != VK_SUCCESS) {
-    LIDA_LOG_FATAL("failed to create vulkan device with error %d", err);
+    LIDA_LOG_FATAL("failed to create vulkan device with error %s", lida_VkResultToString(err));
   }
   // we use only 1 device in the application
   // so load device-related Vulkan entrypoints directly from the driver
@@ -109,7 +121,7 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
                    &g_device->graphics_queue);
   err = CreateCommandPool();
   if (err != VK_SUCCESS) {
-    LIDA_LOG_ERROR("failed to create command pool with error %d", err);
+    LIDA_LOG_ERROR("failed to create command pool with error %s", lida_VkResultToString(err));
   }
 
   err = CreateDescriptorPools();
@@ -118,6 +130,11 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
     LIDA_CONTAINER_DESC(ShaderInfo, lida_MallocAllocator(), HashShaderInfo, CompareShaderInfos, 0);
   g_device->shader_cache = LIDA_HT_EMPTY(&g_device->shader_cache_desc);
 
+  g_device->ds_layout_cache_desc =
+    LIDA_CONTAINER_DESC(DS_LayoutInfo, lida_MallocAllocator(),
+                        Hash_DS_LayoutInfo, Compare_DS_Layouts, 0);
+  g_device->ds_layout_cache = LIDA_HT_EMPTY(&g_device->ds_layout_cache_desc);
+
   return err;
 }
 
@@ -125,6 +142,13 @@ void
 lida_DeviceDestroy(int fast)
 {
   lida_HT_Iterator it;
+  // clear descriptor layout cache
+  LIDA_HT_FOREACH(&g_device->ds_layout_cache, &it) {
+    DS_LayoutInfo* layout = lida_HT_Iterator_Get(&it);
+    vkDestroyDescriptorSetLayout(g_device->logical_device, layout->layout, NULL);
+  }
+  lida_HT_Delete(&g_device->ds_layout_cache);
+  // clear shader cache
   LIDA_HT_FOREACH(&g_device->shader_cache, &it) {
     ShaderInfo* shader = lida_HT_Iterator_Get(&it);
     vkDestroyShaderModule(g_device->logical_device, shader->module, NULL);
@@ -270,7 +294,7 @@ lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
   };
   VkResult err = vkAllocateMemory(g_device->logical_device, &allocate_info, NULL, &memory->handle);
   if (err != VK_SUCCESS) {
-    LIDA_LOG_ERROR("failed to allocate memory with error %d", err);
+    LIDA_LOG_ERROR("failed to allocate memory with error %s", lida_VkResultToString(err));
     return err;
   }
   memory->offset = 0;
@@ -279,7 +303,7 @@ lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
   if (lida_VideoMemoryGetFlags(memory) & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
     err = vkMapMemory(g_device->logical_device, memory->handle, 0, VK_WHOLE_SIZE, 0, &memory->mapped);
     if (err != VK_SUCCESS) {
-      LIDA_LOG_ERROR("failed to map memory with error %d", err);
+      LIDA_LOG_ERROR("failed to map memory with error %s", lida_VkResultToString(err));
       return err;
     }
   } else {
@@ -329,13 +353,64 @@ lida_LoadShader(const char* path, lida_ShaderReflect* reflect)
                                       NULL, &ret);
   SDL_free(buffer);
   if (err != VK_SUCCESS) {
-    LIDA_LOG_ERROR("failed to create shader module with error %d", err);
+    LIDA_LOG_ERROR("failed to create shader module with error %s", lida_VkResultToString(err));
     return VK_NULL_HANDLE;
   } else {
     // Insert shader to cache if succeeded
     lida_HT_Insert(&g_device->shader_cache, &(ShaderInfo) { .name = path, .module = ret });
   }
   return ret;
+}
+
+VkResult
+lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings,
+                            VkDescriptorSet* sets, uint32_t num_sets, int dynamic)
+{
+  VkDescriptorSetLayoutCreateInfo layout_info = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+    .bindingCount = num_bindings,
+    .pBindings = bindings,
+  };
+  VkDescriptorSetLayout layout;
+  // get layout somehow
+
+}
+
+const char*
+lida_VkResultToString(VkResult err)
+{
+  switch (err) {
+  case VK_SUCCESS: return "VK_SUCCESS";
+  case VK_NOT_READY: return "VK_NOT_READY";
+  case VK_TIMEOUT: return "VK_TIMEOUT";
+  case VK_EVENT_SET: return "VK_EVENT_SET";
+  case VK_EVENT_RESET: return "VK_EVENT_RESET";
+  case VK_INCOMPLETE: return "VK_INCOMPLETE";
+  case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
+  case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+  case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
+  case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
+  case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
+  case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
+  case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
+  case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
+  case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
+  case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
+  case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
+  case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
+  case VK_ERROR_UNKNOWN: return "VK_ERROR_UNKNOWN";
+  case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
+  case VK_ERROR_INVALID_EXTERNAL_HANDLE: return "VK_ERROR_INVALID_EXTERNAL_HANDLE";
+  case VK_ERROR_FRAGMENTATION: return "VK_ERROR_FRAGMENTATION";
+  case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS: return "VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS";
+  case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
+  case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
+  case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
+  case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
+  case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: return "VK_ERROR_INCOMPATIBLE_DISPLAY_KHR";
+  case VK_ERROR_VALIDATION_FAILED_EXT: return "VK_ERROR_VALIDATION_FAILED_EXT";
+  default: return "VkResult(nil)";
+  }
 }
 
 
@@ -634,9 +709,36 @@ int
 CompareShaderInfos(void* lhs, void* rhs)
 {
   ShaderInfo* left = lhs, *right = rhs;
-  if (left->module == right->module)
-    return 0;
   return strcmp(left->name, right->name);
+}
+
+uint32_t
+Hash_DS_LayoutInfo(void* data)
+{
+  DS_LayoutInfo* layout = data;
+  uint32_t hashes[16];
+  for (uint32_t i = 0; i < layout->num_bindings; i++) {
+    hashes[i] = lida_HashCombine32((uint32_t*)&layout->bindings[i],
+                                   sizeof(VkDescriptorSetLayoutBinding) / sizeof(uint32_t));
+  }
+  return lida_HashCombine32(hashes, layout->num_bindings);
+}
+
+int
+Compare_DS_Layouts(void* lhs, void* rhs)
+{
+  DS_LayoutInfo* left = lhs, *right = rhs;
+  if (left->num_bindings != right->num_bindings)
+    return 1;
+  for (uint32_t i = 0; i < left->num_bindings; i++) {
+    if (left->bindings[i].binding != right->bindings[i].binding ||
+        left->bindings[i].descriptorType != right->bindings[i].descriptorType ||
+        left->bindings[i].descriptorCount != right->bindings[i].descriptorCount ||
+        left->bindings[i].stageFlags != right->bindings[i].stageFlags ||
+        left->bindings[i].pImmutableSamplers != right->bindings[i].pImmutableSamplers)
+      return 1;
+  }
+  return 0;
 }
 
 typedef struct {
@@ -680,4 +782,5 @@ ReflectSPIRV(uint32_t* code, uint32_t size)
   // https://www.khronos.org/registry/SPIR-V/specs/unified1/SPIRV.html#_physical_layout_of_a_spir_v_module_and_instruction
   // this tool also helped me a lot: https://www.khronos.org/spir/visualizer/
   lida_TempFree(ids);
+  return 0;
 }

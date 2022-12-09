@@ -250,7 +250,9 @@ lida_HT_Delete(lida_HashTable* ht)
 {
   if (ht->ptr) {
     lida_Free(ht->desc->allocator, ht->ptr);
-    memset(ht, 0, sizeof(lida_HashTable));
+    ht->ptr = NULL;
+    ht->allocated = 0;
+    ht->size = 0;
   }
 }
 
@@ -416,4 +418,26 @@ lida_HashString64(const char* str)
     str++;
   }
   return hash_value;
+}
+
+uint32_t
+lida_HashCombine32(const uint32_t* hashes, uint32_t num_hashes)
+{
+  // https://stackoverflow.com/questions/2590677/how-do-i-combine-hash-values-in-c0x
+  uint32_t hash = 0;
+  for (uint32_t i = 0; i < num_hashes; i++) {
+    hash ^= hashes[i] + 0x9e3779b9 + (hash<<6) + (hash>>2);
+  }
+  return hash;
+}
+
+uint64_t
+lida_HashCombine64(const uint64_t* hashes, uint32_t num_hashes)
+{
+  // https://stackoverflow.com/questions/2590677/how-do-i-combine-hash-values-in-c0x
+  uint64_t hash = 0;
+  for (uint32_t i = 0; i < num_hashes; i++) {
+    hash ^= hashes[i] + 0x9e3779b9 + (hash<<6) + (hash>>2);
+  }
+  return hash;
 }

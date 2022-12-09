@@ -59,6 +59,11 @@ VkMemoryPropertyFlags lida_VideoMemoryGetFlags(const lida_VideoMemory* memory);
 
 VkShaderModule lida_LoadShader(const char* path, lida_ShaderReflect* reflect);
 
+VkResult lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings,
+                                     VkDescriptorSet* sets, uint32_t num_sets, int dynamic);
+
+const char* lida_VkResultToString(VkResult err);
+
 #ifdef __cplusplus
 }
 #endif
