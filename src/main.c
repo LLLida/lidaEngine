@@ -44,6 +44,15 @@ int main(int argc, char** argv) {
   lida_VideoMemory memory;
   lida_VideoMemoryAllocate(&memory, 128*1024*1024, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT|VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, UINT32_MAX);
 
+  VkDescriptorSetLayoutBinding binding = {
+    .binding = 0,
+    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    .descriptorCount = 1,
+    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+  };
+  VkDescriptorSet ds_set;
+  VkResult err = lida_AllocateDescriptorSets(&binding, 1, &ds_set, 1, 0);
+
   SDL_Event event;
   int running = 1;
   while (running) {
