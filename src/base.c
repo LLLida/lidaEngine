@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdarg.h>
+#include <SDL_stdinc.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -235,7 +236,7 @@ lida_HT_SearchEx(const lida_HashTable* ht, void* element, uint32_t hash)
   for (uint32_t i = 0; i < ht->size; id = (id+1) % ht->allocated) {
     if (*HT_GET_MAGIC(ht, id) == HT_NODE_VALID) {
       if (*HT_GET_HASH(ht, id) == hash &&
-          ht->desc->equal(HT_GET(ht, id), element) == 0)
+          ht->desc->compare(HT_GET(ht, id), element) == 0)
         return HT_GET(ht, id);
       i++;
     } else if (*HT_GET_MAGIC(ht, id) == HT_NODE_NULL) {
@@ -440,4 +441,10 @@ lida_HashCombine64(const uint64_t* hashes, uint32_t num_hashes)
     hash ^= hashes[i] + 0x9e3779b9 + (hash<<6) + (hash>>2);
   }
   return hash;
+}
+
+void
+lida_qsort(void* data, uint32_t num_elements, lida_ContainerDesc* desc)
+{
+  SDL_qsort(data, num_elements, desc->elem_size, desc->compare);
 }

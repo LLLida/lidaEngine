@@ -70,8 +70,8 @@ void lida_InitPlatformSpecificLoggers();
 
 /// Generic container base
 
-typedef uint32_t(*lida_HashFunction)(void* data);
-typedef int(*lida_EqualFunction)(void* lhs, void* rhs);
+typedef uint32_t(*lida_HashFunction)(const void* data);
+typedef int(*lida_CompareFunction)(const void* lhs, const void* rhs);
 typedef void(*lida_ConstructorFunction)(void* obj);
 typedef void(*lida_DestructorFunction)(void* obj);
 
@@ -85,13 +85,13 @@ typedef struct {
   // a pure function which returns a 32 bit unsigned integer based on input
   lida_HashFunction hasher;
   // a pure function which compares two objects
-  lida_EqualFunction equal;
+  lida_CompareFunction compare;
   uint16_t elem_size;
   uint16_t flags;
 
 } lida_ContainerDesc;
 
-#define LIDA_CONTAINER_DESC(type, allocator_, hasher_, equal_, flags_) (lida_ContainerDesc) { .allocator = allocator_, .hasher = hasher_, .equal = equal_, .elem_size = sizeof(type), .flags = flags_ }
+#define LIDA_CONTAINER_DESC(type, allocator_, hasher_, equal_, flags_) (lida_ContainerDesc) { .allocator = allocator_, .hasher = hasher_, .compare = equal_, .elem_size = sizeof(type), .flags = flags_ }
 
 
 /// Hash table
@@ -205,6 +205,8 @@ uint64_t lida_HashString64(const char* str);
 uint32_t lida_HashCombine32(const uint32_t* hashes, uint32_t num_hashes);
 uint64_t lida_HashCombine64(const uint64_t* hashes, uint32_t num_hashes);
 #define lida_HashCombine(hashes, num_hashes) lida_HashCombine32(hashes, num_hashes)
+
+void lida_qsort(void* data, uint32_t num_elements, lida_ContainerDesc* desc);
 
 #ifdef __cplusplus
 }

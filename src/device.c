@@ -83,10 +83,10 @@ static VkResult CreateLogicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateCommandPool();
 static VkResult CreateDescriptorPools();
 static VkDescriptorSetLayout Get_DS_Layout();
-static uint32_t HashShaderInfo(void* data);
-static int CompareShaderInfos(void* lhs, void* rhs);
-static uint32_t Hash_DS_LayoutInfo(void* data);
-static int Compare_DS_Layouts(void* lhs, void* rhs);
+static uint32_t HashShaderInfo(const void* data);
+static int CompareShaderInfos(const void* lhs, const void* rhs);
+static uint32_t Hash_DS_LayoutInfo(const void* data);
+static int Compare_DS_Layouts(const void* lhs, const void* rhs);
 static int ReflectSPIRV(uint32_t* code, uint32_t size);
 
 
@@ -718,9 +718,10 @@ VkDescriptorSetLayout
 Get_DS_Layout(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings)
 {
   DS_LayoutInfo key;
+  key.num_bindings = num_bindings;
   assert(num_bindings <= LIDA_ARR_SIZE(key.bindings));
   memcpy(key.bindings, bindings, num_bindings * sizeof(VkDescriptorSetLayoutBinding));
-  // TODO: sort bindings
+  lida_qsort(key.bindings, num_bindings, &g_device->ds_layout_cache_desc);
   DS_LayoutInfo* layout = lida_HT_Search(&g_device->ds_layout_cache, &key);
   if (layout) {
     return layout->layout;
@@ -739,23 +740,23 @@ Get_DS_Layout(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_binding
 }
 
 uint32_t
-HashShaderInfo(void* data)
+HashShaderInfo(const void* data)
 {
-  ShaderInfo* shader = data;
+  const ShaderInfo* shader = data;
   return lida_HashString32(shader->name);
 }
 
 int
-CompareShaderInfos(void* lhs, void* rhs)
+CompareShaderInfos(const void* lhs, const void* rhs)
 {
-  ShaderInfo* left = lhs, *right = rhs;
+  const ShaderInfo* left = lhs, *right = rhs;
   return strcmp(left->name, right->name);
 }
 
 uint32_t
-Hash_DS_LayoutInfo(void* data)
+Hash_DS_LayoutInfo(const void* data)
 {
-  DS_LayoutInfo* layout = data;
+  const DS_LayoutInfo* layout = data;
   uint32_t hashes[16];
   for (uint32_t i = 0; i < layout->num_bindings; i++) {
     hashes[i] = lida_HashCombine32((uint32_t*)&layout->bindings[i],
@@ -765,18 +766,15 @@ Hash_DS_LayoutInfo(void* data)
 }
 
 int
-Compare_DS_Layouts(void* lhs, void* rhs)
+Compare_DS_Layouts(const void* lhs, const void* rhs)
 {
-  DS_LayoutInfo* left = lhs, *right = rhs;
+  const DS_LayoutInfo* left = lhs, *right = rhs;
   if (left->num_bindings != right->num_bindings)
     return 1;
   for (uint32_t i = 0; i < left->num_bindings; i++) {
-    if (left->bindings[i].binding != right->bindings[i].binding ||
-        left->bindings[i].descriptorType != right->bindings[i].descriptorType ||
-        left->bindings[i].descriptorCount != right->bindings[i].descriptorCount ||
-        left->bindings[i].stageFlags != right->bindings[i].stageFlags ||
-        left->bindings[i].pImmutableSamplers != right->bindings[i].pImmutableSamplers)
-      return 1;
+    int r = memcmp(&left->bindings[i], &right->bindings[i], sizeof(VkDescriptorSetLayoutBinding));
+    if (r != 0)
+      return r;
   }
   return 0;
 }
