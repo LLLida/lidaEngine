@@ -52,6 +52,12 @@ int main(int argc, char** argv) {
   };
   VkDescriptorSet ds_set;
   VkResult err = lida_AllocateDescriptorSets(&binding, 1, &ds_set, 1, 0);
+  VkBuffer buffer;
+  lida_BufferCreate(&buffer, 1024, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+  void* mapped;
+  VkMemoryRequirements requirements;
+  vkGetBufferMemoryRequirements(lida_GetLogicalDevice(), buffer, &requirements);
+  lida_BufferBindToMemory(&memory, buffer, &requirements, &mapped, NULL);
 
   SDL_Event event;
   int running = 1;

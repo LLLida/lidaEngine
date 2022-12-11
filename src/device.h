@@ -63,6 +63,11 @@ VkResult lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* binding
                                      VkDescriptorSet* sets, uint32_t num_sets, int dynamic);
 VkResult lida_FreeAllocateDescriptorSets(const VkDescriptorSet* sets, uint32_t num_sets);
 
+VkResult lida_BufferCreate(VkBuffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage);
+VkResult lida_BufferBindToMemory(lida_VideoMemory* memory, VkBuffer buffer,
+                                 const VkMemoryRequirements* requirements, void** mapped,
+                                 VkMappedMemoryRange* mappedRange);
+
 const char* lida_VkResultToString(VkResult err);
 
 #ifdef __cplusplus

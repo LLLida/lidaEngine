@@ -81,6 +81,7 @@ enum {
 
 typedef struct {
 
+  // type's name
   const char* name;
   lida_Allocator* allocator;
   // a pure function which returns a 32 bit unsigned integer based on input
@@ -197,6 +198,9 @@ void lida_DynArrayDelete(lida_DynArray* array)
 /// Some useful algorithms
 
 #define LIDA_ARR_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
+
+#define LIDA_ALIGN_TO(number, alignment) ((number) % (alignment)) ? \
+  ((number) + (alignment) - (number) % (alignment)) : (number)
 
 // compute 32-bit hash for string
 uint32_t lida_HashString32(const char* str);
