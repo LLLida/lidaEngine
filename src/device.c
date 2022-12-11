@@ -37,10 +37,10 @@ typedef struct {
   const char** enabled_device_extensions;
   uint32_t num_enabled_device_extensions;
 
-  lida_ContainerDesc shader_cache_desc;
+  lida_TypeInfo shader_info_type;
   lida_HashTable shader_cache;
 
-  lida_ContainerDesc ds_layout_cache_desc;
+  lida_TypeInfo ds_layout_info_type;
   lida_HashTable ds_layout_cache;
 
   VkPhysicalDeviceProperties properties;
@@ -127,14 +127,14 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
 
   err = CreateDescriptorPools();
 
-  g_device->shader_cache_desc =
-    LIDA_CONTAINER_DESC(ShaderInfo, lida_MallocAllocator(), HashShaderInfo, CompareShaderInfos, 0);
-  g_device->shader_cache = LIDA_HT_EMPTY(&g_device->shader_cache_desc);
+  g_device->shader_info_type =
+    LIDA_TYPE_INFO(ShaderInfo, lida_MallocAllocator(), HashShaderInfo, CompareShaderInfos, 0);
+  g_device->shader_cache = LIDA_HT_EMPTY(&g_device->shader_info_type);
 
-  g_device->ds_layout_cache_desc =
-    LIDA_CONTAINER_DESC(DS_LayoutInfo, lida_MallocAllocator(),
-                        Hash_DS_LayoutInfo, Compare_DS_Layouts, 0);
-  g_device->ds_layout_cache = LIDA_HT_EMPTY(&g_device->ds_layout_cache_desc);
+  g_device->ds_layout_info_type =
+    LIDA_TYPE_INFO(DS_LayoutInfo, lida_MallocAllocator(),
+                   Hash_DS_LayoutInfo, Compare_DS_Layouts, 0);
+  g_device->ds_layout_cache = LIDA_HT_EMPTY(&g_device->ds_layout_info_type);
 
   return err;
 }
@@ -330,7 +330,7 @@ lida_VideoMemoryGetFlags(const lida_VideoMemory* memory)
 }
 
 VkShaderModule
-lida_LoadShader(const char* path, lida_ShaderReflect* reflect)
+lida_LoadShader(const char* path, lida_ShaderReflect** reflect)
 {
   // check if we already have loaded this shader
   ShaderInfo* info = lida_HT_Search(&g_device->shader_cache, &path);
@@ -349,17 +349,19 @@ lida_LoadShader(const char* path, lida_ShaderReflect* reflect)
     .codeSize = buffer_size,
     .pCode = buffer,
   };
-  VkShaderModule ret;
+  VkShaderModule ret = VK_NULL_HANDLE;
   VkResult err = vkCreateShaderModule(g_device->logical_device, &module_info,
                                       NULL, &ret);
-  SDL_free(buffer);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create shader module with error %s", lida_VkResultToString(err));
-    return VK_NULL_HANDLE;
   } else {
     // Insert shader to cache if succeeded
     lida_HT_Insert(&g_device->shader_cache, &(ShaderInfo) { .name = path, .module = ret });
+    if (reflect) {
+      // TODO: generate shader reflection data
+    }
   }
+  SDL_free(buffer);
   return ret;
 }
 
@@ -721,7 +723,7 @@ Get_DS_Layout(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_binding
   key.num_bindings = num_bindings;
   assert(num_bindings <= LIDA_ARR_SIZE(key.bindings));
   memcpy(key.bindings, bindings, num_bindings * sizeof(VkDescriptorSetLayoutBinding));
-  lida_qsort(key.bindings, num_bindings, &g_device->ds_layout_cache_desc);
+  lida_qsort(key.bindings, num_bindings, &g_device->ds_layout_info_type);
   DS_LayoutInfo* layout = lida_HT_Search(&g_device->ds_layout_cache, &key);
   if (layout) {
     return layout->layout;

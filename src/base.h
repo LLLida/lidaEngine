@@ -76,11 +76,12 @@ typedef void(*lida_ConstructorFunction)(void* obj);
 typedef void(*lida_DestructorFunction)(void* obj);
 
 enum {
-  LIDA_CONTAINER_WITH_BUMP_ALLOCATOR = (1<<29),
+  LIDA_TYPE_INFO_USE_BUMP_ALLOCATOR = (1<<29),
 };
 
 typedef struct {
 
+  const char* name;
   lida_Allocator* allocator;
   // a pure function which returns a 32 bit unsigned integer based on input
   lida_HashFunction hasher;
@@ -89,9 +90,9 @@ typedef struct {
   uint16_t elem_size;
   uint16_t flags;
 
-} lida_ContainerDesc;
+} lida_TypeInfo;
 
-#define LIDA_CONTAINER_DESC(type, allocator_, hasher_, equal_, flags_) (lida_ContainerDesc) { .allocator = allocator_, .hasher = hasher_, .compare = equal_, .elem_size = sizeof(type), .flags = flags_ }
+#define LIDA_TYPE_INFO(type, allocator_, hasher_, equal_, flags_) (lida_TypeInfo) { .name = #type, .allocator = allocator_, .hasher = hasher_, .compare = equal_, .elem_size = sizeof(type), .flags = flags_ }
 
 
 /// Hash table
@@ -106,7 +107,7 @@ typedef struct {
   void* ptr;
   uint32_t allocated;
   uint32_t size;
-  lida_ContainerDesc* desc;
+  lida_TypeInfo* type;
 
 } lida_HashTable;
 
@@ -117,7 +118,7 @@ typedef struct {
 
 } lida_HT_Iterator;
 
-#define LIDA_HT_EMPTY(desc_) (lida_HashTable) { .ptr = NULL, .allocated = 0, .size = 0, .desc = desc_ }
+#define LIDA_HT_EMPTY(type_) (lida_HashTable) { .ptr = NULL, .allocated = 0, .size = 0, .type = type_ }
 #define LIDA_HT_DATA(ht, type) (type*)((ht)->ptr)
 #define LIDA_HT_CAPACITY(ht) ((ht)->allocated)
 #define LIDA_HT_SIZE(ht) ((ht)->size)
@@ -165,17 +166,17 @@ typedef struct {
   void* ptr;
   uint32_t allocated;
   uint32_t size;
-  lida_ContainerDesc* desc;
+  lida_TypeInfo* type;
 
 } lida_DynArray;
 
-#define LIDA_DA_EMPTY(desc_) (lida_DynArray) { .ptr = NULL, .allocated = 0, .size = 0, .desc = desc_ }
+#define LIDA_DA_EMPTY(type_) (lida_DynArray) { .ptr = NULL, .allocated = 0, .size = 0, .type = type_ }
 #define LIDA_DA_DATA(array, type) (type*)((array)->ptr)
 #define LIDA_DA_CAPACITY(array) ((array)->allocated)
 #define LIDA_DA_SIZE(array) ((array)->size)
 #define LIDA_DA_GET(array, type, index) (type*)lida_ArrayGet((array), index)
-#define LIDA_DA_PUSH_BACK(array, type, ...) memcpy(lida_DynArrayPushBack(array), &(type) { __VA_ARGS__ }, (array)->desc->elem_size)
-#define LIDA_DA_INSERT(array, i, type, ...) memcpy(lida_DynArrayInsert(array, i), &(type) { __VA_ARGS__ }, (array)->desc->elem_size)
+#define LIDA_DA_PUSH_BACK(array, type_name, ...) memcpy(lida_DynArrayPushBack(array), &(type_name) { __VA_ARGS__ }, (array)->type->elem_size)
+#define LIDA_DA_INSERT(array, i, type_name, ...) memcpy(lida_DynArrayInsert(array, i), &(type_name) { __VA_ARGS__ }, (array)->type->elem_size)
 
 void* lida_DynArrayGet(lida_DynArray* array, uint32_t index)
   LIDA_ATTRIBUTE_NONNULL(1);
@@ -206,7 +207,7 @@ uint32_t lida_HashCombine32(const uint32_t* hashes, uint32_t num_hashes);
 uint64_t lida_HashCombine64(const uint64_t* hashes, uint32_t num_hashes);
 #define lida_HashCombine(hashes, num_hashes) lida_HashCombine32(hashes, num_hashes)
 
-void lida_qsort(void* data, uint32_t num_elements, lida_ContainerDesc* desc);
+void lida_qsort(void* data, uint32_t num_elements, lida_TypeInfo* type);
 
 #ifdef __cplusplus
 }
