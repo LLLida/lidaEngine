@@ -88,12 +88,13 @@ typedef struct {
   lida_HashFunction hasher;
   // a pure function which compares two objects
   lida_CompareFunction compare;
+  uint32_t type_hash;
   uint16_t elem_size;
   uint16_t flags;
 
 } lida_TypeInfo;
 
-#define LIDA_TYPE_INFO(type, allocator_, hasher_, equal_, flags_) (lida_TypeInfo) { .name = #type, .allocator = allocator_, .hasher = hasher_, .compare = equal_, .elem_size = sizeof(type), .flags = flags_ }
+#define LIDA_TYPE_INFO(type, allocator_, hasher_, equal_, flags_) (lida_TypeInfo) { .name = #type, .allocator = allocator_, .hasher = hasher_, .compare = equal_, .type_hash = lida_HashString32(#type), .elem_size = sizeof(type), .flags = flags_ }
 
 
 /// Hash table
