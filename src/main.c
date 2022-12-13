@@ -7,6 +7,8 @@
 
 VkPipeline createTrianglePipeline();
 
+VkPipelineLayout pipeline_layout;
+
 int main(int argc, char** argv) {
   SDL_Init(SDL_INIT_VIDEO);
   lida_TempAllocatorCreate(32 * 1024);
@@ -48,7 +50,7 @@ int main(int argc, char** argv) {
     .binding = 0,
     .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
     .descriptorCount = 1,
-    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
   };
   VkDescriptorSet ds_set;
   VkResult err = lida_AllocateDescriptorSets(&binding, 1, &ds_set, 1, 0);
@@ -58,6 +60,30 @@ int main(int argc, char** argv) {
   VkMemoryRequirements requirements;
   vkGetBufferMemoryRequirements(lida_GetLogicalDevice(), buffer, &requirements);
   lida_BufferBindToMemory(&memory, buffer, &requirements, &mapped, NULL);
+
+  VkDescriptorBufferInfo buffer_info = {
+    .buffer = buffer,
+    .offset = 0,
+    .range = 128,
+  };
+
+  VkWriteDescriptorSet write_set = {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .dstSet = ds_set,
+    .dstBinding = 0,
+    .descriptorCount = 1,
+    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    .pBufferInfo = &buffer_info,
+  };
+  lida_UpdateDescriptorSets(&write_set, 1);
+
+  float* numbers = mapped;
+  float identity[] = { 1.0f, 0.0f, 0.0f, 0.0f,
+                       0.0f, 1.0f, 0.0f, 0.0f,
+                       0.0f, 0.0f, 1.0f, 0.0f,
+                       0.0f, 0.0f, 0.0f, 1.0f };
+  memcpy(numbers, identity, sizeof(identity));
+  memcpy(numbers + 16, identity, sizeof(identity));
 
   SDL_Event event;
   int running = 1;
@@ -80,6 +106,7 @@ int main(int argc, char** argv) {
 
     float clear_color[4] = {0.7f, 0.1f, 0.7f, 1.0f};
     lida_WindowBeginRendering(clear_color);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, &ds_set, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
@@ -92,9 +119,12 @@ int main(int argc, char** argv) {
 
   vkDeviceWaitIdle(lida_GetLogicalDevice());
 
+  vkDestroyBuffer(lida_GetLogicalDevice(), buffer, NULL);
+
   lida_VideoMemoryFree(&memory);
 
   vkDestroyPipeline(lida_GetLogicalDevice(), pipeline, NULL);
+  vkDestroyPipelineLayout(lida_GetLogicalDevice(), pipeline_layout, NULL);
 
   lida_WindowDestroy();
   lida_DeviceDestroy(0);
@@ -105,9 +135,17 @@ int main(int argc, char** argv) {
 
 VkPipeline createTrianglePipeline() {
 
-  VkPipelineLayout pipeline_layout;
+  VkDescriptorSetLayoutBinding binding = {
+    .binding = 0,
+    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    .descriptorCount = 1,
+    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+  };
+  VkDescriptorSetLayout set_layout = lida_GetDescriptorSetLayout(&binding, 1);
   VkPipelineLayoutCreateInfo layout_info = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+    .setLayoutCount = 1,
+    .pSetLayouts = &set_layout,
   };
   vkCreatePipelineLayout(lida_GetLogicalDevice(), &layout_info, NULL, &pipeline_layout);
 
@@ -185,6 +223,5 @@ VkPipeline createTrianglePipeline() {
 
   VkPipeline ret;
   vkCreateGraphicsPipelines(lida_GetLogicalDevice(), VK_NULL_HANDLE, 1, &pipeline_info, NULL, &ret);
-  vkDestroyPipelineLayout(lida_GetLogicalDevice(), pipeline_layout, NULL);
   return ret;
 }

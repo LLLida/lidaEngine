@@ -59,9 +59,11 @@ VkMemoryPropertyFlags lida_VideoMemoryGetFlags(const lida_VideoMemory* memory);
 
 VkShaderModule lida_LoadShader(const char* path, lida_ShaderReflect** reflect);
 
+VkDescriptorSetLayout lida_GetDescriptorSetLayout(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings);
 VkResult lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings,
                                      VkDescriptorSet* sets, uint32_t num_sets, int dynamic);
 VkResult lida_FreeAllocateDescriptorSets(const VkDescriptorSet* sets, uint32_t num_sets);
+void lida_UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, uint32_t count);
 
 VkResult lida_BufferCreate(VkBuffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage);
 VkResult lida_BufferBindToMemory(lida_VideoMemory* memory, VkBuffer buffer,

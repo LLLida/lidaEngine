@@ -82,7 +82,6 @@ static VkResult PickPhysicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateLogicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateCommandPool();
 static VkResult CreateDescriptorPools();
-static VkDescriptorSetLayout Get_DS_Layout();
 static uint32_t HashShaderInfo(const void* data);
 static int CompareShaderInfos(const void* lhs, const void* rhs);
 static uint32_t Hash_DS_LayoutInfo(const void* data);
@@ -365,11 +364,36 @@ lida_LoadShader(const char* path, lida_ShaderReflect** reflect)
   return ret;
 }
 
+VkDescriptorSetLayout
+lida_GetDescriptorSetLayout(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings)
+{
+  DS_LayoutInfo key;
+  key.num_bindings = num_bindings;
+  assert(num_bindings <= LIDA_ARR_SIZE(key.bindings));
+  memcpy(key.bindings, bindings, num_bindings * sizeof(VkDescriptorSetLayoutBinding));
+  lida_qsort(key.bindings, num_bindings, &g_device->ds_layout_info_type);
+  DS_LayoutInfo* layout = lida_HT_Search(&g_device->ds_layout_cache, &key);
+  if (layout) {
+    return layout->layout;
+  }
+  VkDescriptorSetLayoutCreateInfo layout_info = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+    .bindingCount = num_bindings,
+    .pBindings = bindings,
+  };
+  VkResult err = vkCreateDescriptorSetLayout(g_device->logical_device, &layout_info, NULL, &key.layout);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create descriptor layout with error %s", lida_VkResultToString(err));
+  }
+  lida_HT_Insert(&g_device->ds_layout_cache, &key);
+  return key.layout;
+}
+
 VkResult
 lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings,
                             VkDescriptorSet* sets, uint32_t num_sets, int dynamic)
 {
-  VkDescriptorSetLayout layout = Get_DS_Layout(bindings, num_bindings);
+  VkDescriptorSetLayout layout = lida_GetDescriptorSetLayout(bindings, num_bindings);
   VkDescriptorSetLayout* layouts = lida_TempAllocate(num_sets * sizeof(VkDescriptorSetLayout));
   for (uint32_t i = 0; i < num_sets; i++)
     layouts[i] = layout;
@@ -392,6 +416,12 @@ lida_FreeAllocateDescriptorSets(const VkDescriptorSet* sets, uint32_t num_sets)
 {
   return vkFreeDescriptorSets(g_device->logical_device, g_device->dynamic_ds_pool,
                               num_sets, sets);
+}
+
+void
+lida_UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, uint32_t count)
+{
+  vkUpdateDescriptorSets(g_device->logical_device, count, pDescriptorWrites, 0, NULL);
 }
 
 VkResult
@@ -767,31 +797,6 @@ CreateDescriptorPools()
     return err;
   }
   return err;
-}
-
-VkDescriptorSetLayout
-Get_DS_Layout(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings)
-{
-  DS_LayoutInfo key;
-  key.num_bindings = num_bindings;
-  assert(num_bindings <= LIDA_ARR_SIZE(key.bindings));
-  memcpy(key.bindings, bindings, num_bindings * sizeof(VkDescriptorSetLayoutBinding));
-  lida_qsort(key.bindings, num_bindings, &g_device->ds_layout_info_type);
-  DS_LayoutInfo* layout = lida_HT_Search(&g_device->ds_layout_cache, &key);
-  if (layout) {
-    return layout->layout;
-  }
-  VkDescriptorSetLayoutCreateInfo layout_info = {
-    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-    .bindingCount = num_bindings,
-    .pBindings = bindings,
-  };
-  VkResult err = vkCreateDescriptorSetLayout(g_device->logical_device, &layout_info, NULL, &key.layout);
-  if (err != VK_SUCCESS) {
-    LIDA_LOG_ERROR("failed to create descriptor layout with error %s", lida_VkResultToString(err));
-  }
-  lida_HT_Insert(&g_device->ds_layout_cache, &key);
-  return key.layout;
 }
 
 uint32_t
