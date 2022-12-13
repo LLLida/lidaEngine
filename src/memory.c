@@ -1,7 +1,7 @@
 #include "memory.h"
 
-#include <stdlib.h>
 #include <assert.h>
+#include <SDL_stdinc.h>
 
 
 /// Temp allocator - also known as bump allocator
@@ -24,7 +24,7 @@ TempAllocate(lida_Allocator* a, uint32_t bytes)
   if (chunk->size - chunk->offset + sizeof(MemoryChunk) <= bytes) {
     uint32_t sz = chunk->size * 2;
     if (sz < bytes) sz = bytes;
-    void* ptr = malloc(sz);
+    void* ptr = SDL_malloc(sz);
     MemoryChunk* tmp = (MemoryChunk*)ptr;
     tmp->parent = chunk;
     chunk = tmp;
@@ -74,7 +74,7 @@ int
 lida_TempAllocatorCreate(uint32_t initial_size)
 {
   assert(initial_size > 1024);
-  void* bytes = malloc(initial_size);
+  void* bytes = SDL_malloc(initial_size);
   if (bytes == NULL) {
     return 0;
   }
@@ -160,17 +160,17 @@ lida_MallocAllocator()
 void*
 lida_Malloc(uint32_t bytes)
 {
-  return malloc(bytes);
+  return SDL_malloc(bytes);
 }
 
 void
 lida_MallocFree(void* ptr)
 {
-  free(ptr);
+  SDL_free(ptr);
 }
 
 void*
 lida_Realloc(void* ptr, uint32_t bytes)
 {
-  return realloc(ptr, bytes);
+  return SDL_realloc(ptr, bytes);
 }
