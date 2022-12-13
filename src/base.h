@@ -83,18 +83,18 @@ typedef struct {
 
   // type's name
   const char* name;
+  uint64_t type_hash;
   lida_Allocator* allocator;
   // a pure function which returns a 32 bit unsigned integer based on input
   lida_HashFunction hasher;
   // a pure function which compares two objects
   lida_CompareFunction compare;
-  uint32_t type_hash;
   uint16_t elem_size;
   uint16_t flags;
 
 } lida_TypeInfo;
 
-#define LIDA_TYPE_INFO(type, allocator_, hasher_, equal_, flags_) (lida_TypeInfo) { .name = #type, .allocator = allocator_, .hasher = hasher_, .compare = equal_, .type_hash = lida_HashString32(#type), .elem_size = sizeof(type), .flags = flags_ }
+#define LIDA_TYPE_INFO(type, allocator_, hasher_, equal_, flags_) (lida_TypeInfo) { .name = #type, .allocator = allocator_, .hasher = hasher_, .compare = equal_, .type_hash = lida_HashString64(#type), .elem_size = sizeof(type), .flags = flags_ }
 
 
 /// Hash table
