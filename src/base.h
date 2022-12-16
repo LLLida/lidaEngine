@@ -99,11 +99,6 @@ typedef struct {
 
 /// Hash table
 
-enum {
-  LIDA_HT_BUMP_ALLOCATOR = (1<<29),
-  LIDA_HT_NO_DELETIONS = (1<<30),
-};
-
 typedef struct {
 
   void* ptr;

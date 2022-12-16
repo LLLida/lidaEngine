@@ -4,10 +4,12 @@
 #include "memory.h"
 #include "window.h"
 #include "base.h"
+#include "linalg.h"
 
 VkPipeline createTrianglePipeline();
 
 VkPipelineLayout pipeline_layout;
+lida_Camera camera;
 
 int main(int argc, char** argv) {
   SDL_Init(SDL_INIT_VIDEO);
@@ -78,12 +80,15 @@ int main(int argc, char** argv) {
   lida_UpdateDescriptorSets(&write_set, 1);
 
   float* numbers = mapped;
-  float identity[] = { 1.0f, 0.0f, 0.0f, 0.0f,
-                       0.0f, 1.0f, 0.0f, 0.0f,
-                       0.0f, 0.0f, 1.0f, 0.0f,
-                       0.0f, 0.0f, 0.0f, 1.0f };
-  memcpy(numbers, identity, sizeof(identity));
-  memcpy(numbers + 16, identity, sizeof(identity));
+
+  camera.z_near = 0.01f;
+  /* camera.z_far = 10.0f; */
+  camera.position = LIDA_VEC3_IDENTITY();
+  camera.rotation = LIDA_VEC3_CREATE(0.0f, M_PI, 0.0f);
+  camera.up = LIDA_VEC3_CREATE(0.0f, 1.0f, 0.0f);
+  camera.fovy = LIDA_RADIANS(45.0f);
+
+  lida_Vec3 offset = {0.0f, 0.0f, 0.0f};
 
   SDL_Event event;
   int running = 1;
@@ -94,13 +99,41 @@ int main(int argc, char** argv) {
         running = 0;
         break;
       case SDL_KEYDOWN:
-        if (event.key.keysym.sym == SDLK_ESCAPE)
+        switch (event.key.keysym.sym) {
+        case SDLK_ESCAPE:
           running = 0;
-        if (event.key.keysym.sym == SDLK_SPACE)
+          break;
+        case SDLK_SPACE:
           LIDA_LOG_INFO("FPS=%f", lida_WindowGetFPS());
+          break;
+
+          // triangle movement
+        case SDLK_LEFT:
+          offset.x += 0.02f;
+          break;
+        case SDLK_RIGHT:
+          offset.y += 0.02f;
+          break;
+        case SDLK_UP:
+          offset.z += 0.02f;
+          break;
+
+        }
         break;
       }
     }
+
+    VkExtent2D window_extent = lida_WindowGetExtent();
+    camera.aspect_ratio = (float)window_extent.width / (float)window_extent.height;
+    // lida_CameraUpdateProjection(&camera);
+    // lida_CameraUpdateView(&camera);
+
+    // camera.projection_matrix = LIDA_MAT4_IDENTITY();
+    lida_TranslationMatrix(&camera.projection_matrix, &offset);
+    camera.view_matrix = LIDA_MAT4_IDENTITY();
+
+    memcpy(numbers, &camera.projection_matrix, sizeof(lida_Mat4));
+    memcpy(numbers + 16, &camera.view_matrix, sizeof(lida_Mat4));
 
     VkCommandBuffer cmd = lida_WindowBeginCommands();
 

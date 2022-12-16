@@ -172,7 +172,7 @@ lida_HT_Reserve(lida_HashTable* ht, uint32_t capacity)
 {
   if (capacity <= ht->allocated) return 0;
   void* tmp;
-  if (ht->type->flags & LIDA_HT_BUMP_ALLOCATOR) {
+  if (ht->type->flags & LIDA_TYPE_INFO_USE_BUMP_ALLOCATOR) {
     // TODO:
     assert(0);
   } else {
@@ -200,7 +200,7 @@ lida_HT_Reserve(lida_HashTable* ht, uint32_t capacity)
         }
       }
     }
-    if (ht->type->flags & LIDA_HT_BUMP_ALLOCATOR) {
+    if (ht->type->flags & LIDA_TYPE_INFO_USE_BUMP_ALLOCATOR) {
       assert(0);
     } else {
       lida_Free(ht->type->allocator, tmp);

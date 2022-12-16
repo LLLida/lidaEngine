@@ -5,20 +5,24 @@ extern "C" {
 #endif
 
 typedef struct {
+
   int enable_debug_layers;
   uint32_t gpu_id;
   const char* app_name;
   uint32_t app_version;
   const char** device_extensions;
   uint32_t num_device_extensions;
+
 } lida_DeviceDesc;
 
 typedef struct {
+
   VkDeviceMemory handle;
   VkDeviceSize size;
   VkDeviceSize offset;
   uint32_t type;
   void* mapped;
+
 } lida_VideoMemory;
 
 typedef struct lida_ShaderReflect lida_ShaderReflect;

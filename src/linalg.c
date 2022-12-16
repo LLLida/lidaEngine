@@ -1,6 +1,9 @@
 #include "linalg.h"
+// TODO: optimize some algorithms here using SIMD
 
 #include <string.h>
+
+#define USE_RQSQRT 0
 
 float
 lida_rqsqrt(float number)
@@ -22,7 +25,11 @@ lida_rqsqrt(float number)
 void
 lida_Vec2Normalize(const lida_Vec2* in, lida_Vec2* out)
 {
+#if USE_RQSQRT
   float inv_len = lida_rqsqrt(LIDA_VEC2_LENGTH(*in));
+#else
+  float inv_len = 1.0f / sqrt(LIDA_VEC2_LENGTH(*in));
+#endif
   out->x = in->x * inv_len;
   out->y = in->y * inv_len;
 }
@@ -30,7 +37,11 @@ lida_Vec2Normalize(const lida_Vec2* in, lida_Vec2* out)
 void
 lida_Vec3Normalize(const lida_Vec3* in, lida_Vec3* out)
 {
+#if USE_RQSQRT
   float inv_len = lida_rqsqrt(LIDA_VEC3_LENGTH(*in));
+#else
+  float inv_len = 1.0f / sqrt(LIDA_VEC3_LENGTH(*in));
+#endif
   out->x = in->x * inv_len;
   out->y = in->y * inv_len;
   out->z = in->z * inv_len;
@@ -39,7 +50,11 @@ lida_Vec3Normalize(const lida_Vec3* in, lida_Vec3* out)
 void
 lida_Vec4Normalize(const lida_Vec4* in, lida_Vec4* out)
 {
+#if USE_RQSQRT
   float inv_len = lida_rqsqrt(LIDA_VEC4_LENGTH(*in));
+#else
+  float inv_len = 1.0f / sqrt(LIDA_VEC3_LENGTH(*in));
+#endif
   out->x = in->x * inv_len;
   out->y = in->y * inv_len;
   out->z = in->z * inv_len;
@@ -165,11 +180,17 @@ lida_Mat4Inverse(const lida_Mat4* in, lida_Mat4* out)
 void
 lida_TranslationMatrix(lida_Mat4* out, const lida_Vec3* pos)
 {
-  /* out-> */
+  *out = LIDA_MAT4_IDENTITY();
+  /* out->m03 = pos->x; */
+  /* out->m13 = pos->y; */
+  /* out->m23 = pos->z; */
+  out->m30 = pos->x;
+  out->m31 = pos->y;
+  out->m32 = pos->z;
 }
 
 void
-lida_RotationMatrix(const lida_Mat4* in, lida_Mat4* out, float radians, const lida_Vec3* v)
+lida_RotationMatrixAxisAngle(const lida_Mat4* in, lida_Mat4* out, float radians, const lida_Vec3* v)
 {
   // took from glm
   float c = cos(radians);
@@ -215,6 +236,18 @@ lida_RotationMatrix(const lida_Mat4* in, lida_Mat4* out, float radians, const li
 }
 
 void
+lida_RotationMatrixEulerAngles(lida_Mat4* out, const lida_Vec3* euler_angles)
+{
+  const lida_Vec3 x_axis = {1.0f, 0.0f, 0.0f},
+    y_axis = {0.0f, 1.0f, 0.0f},
+    z_axis = {0.0f, 0.0f, 1.0f};
+  *out = LIDA_MAT4_IDENTITY();
+  lida_RotationMatrixAxisAngle(out, out, -euler_angles->x, &x_axis);
+  lida_RotationMatrixAxisAngle(out, out,  euler_angles->y, &y_axis);
+  lida_RotationMatrixAxisAngle(out, out,  euler_angles->z, &z_axis);
+}
+
+void
 lida_OrthographicMatrix(float left, float right, float bottom, float top,
                              float z_near, float z_far, lida_Mat4* out)
 {
@@ -228,7 +261,7 @@ lida_OrthographicMatrix(float left, float right, float bottom, float top,
 }
 
 void
-lida_ProjectionMatrix(float zoom, float aspect_ratio, float z_near,
+lida_PerspectiveMatrix(float zoom, float aspect_ratio, float z_near,
                       lida_Mat4* out)
 {
   float f = 1.0f / tan(zoom * 0.5f);
@@ -237,8 +270,20 @@ lida_ProjectionMatrix(float zoom, float aspect_ratio, float z_near,
   out->m11 = f;
   out->m23 = -1.0f;
   out->m32 = z_near;
-  /* return mat4(f / aspect, 0.0f,  0.0f,  0.0f, */
-  /*             0.0f,    f,  0.0f,  0.0f, */
-  /*             0.0f, 0.0f,  0.0f, -1.0f, */
-  /*             0.0f, 0.0f, near,  0.0f); */
+}
+
+void
+lida_CameraUpdateProjection(lida_Camera* camera)
+{
+  lida_PerspectiveMatrix(camera->fovy, camera->aspect_ratio, camera->z_near,
+                         &camera->projection_matrix);
+}
+
+void
+lida_CameraUpdateView(lida_Camera* camera)
+{
+  lida_Mat4 rot, trans;
+  lida_RotationMatrixEulerAngles(&rot, &camera->rotation);
+  lida_TranslationMatrix(&trans, &camera->position);
+  lida_Mat4Mul(&rot, &trans, &camera->view_matrix);
 }
