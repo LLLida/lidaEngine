@@ -89,6 +89,7 @@ int main(int argc, char** argv) {
   camera.fovy = LIDA_RADIANS(45.0f);
 
   lida_Vec3 offset = {0.0f, 0.0f, 0.0f};
+  float angle = 0.0f;
 
   SDL_Event event;
   int running = 1;
@@ -117,6 +118,9 @@ int main(int argc, char** argv) {
         case SDLK_UP:
           offset.z += 0.02f;
           break;
+        case SDLK_DOWN:
+          angle += 0.01f;
+          break;
 
         }
         break;
@@ -128,9 +132,11 @@ int main(int argc, char** argv) {
     // lida_CameraUpdateProjection(&camera);
     // lida_CameraUpdateView(&camera);
 
-    // camera.projection_matrix = LIDA_MAT4_IDENTITY();
-    lida_TranslationMatrix(&camera.projection_matrix, &offset);
-    camera.view_matrix = LIDA_MAT4_IDENTITY();
+    camera.projection_matrix = LIDA_MAT4_IDENTITY();
+    lida_Vec3 z_axis = {0.0f, 0.0f, 1.0f};
+    lida_RotationMatrixAxisAngle(&camera.projection_matrix, &camera.projection_matrix, angle, &z_axis);
+    lida_TranslationMatrix(&camera.view_matrix, &offset);
+    // camera.view_matrix = LIDA_MAT4_IDENTITY();
 
     memcpy(numbers, &camera.projection_matrix, sizeof(lida_Mat4));
     memcpy(numbers + 16, &camera.view_matrix, sizeof(lida_Mat4));

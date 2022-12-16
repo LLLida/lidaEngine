@@ -181,9 +181,6 @@ void
 lida_TranslationMatrix(lida_Mat4* out, const lida_Vec3* pos)
 {
   *out = LIDA_MAT4_IDENTITY();
-  /* out->m03 = pos->x; */
-  /* out->m13 = pos->y; */
-  /* out->m23 = pos->z; */
   out->m30 = pos->x;
   out->m31 = pos->y;
   out->m32 = pos->z;
@@ -212,6 +209,7 @@ lida_RotationMatrixAxisAngle(const lida_Mat4* in, lida_Mat4* out, float radians,
   // 'in' and 'out' may overlap, need to write result to a temporary place
   lida_Mat4 tmp;
 
+#if 0
   tmp.m00 = in->m00 * r.m00 + in->m10 * r.m01 + in->m20 * r.m02;
   tmp.m01 = in->m01 * r.m00 + in->m11 * r.m01 + in->m21 * r.m02;
   tmp.m02 = in->m02 * r.m00 + in->m12 * r.m01 + in->m22 * r.m02;
@@ -231,6 +229,27 @@ lida_RotationMatrixAxisAngle(const lida_Mat4* in, lida_Mat4* out, float radians,
   tmp.m31 = in->m31;
   tmp.m32 = in->m32;
   tmp.m33 = in->m33;
+#else
+  tmp.m00 = in->m00 * r.m00 + in->m01 * r.m10 + in->m02 * r.m20;
+  tmp.m10 = in->m10 * r.m00 + in->m11 * r.m10 + in->m12 * r.m20;
+  tmp.m20 = in->m20 * r.m00 + in->m21 * r.m10 + in->m22 * r.m20;
+  tmp.m30 = in->m30 * r.m00 + in->m31 * r.m10 + in->m32 * r.m20;
+
+  tmp.m01 = in->m00 * r.m01 + in->m01 * r.m11 + in->m02 * r.m21;
+  tmp.m11 = in->m10 * r.m01 + in->m11 * r.m11 + in->m12 * r.m21;
+  tmp.m21 = in->m20 * r.m01 + in->m21 * r.m11 + in->m22 * r.m21;
+  tmp.m31 = in->m30 * r.m01 + in->m31 * r.m11 + in->m32 * r.m21;
+
+  tmp.m02 = in->m00 * r.m02 + in->m01 * r.m12 + in->m02 * r.m22;
+  tmp.m12 = in->m10 * r.m02 + in->m11 * r.m12 + in->m12 * r.m22;
+  tmp.m22 = in->m20 * r.m02 + in->m21 * r.m12 + in->m22 * r.m22;
+  tmp.m32 = in->m30 * r.m02 + in->m31 * r.m12 + in->m32 * r.m22;
+
+  tmp.m03 = in->m03;
+  tmp.m13 = in->m13;
+  tmp.m23 = in->m23;
+  tmp.m33 = in->m33;
+#endif
 
   memcpy(out, &tmp, sizeof(lida_Mat4));
 }
