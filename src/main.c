@@ -82,18 +82,26 @@ int main(int argc, char** argv) {
   float* numbers = mapped;
 
   camera.z_near = 0.01f;
-  /* camera.z_far = 10.0f; */
   camera.position = LIDA_VEC3_IDENTITY();
   camera.rotation = LIDA_VEC3_CREATE(0.0f, M_PI, 0.0f);
   camera.up = LIDA_VEC3_CREATE(0.0f, 1.0f, 0.0f);
   camera.fovy = LIDA_RADIANS(45.0f);
+  camera.rotation_speed = 0.005f;
+  camera.movement_speed = 1.0f;
 
   lida_Vec3 offset = {0.0f, 0.0f, 0.0f};
   float angle = 0.0f;
 
+  uint32_t prev_time = SDL_GetTicks();
+  uint32_t curr_time = prev_time;
+
   SDL_Event event;
   int running = 1;
   while (running) {
+    prev_time = curr_time;
+    curr_time = SDL_GetTicks();
+    const float dt = (curr_time - prev_time) / 1000.0f;
+
     while (SDL_PollEvent(&event)) {
       switch (event.type) {
       case SDL_QUIT:
@@ -104,7 +112,7 @@ int main(int argc, char** argv) {
         case SDLK_ESCAPE:
           running = 0;
           break;
-        case SDLK_SPACE:
+        case SDLK_1:
           LIDA_LOG_INFO("FPS=%f", lida_WindowGetFPS());
           break;
 
@@ -122,21 +130,66 @@ int main(int argc, char** argv) {
           angle += 0.01f;
           break;
 
+          // camera movement
+        case SDLK_w:
+          lida_CameraPressed(&camera, LIDA_CAMERA_PRESSED_FORWARD);
+          break;
+        case SDLK_s:
+          lida_CameraPressed(&camera, LIDA_CAMERA_PRESSED_BACK);
+          break;
+        case SDLK_a:
+          lida_CameraPressed(&camera, LIDA_CAMERA_PRESSED_LEFT);
+          break;
+        case SDLK_d:
+          lida_CameraPressed(&camera, LIDA_CAMERA_PRESSED_RIGHT);
+          break;
+        case SDLK_LSHIFT:
+          lida_CameraPressed(&camera, LIDA_CAMERA_PRESSED_DOWN);
+          break;
+        case SDLK_SPACE:
+          lida_CameraPressed(&camera, LIDA_CAMERA_PRESSED_UP);
+          break;
         }
+        break;
+
+      case SDL_KEYUP:
+        switch (event.key.keysym.sym) {
+        case SDLK_w:
+          lida_CameraUnpressed(&camera, LIDA_CAMERA_PRESSED_FORWARD);
+          break;
+        case SDLK_s:
+          lida_CameraUnpressed(&camera, LIDA_CAMERA_PRESSED_BACK);
+          break;
+        case SDLK_a:
+          lida_CameraUnpressed(&camera, LIDA_CAMERA_PRESSED_LEFT);
+          break;
+        case SDLK_d:
+          lida_CameraUnpressed(&camera, LIDA_CAMERA_PRESSED_RIGHT);
+          break;
+        case SDLK_LSHIFT:
+          lida_CameraUnpressed(&camera, LIDA_CAMERA_PRESSED_DOWN);
+          break;
+        case SDLK_SPACE:
+          lida_CameraUnpressed(&camera, LIDA_CAMERA_PRESSED_UP);
+          break;
+        }
+        break;
+
+      case SDL_MOUSEMOTION:
+        lida_CameraRotate(&camera, -event.motion.yrel, event.motion.xrel, 0.0f);
         break;
       }
     }
 
     VkExtent2D window_extent = lida_WindowGetExtent();
-    camera.aspect_ratio = (float)window_extent.width / (float)window_extent.height;
-    // lida_CameraUpdateProjection(&camera);
-    // lida_CameraUpdateView(&camera);
+    lida_CameraUpdate(&camera, dt, window_extent.width, window_extent.height);
+    lida_CameraUpdateProjection(&camera);
+    lida_CameraUpdateView(&camera);
 
-    camera.projection_matrix = LIDA_MAT4_IDENTITY();
-    lida_Vec3 z_axis = {0.0f, 0.0f, 1.0f};
-    lida_RotationMatrixAxisAngle(&camera.projection_matrix, &camera.projection_matrix, angle, &z_axis);
-    lida_TranslationMatrix(&camera.view_matrix, &offset);
-    // camera.view_matrix = LIDA_MAT4_IDENTITY();
+    // camera.projection_matrix = LIDA_MAT4_IDENTITY();
+    // lida_Vec3 z_axis = {0.0f, 0.0f, 1.0f};
+    // lida_RotationMatrixAxisAngle(&camera.projection_matrix, &camera.projection_matrix, angle, &z_axis);
+    // lida_TranslationMatrix(&camera.view_matrix, &offset);
 
     memcpy(numbers, &camera.projection_matrix, sizeof(lida_Mat4));
     memcpy(numbers + 16, &camera.view_matrix, sizeof(lida_Mat4));

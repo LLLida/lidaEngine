@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdint.h>
 #include <math.h>
 
 #ifdef __cplusplus
@@ -39,6 +40,15 @@ typedef struct {
 
 } lida_Mat4;
 
+enum {
+  LIDA_CAMERA_PRESSED_FORWARD = (1<<0),
+  LIDA_CAMERA_PRESSED_LEFT = (1<<1),
+  LIDA_CAMERA_PRESSED_RIGHT = (1<<2),
+  LIDA_CAMERA_PRESSED_BACK = (1<<3),
+  LIDA_CAMERA_PRESSED_UP = (1<<4),
+  LIDA_CAMERA_PRESSED_DOWN = (1<<5),
+};
+
 typedef struct {
 
   // note: need to update before access
@@ -58,9 +68,42 @@ typedef struct {
   float fovy;
   float aspect_ratio;
   float z_near;
-  /* float z_far; */
+
+  uint32_t pressed;
 
 } lida_Camera;
+
+float lida_rqsqrt(float number);
+
+void lida_Vec2Normalize(const lida_Vec2* in, lida_Vec2* out);
+void lida_Vec3Normalize(const lida_Vec3* in, lida_Vec3* out);
+void lida_Vec4Normalize(const lida_Vec4* in, lida_Vec4* out);
+
+void lida_Mat4Add(const lida_Mat4* lhs, const lida_Mat4* rhs, lida_Mat4* out);
+void lida_Mat4Sub(const lida_Mat4* lhs, const lida_Mat4* rhs, lida_Mat4* out);
+void lida_Mat4Mul(const lida_Mat4* lhs, const lida_Mat4* rhs, lida_Mat4* out);
+void lida_Mat4Transpose(const lida_Mat4* in, lida_Mat4* out);
+void lida_Mat4Inverse(const lida_Mat4* in, lida_Mat4* out);
+
+void lida_TranslationMatrix(lida_Mat4* out, const lida_Vec3* pos);
+void lida_RotationMatrixAxisAngle(const lida_Mat4* in, lida_Mat4* out,
+                                  float radians, const lida_Vec3* axis);
+void lida_RotationMatrixEulerAngles(lida_Mat4* out, const lida_Vec3* euler_angles);
+
+void lida_OrthographicMatrix(float left, float right,
+                             float bottom, float top,
+                             float z_near, float z_far,
+                             lida_Mat4* out);
+void lida_PerspectiveMatrix(float zoom, float aspect_ratio, float z_near,
+                           lida_Mat4* out);
+
+void lida_CameraUpdateProjection(lida_Camera* camera);
+void lida_CameraUpdateView(lida_Camera* camera);
+void lida_CameraRotate(lida_Camera* camera, float dx, float dy, float dz);
+void lida_CameraMove(lida_Camera* camera, float dx, float dy, float dz);
+void lida_CameraPressed(lida_Camera* camera, uint32_t flags);
+void lida_CameraUnpressed(lida_Camera* camera, uint32_t flags);
+void lida_CameraUpdate(lida_Camera* camera, float dt, uint32_t window_width, uint32_t window_height);
 
 #define LIDA_RADIANS(degrees) (degrees / 180.0f * 3.141592653589793238f)
 
@@ -95,33 +138,7 @@ typedef struct {
       0.0f, 0.0f, 1.0f, 0.0f,                   \
       0.0f, 0.0f, 0.0f, 1.0f                    \
       }
-
-float lida_rqsqrt(float number);
-
-void lida_Vec2Normalize(const lida_Vec2* in, lida_Vec2* out);
-void lida_Vec3Normalize(const lida_Vec3* in, lida_Vec3* out);
-void lida_Vec4Normalize(const lida_Vec4* in, lida_Vec4* out);
-
-void lida_Mat4Add(const lida_Mat4* lhs, const lida_Mat4* rhs, lida_Mat4* out);
-void lida_Mat4Sub(const lida_Mat4* lhs, const lida_Mat4* rhs, lida_Mat4* out);
-void lida_Mat4Mul(const lida_Mat4* lhs, const lida_Mat4* rhs, lida_Mat4* out);
-void lida_Mat4Transpose(const lida_Mat4* in, lida_Mat4* out);
-void lida_Mat4Inverse(const lida_Mat4* in, lida_Mat4* out);
-
-void lida_TranslationMatrix(lida_Mat4* out, const lida_Vec3* pos);
-void lida_RotationMatrixAxisAngle(const lida_Mat4* in, lida_Mat4* out,
-                                  float radians, const lida_Vec3* axis);
-void lida_RotationMatrixEulerAngles(lida_Mat4* out, const lida_Vec3* euler_angles);
-
-void lida_OrthographicMatrix(float left, float right,
-                             float bottom, float top,
-                             float z_near, float z_far,
-                             lida_Mat4* out);
-void lida_PerspectiveMatrix(float zoom, float aspect_ratio, float z_near,
-                           lida_Mat4* out);
-
-void lida_CameraUpdateProjection(lida_Camera* camera);
-void lida_CameraUpdateView(lida_Camera* camera);
+#define LIDA_MAT4_ROW(mat, i) (lida_Vec4*)(&mat.m00 + (i) * 4)
 
 #ifdef __cplusplus
 }

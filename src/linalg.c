@@ -287,8 +287,10 @@ lida_PerspectiveMatrix(float zoom, float aspect_ratio, float z_near,
   memset(out, 0, sizeof(float) * 16);
   out->m00 = f / aspect_ratio;
   out->m11 = f;
-  out->m23 = -1.0f;
-  out->m32 = z_near;
+  // out->m23 = -1.0f;
+  // out->m32 = z_near;
+  out->m23 = z_near;
+  out->m32 = -1.0f;
 }
 
 void
@@ -305,4 +307,66 @@ lida_CameraUpdateView(lida_Camera* camera)
   lida_RotationMatrixEulerAngles(&rot, &camera->rotation);
   lida_TranslationMatrix(&trans, &camera->position);
   lida_Mat4Mul(&rot, &trans, &camera->view_matrix);
+}
+
+void
+lida_CameraRotate(lida_Camera* camera, float dx, float dy, float dz)
+{
+  camera->rotation.x += dx * camera->rotation_speed;
+  camera->rotation.y += dy * camera->rotation_speed;
+  camera->rotation.z += dz * camera->rotation_speed;
+}
+
+void
+lida_CameraMove(lida_Camera* camera, float dx, float dy, float dz)
+{
+  camera->position.x += dx * camera->movement_speed;
+  camera->position.y += dy * camera->movement_speed;
+  camera->position.z += dz * camera->movement_speed;
+}
+
+void
+lida_CameraPressed(lida_Camera* camera, uint32_t flags)
+{
+  camera->pressed |= flags;
+}
+
+void
+lida_CameraUnpressed(lida_Camera* camera, uint32_t flags)
+{
+  camera->pressed ^= flags;
+}
+
+void
+lida_CameraUpdate(lida_Camera* camera, float dt, uint32_t window_width, uint32_t window_height)
+{
+  if (camera->pressed & (LIDA_CAMERA_PRESSED_FORWARD|LIDA_CAMERA_PRESSED_BACK)) {
+    lida_Vec3 plane = LIDA_VEC3_SUB(LIDA_VEC3_CREATE(1.0f, 1.0f, 1.0f), camera->up);
+    lida_Vec3 vec;
+    vec.x = camera->front_vector.x * plane.x;
+    vec.y = camera->front_vector.y * plane.y;
+    vec.z = camera->front_vector.z * plane.z;
+    if (camera->pressed & LIDA_CAMERA_PRESSED_FORWARD) {
+      lida_CameraMove(camera, dt * vec.x, dt * vec.y, dt * vec.z);
+    }
+    if (camera->pressed & LIDA_CAMERA_PRESSED_BACK) {
+      lida_CameraMove(camera, -dt * vec.x, -dt * vec.y, -dt * vec.z);
+    }
+  }
+  if (camera->pressed & (LIDA_CAMERA_PRESSED_RIGHT|LIDA_CAMERA_PRESSED_LEFT)) {
+    lida_Vec3 right = LIDA_VEC_CROSS(camera->front_vector, camera->up);
+    if (camera->pressed & LIDA_CAMERA_PRESSED_RIGHT) {
+      lida_CameraMove(camera, dt * right.x, dt * right.y, dt * right.z);
+    }
+    if (camera->pressed & LIDA_CAMERA_PRESSED_LEFT) {
+      lida_CameraMove(camera, -dt * right.x, -dt * right.y, -dt * right.z);
+    }
+  }
+  if (camera->pressed & LIDA_CAMERA_PRESSED_UP) {
+    lida_CameraMove(camera, dt * camera->up.x, dt * camera->up.y, dt * camera->up.z);
+  }
+  if (camera->pressed & LIDA_CAMERA_PRESSED_DOWN) {
+    lida_CameraMove(camera, -dt * camera->up.x, -dt * camera->up.y, -dt * camera->up.z);
+  }
+  camera->aspect_ratio = (float)window_width / (float)window_height;
 }
