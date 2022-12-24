@@ -16,6 +16,15 @@ int main(int argc, char** argv) {
   lida_TempAllocatorCreate(32 * 1024);
   lida_InitPlatformSpecificLoggers();
 
+  // lida_Mat4 m1 = { 1, 0, 2, 3, 4, 1, 2, 0, 3, 3, 4, 1 };
+  // lida_Mat4 m2 = { 0, 3, 4, 5, 1, 4, 5, 7, 4, 3, 2, 1 };
+  // lida_Mat4Mul(&m1, &m2, &m1);
+  // for (uint32_t i = 0; i < 16; i++)
+  //   if (i % 4 == 3)
+  //     printf("%f\n", ((float*)&m1)[i]);
+  //   else
+  //     printf("%f ", ((float*)&m1)[i]);
+
   LIDA_DEVICE_CREATE(.enable_debug_layers = 1,
                      .gpu_id = 0,
                      .app_name = "tst",
@@ -82,7 +91,7 @@ int main(int argc, char** argv) {
   float* numbers = mapped;
 
   camera.z_near = 0.01f;
-  camera.position = LIDA_VEC3_IDENTITY();
+  camera.position = LIDA_VEC3_CREATE(0.0f, 0.0f, -1.0f);
   camera.rotation = LIDA_VEC3_CREATE(0.0f, M_PI, 0.0f);
   camera.up = LIDA_VEC3_CREATE(0.0f, 1.0f, 0.0f);
   camera.fovy = LIDA_RADIANS(45.0f);
@@ -176,7 +185,7 @@ int main(int argc, char** argv) {
         break;
 
       case SDL_MOUSEMOTION:
-        lida_CameraRotate(&camera, -event.motion.yrel, event.motion.xrel, 0.0f);
+        lida_CameraRotate(&camera, event.motion.yrel, event.motion.xrel, 0.0f);
         break;
       }
     }

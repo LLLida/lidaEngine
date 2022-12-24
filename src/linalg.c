@@ -103,6 +103,7 @@ lida_Mat4Mul(const lida_Mat4* lhs, const lida_Mat4* rhs, lida_Mat4* out)
   temp.m31 = lhs->m30*rhs->m01 + lhs->m31*rhs->m11 + lhs->m32*rhs->m21 + lhs->m33*rhs->m31;
   temp.m32 = lhs->m30*rhs->m02 + lhs->m31*rhs->m12 + lhs->m32*rhs->m22 + lhs->m33*rhs->m32;
   temp.m33 = lhs->m30*rhs->m03 + lhs->m31*rhs->m13 + lhs->m32*rhs->m23 + lhs->m33*rhs->m33;
+
   memcpy(out, &temp, sizeof(lida_Mat4));
 }
 
@@ -280,17 +281,15 @@ lida_OrthographicMatrix(float left, float right, float bottom, float top,
 }
 
 void
-lida_PerspectiveMatrix(float zoom, float aspect_ratio, float z_near,
+lida_PerspectiveMatrix(float fov_y, float aspect_ratio, float z_near,
                       lida_Mat4* out)
 {
-  float f = 1.0f / tan(zoom * 0.5f);
+  float f = 1.0f / tan(fov_y * 0.5f);
   memset(out, 0, sizeof(float) * 16);
   out->m00 = f / aspect_ratio;
-  out->m11 = f;
-  // out->m23 = -1.0f;
-  // out->m32 = z_near;
-  out->m23 = z_near;
+  out->m11 = -f;
   out->m32 = -1.0f;
+  out->m23 = z_near;
 }
 
 void
@@ -303,10 +302,27 @@ lida_CameraUpdateProjection(lida_Camera* camera)
 void
 lida_CameraUpdateView(lida_Camera* camera)
 {
+#if 0
   lida_Mat4 rot, trans;
   lida_RotationMatrixEulerAngles(&rot, &camera->rotation);
   lida_TranslationMatrix(&trans, &camera->position);
-  lida_Mat4Mul(&rot, &trans, &camera->view_matrix);
+  // lida_Mat4Mul(&rot, &trans, &camera->view_matrix);
+  lida_Mat4Mul(&trans, &rot, &camera->view_matrix);
+#else
+  lida_Vec3 s = LIDA_VEC_CROSS(camera->front, camera->up);
+  lida_Vec3 u = LIDA_VEC_CROSS(s, camera->front);
+  lida_Vec3 t = {
+    LIDA_VEC3_DOT(camera->position, s),
+    LIDA_VEC3_DOT(camera->position, u),
+    LIDA_VEC3_DOT(camera->position, camera->front)
+  };
+  camera->view_matrix = (lida_Mat4) {
+    s.x, u.x, camera->front.x, 0.0f,
+    s.y, u.y, camera->front.y, 0.0f,
+    s.z, u.z, camera->front.z, 0.0f,
+    -t.x, -t.y, -t.z,             1.0f
+  };
+#endif
 }
 
 void
@@ -340,12 +356,15 @@ lida_CameraUnpressed(lida_Camera* camera, uint32_t flags)
 void
 lida_CameraUpdate(lida_Camera* camera, float dt, uint32_t window_width, uint32_t window_height)
 {
+  camera->front = LIDA_VEC3_CREATE(cos(camera->rotation.x) * sin(camera->rotation.y),
+                                          sin(camera->rotation.x),
+                                          cos(camera->rotation.x) * cos(camera->rotation.y));
   if (camera->pressed & (LIDA_CAMERA_PRESSED_FORWARD|LIDA_CAMERA_PRESSED_BACK)) {
     lida_Vec3 plane = LIDA_VEC3_SUB(LIDA_VEC3_CREATE(1.0f, 1.0f, 1.0f), camera->up);
     lida_Vec3 vec;
-    vec.x = camera->front_vector.x * plane.x;
-    vec.y = camera->front_vector.y * plane.y;
-    vec.z = camera->front_vector.z * plane.z;
+    vec.x = camera->front.x * plane.x;
+    vec.y = camera->front.y * plane.y;
+    vec.z = camera->front.z * plane.z;
     if (camera->pressed & LIDA_CAMERA_PRESSED_FORWARD) {
       lida_CameraMove(camera, dt * vec.x, dt * vec.y, dt * vec.z);
     }
@@ -354,7 +373,7 @@ lida_CameraUpdate(lida_Camera* camera, float dt, uint32_t window_width, uint32_t
     }
   }
   if (camera->pressed & (LIDA_CAMERA_PRESSED_RIGHT|LIDA_CAMERA_PRESSED_LEFT)) {
-    lida_Vec3 right = LIDA_VEC_CROSS(camera->front_vector, camera->up);
+    lida_Vec3 right = LIDA_VEC_CROSS(camera->front, camera->up);
     if (camera->pressed & LIDA_CAMERA_PRESSED_RIGHT) {
       lida_CameraMove(camera, dt * right.x, dt * right.y, dt * right.z);
     }

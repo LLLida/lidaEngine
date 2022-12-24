@@ -33,10 +33,17 @@ typedef struct {
 
 typedef struct {
 
+#if 0
   float m00, m01, m02, m03;
   float m10, m11, m12, m13;
   float m20, m21, m22, m23;
   float m30, m31, m32, m33;
+#else
+  float m00, m10, m20, m30;
+  float m01, m11, m21, m31;
+  float m02, m12, m22, m32;
+  float m03, m13, m23, m33;
+#endif
 
 } lida_Mat4;
 
@@ -56,7 +63,7 @@ typedef struct {
   // note: need to update before access
   lida_Mat4 view_matrix;
   // note: need to update before access
-  lida_Vec3 front_vector;
+  lida_Vec3 front;
 
   lida_Vec3 position;
   lida_Vec3 up;
@@ -94,7 +101,7 @@ void lida_OrthographicMatrix(float left, float right,
                              float bottom, float top,
                              float z_near, float z_far,
                              lida_Mat4* out);
-void lida_PerspectiveMatrix(float zoom, float aspect_ratio, float z_near,
+void lida_PerspectiveMatrix(float fov_y, float aspect_ratio, float z_near,
                            lida_Mat4* out);
 
 void lida_CameraUpdateProjection(lida_Camera* camera);
