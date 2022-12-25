@@ -51,17 +51,21 @@ typedef struct {
 
 lida_Device* g_device = NULL;
 
+#define SHADER_REFLECT_MAX_SETS 8
+#define SHADER_REFLECT_MAX_BINDINGS_PER_SET 16
+#define SHADER_REFLECT_MAX_RANGES 4
+
 typedef struct {
-  VkDescriptorSetLayoutBinding bindings[16];
+  VkDescriptorSetLayoutBinding bindings[SHADER_REFLECT_MAX_BINDINGS_PER_SET];
   uint32_t binding_count;
 } BindingSetDesc;
 
 struct lida_ShaderReflect {
   VkShaderStageFlags stages;
   uint32_t localX, localY, localZ;
-  BindingSetDesc sets[8];
+  BindingSetDesc sets[SHADER_REFLECT_MAX_SETS];
   uint32_t set_count;
-  VkPushConstantRange ranges[4];
+  VkPushConstantRange ranges[SHADER_REFLECT_MAX_RANGES];
   uint32_t range_count;
 };
 
@@ -86,7 +90,7 @@ static uint32_t HashShaderInfo(const void* data);
 static int CompareShaderInfos(const void* lhs, const void* rhs);
 static uint32_t Hash_DS_LayoutInfo(const void* data);
 static int Compare_DS_Layouts(const void* lhs, const void* rhs);
-static int ReflectSPIRV(uint32_t* code, uint32_t size);
+static int ReflectSPIRV(const uint32_t* code, uint32_t size, lida_ShaderReflect* shader);
 
 
 VkResult
@@ -355,9 +359,11 @@ lida_LoadShader(const char* path, lida_ShaderReflect** reflect)
     LIDA_LOG_ERROR("failed to create shader module with error %s", lida_VkResultToString(err));
   } else {
     // Insert shader to cache if succeeded
-    lida_HT_Insert(&g_device->shader_cache, &(ShaderInfo) { .name = path, .module = ret });
+    ShaderInfo* shader_info = lida_HT_Insert(&g_device->shader_cache,
+                                             &(ShaderInfo) { .name = path, .module = ret });
+    ReflectSPIRV(buffer, buffer_size / sizeof(uint32_t), &shader_info->reflect);
     if (reflect) {
-      // TODO: generate shader reflection data
+      *reflect = &shader_info->reflect;
     }
   }
   SDL_free(buffer);
@@ -512,6 +518,32 @@ lida_VkResultToString(VkResult err)
   case VK_ERROR_VALIDATION_FAILED_EXT: return "VK_ERROR_VALIDATION_FAILED_EXT";
   default: return "VkResult(nil)";
   }
+}
+
+VkShaderStageFlags
+lida_ShaderReflectGetStage(const lida_ShaderReflect* shader)
+{
+  return shader->stages;
+}
+
+uint32_t
+lida_ShaderReflectGetNumSets(const lida_ShaderReflect* shader)
+{
+  return shader->set_count;
+}
+
+uint32_t
+lida_ShaderReflectGetNumBindings(const lida_ShaderReflect* shader, uint32_t set)
+{
+  if (set >= shader->set_count) return UINT32_MAX;
+  return shader->sets[set].binding_count;
+}
+
+const VkDescriptorSetLayoutBinding*
+lida_ShaderReflectGetBindings(const lida_ShaderReflect* shader, uint32_t set)
+{
+  if (set >= shader->set_count) return NULL;
+  return shader->sets[set].bindings;
 }
 
 
@@ -860,7 +892,7 @@ typedef struct {
     } val_float;
     struct {
       uint32_t componentTypeId;
-      uint32_t sizeConstantId;
+      uint32_t numComponents;
     } val_vec;
     struct {
       const uint32_t* memberTypes;
@@ -868,19 +900,217 @@ typedef struct {
       SpvDecoration structType;
     } val_struct;
     struct {
+      uint32_t elementTypeId;
+      uint32_t sizeConstantId;
+    } val_array;
+    struct {
       uint32_t constantType;
       uint32_t constantValue;
     } val_const;
   } data;
 } SPIRV_ID;
 
-int
-ReflectSPIRV(uint32_t* code, uint32_t size)
+static uint32_t
+SPIRV_ComputeTypeSize(SPIRV_ID* ids, uint32_t id, uint32_t current_size/*for alignment*/)
 {
-  SPIRV_ID* ids = lida_TempAllocate(sizeof(SPIRV_ID) * 1024);
+  (void)ids;
+  (void)id;
+  (void)current_size;
+  return 0;
+}
+
+int
+ReflectSPIRV(const uint32_t* code, uint32_t size, lida_ShaderReflect* shader)
+{
   // based on https://github.com/zeux/niagara/blob/98f5d5ae2b48e15e145e3ad13ae7f4f9f1e0e297/src/shaders.cpp#L45
   // https://www.khronos.org/registry/SPIR-V/specs/unified1/SPIRV.html#_physical_layout_of_a_spir_v_module_and_instruction
   // this tool also helped me a lot: https://www.khronos.org/spir/visualizer/
+  if (code[0] != SpvMagicNumber) {
+    LIDA_LOG_WARN("code is not valid SPIR-V");
+    return -1;
+  }
+  uint32_t id_bound = code[3];
+  SPIRV_ID* ids = lida_TempAllocate(sizeof(SPIRV_ID) * id_bound);
+  memset(ids, 0, sizeof(SPIRV_ID) * id_bound);
+  for (uint32_t i = 0; i < id_bound; i++) {
+    ids->data.binding.inputAttachmentIndex = UINT32_MAX;
+  }
+  const uint32_t* ins = code + 5;
+  const uint32_t* const end = code + size;
+  // parse all opcodes
+  while (ins != end) {
+    SpvOp opcode = ins[0] & 0xffff;
+    uint32_t word_count = ins[0] >> 16;
+    switch (opcode) {
+    case SpvOpEntryPoint:
+      assert(word_count >= 2);
+      switch (ins[1]) {
+      case SpvExecutionModelVertex: shader->stages = VK_SHADER_STAGE_VERTEX_BIT; break;
+      case SpvExecutionModelFragment: shader->stages = VK_SHADER_STAGE_FRAGMENT_BIT; break;
+      case SpvExecutionModelGLCompute: shader->stages = VK_SHADER_STAGE_COMPUTE_BIT; break;
+      default: assert(0 && "SPIR-V: invalid shader stage");
+      }
+      break;
+    case SpvOpExecutionMode:
+      assert(word_count >= 3);
+      switch (ins[2]) {
+      case SpvExecutionModeLocalSize:
+        assert(word_count == 6);
+        shader->localX = ins[3];
+        shader->localY = ins[4];
+        shader->localZ = ins[5];
+        break;
+      }
+      break;
+    case SpvOpDecorate:
+      assert(word_count >= 3);
+      // ins[1] is id of entity that describes current instruction
+      assert(ins[1] < id_bound);
+      switch (ins[2]) {
+      case SpvDecorationDescriptorSet:
+        assert(word_count == 4);
+        ids[ins[1]].data.binding.set = ins[3];
+        break;
+      case SpvDecorationBinding:
+        assert(word_count == 4);
+        ids[ins[1]].data.binding.binding = ins[3];
+        break;
+      case SpvDecorationBlock:
+      case SpvDecorationBufferBlock:
+        ids[ins[1]].data.val_struct.structType = ins[2];
+        break;
+      case SpvDecorationInputAttachmentIndex:
+        ids[ins[1]].data.binding.inputAttachmentIndex = ins[3];
+        break;
+      }
+      break;
+    case SpvOpTypeStruct:
+      ids[ins[1]].opcode = opcode;
+      ids[ins[1]].data.val_struct.memberTypes = ins + 2;
+      ids[ins[1]].data.val_struct.numMemberTypes = word_count - 2;
+      break;
+    case SpvOpTypeImage:
+    case SpvOpTypeSampler:
+    case SpvOpTypeSampledImage:
+      assert(word_count >= 2);
+      assert(ins[1] < id_bound);
+      assert(ids[ins[1]].opcode == 0);
+      ids[ins[1]].opcode = opcode;
+      break;
+    case SpvOpTypeInt:
+      assert(word_count == 4);
+      assert(ids[ins[1]].opcode == 0);
+      ids[ins[1]].opcode = opcode;
+      ids[ins[1]].data.val_int.integerWidth = ins[2];
+      ids[ins[1]].data.val_int.integerSigned = ins[3];
+      break;
+    case SpvOpTypeFloat:
+      assert(word_count == 3);
+      assert(ids[ins[1]].opcode == 0);
+      ids[ins[1]].opcode = opcode;
+      ids[ins[1]].data.val_float.floatWidth = ins[2];
+      break;
+    case SpvOpTypeVector:
+    case SpvOpTypeMatrix:
+      assert(word_count == 4);
+      assert(ids[ins[1]].opcode == 0);
+      ids[ins[1]].opcode = opcode;
+      ids[ins[1]].data.val_vec.componentTypeId = ins[2];
+      ids[ins[1]].data.val_vec.numComponents = ins[3];
+      break;
+    case SpvOpTypeArray:
+      assert(ids[ins[1]].opcode == 0);
+      ids[ins[1]].opcode = opcode;
+      ids[ins[1]].data.val_array.elementTypeId = ins[2];
+      ids[ins[1]].data.val_array.sizeConstantId = ins[3];
+      break;
+    case SpvOpTypePointer:
+      assert(word_count == 4);
+      assert(ins[1] < id_bound);
+      assert(ids[ins[1]].opcode == 0);
+      ids[ins[1]].opcode = opcode;
+      ids[ins[1]].data.binding.storageClass = ins[2];
+      ids[ins[1]].data.binding.typeId = ins[3];
+      break;
+    case SpvOpVariable:
+      assert(word_count >= 4);
+      // ins[2] is id
+      assert(ins[2] < id_bound);
+      assert(ids[ins[2]].opcode == 0);
+      ids[ins[2]].opcode = opcode;
+      ids[ins[2]].data.binding.typeId = ins[1];
+      ids[ins[2]].data.binding.storageClass = ins[3];
+      break;
+    case SpvOpConstant:
+      assert(ids[ins[2]].opcode == 0);
+      ids[ins[2]].opcode = opcode;
+      ids[ins[2]].data.val_const.constantType = ins[1];
+      ids[ins[2]].data.val_const.constantValue = ins[3];
+      break;
+      // avoid warnings from GCC
+    default:
+      break;
+    }
+    ins += word_count;
+  }
+  shader->set_count = 0;
+  shader->range_count = 0;
+  memset(shader->sets, 0, sizeof(BindingSetDesc) * SHADER_REFLECT_MAX_SETS);
+  // use ids that we parsed to collect reflection data
+  for (uint32_t i = 0; i < id_bound; i++) {
+    SPIRV_ID* id = &ids[i];
+    if (id->opcode == SpvOpVariable &&
+        (id->data.binding.storageClass == SpvStorageClassUniform ||
+         id->data.binding.storageClass == SpvStorageClassUniformConstant ||
+         id->data.binding.storageClass == SpvStorageClassStorageBuffer)) {
+      // process uniform
+      assert(id->data.binding.set < SHADER_REFLECT_MAX_SETS &&
+             "descriptor set number is bigger than max value");
+      if (id->data.binding.set+1 > shader->set_count)
+        shader->set_count = id->data.binding.set+1;
+      assert(id->data.binding.binding < SHADER_REFLECT_MAX_BINDINGS_PER_SET &&
+             "descriptor binding number is bigger than max value");
+      assert(ids[id->data.binding.typeId].opcode == SpvOpTypePointer);
+      BindingSetDesc* set = &shader->sets[id->data.binding.set];
+      VkDescriptorType* ds_type = &set->bindings[set->binding_count].descriptorType;
+      switch (ids[ids[id->data.binding.typeId].data.binding.typeId].opcode) {
+      case SpvOpTypeStruct:
+        switch (ids[ids[id->data.binding.typeId].data.binding.typeId].data.val_struct.structType) {
+        case SpvDecorationBlock:
+          *ds_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+          break;
+        case SpvDecorationBufferBlock:
+          *ds_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+          break;
+        default: break;
+        }
+        break;
+      case SpvOpTypeImage:
+        if (id->data.binding.inputAttachmentIndex != UINT32_MAX) {
+          *ds_type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+        } else {
+          *ds_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        }
+        break;
+      case SpvOpTypeSampler:
+        *ds_type = VK_DESCRIPTOR_TYPE_SAMPLER;
+        break;
+      case SpvOpTypeSampledImage:
+        *ds_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        break;
+      default:
+        assert(0 && "Unknown resource type");
+        break;
+      }
+      set->bindings[set->binding_count].binding = id->data.binding.binding;
+      set->bindings[set->binding_count].descriptorCount = 1;
+      set->bindings[set->binding_count].stageFlags = shader->stages;
+      set->binding_count++;
+    } else if (id->opcode == SpvOpVariable &&
+               id->data.binding.storageClass == SpvStorageClassPushConstant) {
+      // process push constant
+    }
+  }
   lida_TempFree(ids);
   return 0;
 }

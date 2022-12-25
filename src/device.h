@@ -76,6 +76,12 @@ VkResult lida_BufferBindToMemory(lida_VideoMemory* memory, VkBuffer buffer,
 
 const char* lida_VkResultToString(VkResult err);
 
+VkShaderStageFlags lida_ShaderReflectGetStage(const lida_ShaderReflect* shader);
+uint32_t lida_ShaderReflectGetNumSets(const lida_ShaderReflect* shader);
+uint32_t lida_ShaderReflectGetNumBindings(const lida_ShaderReflect* shader, uint32_t set);
+const VkDescriptorSetLayoutBinding* lida_ShaderReflectGetBindings(const lida_ShaderReflect* shader,
+                                                                  uint32_t set);
+
 #ifdef __cplusplus
 }
 #endif

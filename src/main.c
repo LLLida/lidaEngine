@@ -98,9 +98,6 @@ int main(int argc, char** argv) {
   camera.rotation_speed = 0.005f;
   camera.movement_speed = 1.0f;
 
-  lida_Vec3 offset = {0.0f, 0.0f, 0.0f};
-  float angle = 0.0f;
-
   uint32_t prev_time = SDL_GetTicks();
   uint32_t curr_time = prev_time;
 
@@ -126,20 +123,6 @@ int main(int argc, char** argv) {
           break;
         case SDLK_1:
           LIDA_LOG_INFO("FPS=%f", lida_WindowGetFPS());
-          break;
-
-          // triangle movement
-        case SDLK_LEFT:
-          offset.x += 0.02f;
-          break;
-        case SDLK_RIGHT:
-          offset.y += 0.02f;
-          break;
-        case SDLK_UP:
-          offset.z += 0.02f;
-          break;
-        case SDLK_DOWN:
-          angle += 0.01f;
           break;
 
           // camera movement
@@ -198,11 +181,6 @@ int main(int argc, char** argv) {
     lida_CameraUpdateProjection(&camera);
     lida_CameraUpdateView(&camera);
 
-    // camera.projection_matrix = LIDA_MAT4_IDENTITY();
-    // lida_Vec3 z_axis = {0.0f, 0.0f, 1.0f};
-    // lida_RotationMatrixAxisAngle(&camera.projection_matrix, &camera.projection_matrix, angle, &z_axis);
-    // lida_TranslationMatrix(&camera.view_matrix, &offset);
-
     memcpy(numbers, &camera.projection_matrix, sizeof(lida_Mat4));
     memcpy(numbers + 16, &camera.view_matrix, sizeof(lida_Mat4));
 
@@ -253,11 +231,13 @@ VkPipeline createTrianglePipeline() {
   };
   vkCreatePipelineLayout(lida_GetLogicalDevice(), &layout_info, NULL, &pipeline_layout);
 
+  lida_ShaderReflect* reflect_info;
+
   VkPipelineShaderStageCreateInfo stages[2];
   stages[0] = (VkPipelineShaderStageCreateInfo) {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
     .stage = VK_SHADER_STAGE_VERTEX_BIT,
-    .module = lida_LoadShader("shaders/triangle.vert.spv", NULL),
+    .module = lida_LoadShader("shaders/triangle.vert.spv", &reflect_info),
     .pName = "main",
   };
   stages[1] = (VkPipelineShaderStageCreateInfo) {
@@ -266,6 +246,17 @@ VkPipeline createTrianglePipeline() {
     .module = lida_LoadShader("shaders/triangle.frag.spv", NULL),
     .pName = "main",
   };
+
+  for (uint32_t i = 0; i < lida_ShaderReflectGetNumSets(reflect_info); i++) {
+    uint32_t num_bindings = lida_ShaderReflectGetNumBindings(reflect_info, i);
+    VkDescriptorSetLayoutBinding* bindings = lida_ShaderReflectGetBindings(reflect_info, i);
+    for (uint32_t j = 0; j < num_bindings; j++) {
+      LIDA_LOG_DEBUG("Binding %u: binding=%u, type=%d, descriptorCount=%u, stageFlags=%d",
+                     j, bindings[j].binding, bindings[j].descriptorType,
+                     bindings[j].descriptorCount, bindings[j].stageFlags);
+    }
+  }
+
   VkPipelineVertexInputStateCreateInfo vertex_input_state = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
   };

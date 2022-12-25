@@ -305,6 +305,7 @@ void
 lida_CameraUpdateView(lida_Camera* camera)
 {
   // calculate look-at matrix
+  // https://medium.com/@carmencincotti/lets-look-at-magic-lookat-matrices-c77e53ebdf78
   lida_Vec3 s = LIDA_VEC_CROSS(camera->front, camera->up);
   lida_Vec3 u = LIDA_VEC_CROSS(s, camera->front);
   lida_Vec3 t = {
