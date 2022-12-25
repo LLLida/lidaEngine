@@ -31,19 +31,13 @@ typedef struct {
 
 } lida_Vec4;
 
+// Column-major 4x4 matrix
 typedef struct {
 
-#if 0
-  float m00, m01, m02, m03;
-  float m10, m11, m12, m13;
-  float m20, m21, m22, m23;
-  float m30, m31, m32, m33;
-#else
   float m00, m10, m20, m30;
   float m01, m11, m21, m31;
   float m02, m12, m22, m32;
   float m03, m13, m23, m33;
-#endif
 
 } lida_Mat4;
 

@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
   //   else
   //     printf("%f ", ((float*)&m1)[i]);
 
-  LIDA_DEVICE_CREATE(.enable_debug_layers = 1,
+  LIDA_DEVICE_CREATE(.enable_debug_layers = (argc == 1),
                      .gpu_id = 0,
                      .app_name = "tst",
                      .app_version = VK_MAKE_VERSION(0, 0, 0),
@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
   float* numbers = mapped;
 
   camera.z_near = 0.01f;
-  camera.position = LIDA_VEC3_CREATE(0.0f, 0.0f, -1.0f);
+  camera.position = LIDA_VEC3_CREATE(0.0f, 0.0f, -2.0f);
   camera.rotation = LIDA_VEC3_CREATE(0.0f, M_PI, 0.0f);
   camera.up = LIDA_VEC3_CREATE(0.0f, 1.0f, 0.0f);
   camera.fovy = LIDA_RADIANS(45.0f);
@@ -103,6 +103,9 @@ int main(int argc, char** argv) {
 
   uint32_t prev_time = SDL_GetTicks();
   uint32_t curr_time = prev_time;
+
+  // hide the cursor
+  SDL_SetRelativeMouseMode(1);
 
   SDL_Event event;
   int running = 1;

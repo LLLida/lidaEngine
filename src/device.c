@@ -655,6 +655,8 @@ CreateInstance(const lida_DeviceDesc* desc)
       if (err != VK_SUCCESS) {
         LIDA_LOG_ERROR("Failed to create debug report callback");
       }
+    } else {
+      g_device->debug_report_callback = VK_NULL_HANDLE;
     }
   }
   return err;

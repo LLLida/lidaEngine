@@ -284,6 +284,8 @@ void
 lida_PerspectiveMatrix(float fov_y, float aspect_ratio, float z_near,
                       lida_Mat4* out)
 {
+  // z far is inifinity, depth is one to zero
+  // this gives us better precision when working with depth buffer
   float f = 1.0f / tan(fov_y * 0.5f);
   memset(out, 0, sizeof(float) * 16);
   out->m00 = f / aspect_ratio;
@@ -302,13 +304,7 @@ lida_CameraUpdateProjection(lida_Camera* camera)
 void
 lida_CameraUpdateView(lida_Camera* camera)
 {
-#if 0
-  lida_Mat4 rot, trans;
-  lida_RotationMatrixEulerAngles(&rot, &camera->rotation);
-  lida_TranslationMatrix(&trans, &camera->position);
-  // lida_Mat4Mul(&rot, &trans, &camera->view_matrix);
-  lida_Mat4Mul(&trans, &rot, &camera->view_matrix);
-#else
+  // calculate look-at matrix
   lida_Vec3 s = LIDA_VEC_CROSS(camera->front, camera->up);
   lida_Vec3 u = LIDA_VEC_CROSS(s, camera->front);
   lida_Vec3 t = {
@@ -317,12 +313,11 @@ lida_CameraUpdateView(lida_Camera* camera)
     LIDA_VEC3_DOT(camera->position, camera->front)
   };
   camera->view_matrix = (lida_Mat4) {
-    s.x, u.x, camera->front.x, 0.0f,
-    s.y, u.y, camera->front.y, 0.0f,
-    s.z, u.z, camera->front.z, 0.0f,
-    -t.x, -t.y, -t.z,             1.0f
+    s.x,  u.x,  camera->front.x, 0.0f,
+    s.y,  u.y,  camera->front.y, 0.0f,
+    s.z,  u.z,  camera->front.z, 0.0f,
+    -t.x, -t.y, -t.z,            1.0f
   };
-#endif
 }
 
 void
@@ -356,15 +351,16 @@ lida_CameraUnpressed(lida_Camera* camera, uint32_t flags)
 void
 lida_CameraUpdate(lida_Camera* camera, float dt, uint32_t window_width, uint32_t window_height)
 {
+  // euler angles are just spheral coordinates
   camera->front = LIDA_VEC3_CREATE(cos(camera->rotation.x) * sin(camera->rotation.y),
-                                          sin(camera->rotation.x),
-                                          cos(camera->rotation.x) * cos(camera->rotation.y));
+                                   sin(camera->rotation.x),
+                                   cos(camera->rotation.x) * cos(camera->rotation.y));
   if (camera->pressed & (LIDA_CAMERA_PRESSED_FORWARD|LIDA_CAMERA_PRESSED_BACK)) {
     lida_Vec3 plane = LIDA_VEC3_SUB(LIDA_VEC3_CREATE(1.0f, 1.0f, 1.0f), camera->up);
     lida_Vec3 vec;
-    vec.x = camera->front.x * plane.x;
-    vec.y = camera->front.y * plane.y;
-    vec.z = camera->front.z * plane.z;
+    vec.x = -camera->front.x * plane.x;
+    vec.y = -camera->front.y * plane.y;
+    vec.z = -camera->front.z * plane.z;
     if (camera->pressed & LIDA_CAMERA_PRESSED_FORWARD) {
       lida_CameraMove(camera, dt * vec.x, dt * vec.y, dt * vec.z);
     }
