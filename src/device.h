@@ -61,7 +61,7 @@ VkResult lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
 void lida_VideoMemoryFree(lida_VideoMemory* memory);
 VkMemoryPropertyFlags lida_VideoMemoryGetFlags(const lida_VideoMemory* memory);
 
-VkShaderModule lida_LoadShader(const char* path, lida_ShaderReflect** reflect);
+VkShaderModule lida_LoadShader(const char* path, const lida_ShaderReflect** reflect);
 
 VkDescriptorSetLayout lida_GetDescriptorSetLayout(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings);
 VkResult lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings,
@@ -79,8 +79,9 @@ const char* lida_VkResultToString(VkResult err);
 VkShaderStageFlags lida_ShaderReflectGetStage(const lida_ShaderReflect* shader);
 uint32_t lida_ShaderReflectGetNumSets(const lida_ShaderReflect* shader);
 uint32_t lida_ShaderReflectGetNumBindings(const lida_ShaderReflect* shader, uint32_t set);
-const VkDescriptorSetLayoutBinding* lida_ShaderReflectGetBindings(const lida_ShaderReflect* shader,
-                                                                  uint32_t set);
+const VkDescriptorSetLayoutBinding* lida_ShaderReflectGetBindings(const lida_ShaderReflect* shader, uint32_t set);
+uint32_t lida_ShaderReflectGetNumRanges(const lida_ShaderReflect* shader);
+const VkPushConstantRange* lida_ShaderReflectGetRanges(const lida_ShaderReflect* shader);
 
 #ifdef __cplusplus
 }

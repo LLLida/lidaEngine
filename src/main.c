@@ -186,8 +186,15 @@ int main(int argc, char** argv) {
 
     VkCommandBuffer cmd = lida_WindowBeginCommands();
 
+    lida_Vec4 colors[3] = {
+      LIDA_VEC4_CREATE(1.0f, 0.2f, 0.2f, 1.0f),
+      LIDA_VEC4_CREATE(0.0f, 0.9f, 0.4f, 1.0f),
+      LIDA_VEC4_CREATE(0.2f, 0.35f, 0.76f, 1.0f)
+    };
+
     float clear_color[4] = {0.7f, 0.1f, 0.7f, 1.0f};
     lida_WindowBeginRendering(clear_color);
+    vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(lida_Vec4)*3 + sizeof(lida_Vec3), &colors);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, &ds_set, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     vkCmdDraw(cmd, 3, 1, 0, 0);
@@ -217,45 +224,56 @@ int main(int argc, char** argv) {
 
 VkPipeline createTrianglePipeline() {
 
-  VkDescriptorSetLayoutBinding binding = {
-    .binding = 0,
-    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-    .descriptorCount = 1,
-    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-  };
-  VkDescriptorSetLayout set_layout = lida_GetDescriptorSetLayout(&binding, 1);
+  VkShaderModule vertex_shader, fragment_shader;
+  const lida_ShaderReflect* vertex_reflect, *fragment_reflect;
+  vertex_shader = lida_LoadShader("shaders/triangle.vert.spv", &vertex_reflect);
+  fragment_shader = lida_LoadShader("shaders/triangle.frag.spv", &fragment_reflect);
+
+  // VkDescriptorSetLayoutBinding binding = {
+    // .binding = 0,
+    // .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    // .descriptorCount = 1,
+    // .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+  // };
+  // VkDescriptorSetLayout set_layout = lida_GetDescriptorSetLayout(&binding, 1);
+  VkDescriptorSetLayout set_layout = lida_GetDescriptorSetLayout(lida_ShaderReflectGetBindings(vertex_reflect, 0), lida_ShaderReflectGetNumBindings(vertex_reflect, 0));
   VkPipelineLayoutCreateInfo layout_info = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
     .setLayoutCount = 1,
     .pSetLayouts = &set_layout,
+    .pushConstantRangeCount = lida_ShaderReflectGetNumRanges(vertex_reflect),
+    .pPushConstantRanges = lida_ShaderReflectGetRanges(vertex_reflect)
   };
   vkCreatePipelineLayout(lida_GetLogicalDevice(), &layout_info, NULL, &pipeline_layout);
-
-  lida_ShaderReflect* reflect_info;
 
   VkPipelineShaderStageCreateInfo stages[2];
   stages[0] = (VkPipelineShaderStageCreateInfo) {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
     .stage = VK_SHADER_STAGE_VERTEX_BIT,
-    .module = lida_LoadShader("shaders/triangle.vert.spv", &reflect_info),
+    .module = vertex_shader,
     .pName = "main",
   };
   stages[1] = (VkPipelineShaderStageCreateInfo) {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
     .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-    .module = lida_LoadShader("shaders/triangle.frag.spv", NULL),
+    .module = fragment_shader,
     .pName = "main",
   };
 
-  for (uint32_t i = 0; i < lida_ShaderReflectGetNumSets(reflect_info); i++) {
-    uint32_t num_bindings = lida_ShaderReflectGetNumBindings(reflect_info, i);
-    VkDescriptorSetLayoutBinding* bindings = lida_ShaderReflectGetBindings(reflect_info, i);
-    for (uint32_t j = 0; j < num_bindings; j++) {
-      LIDA_LOG_DEBUG("Binding %u: binding=%u, type=%d, descriptorCount=%u, stageFlags=%d",
-                     j, bindings[j].binding, bindings[j].descriptorType,
-                     bindings[j].descriptorCount, bindings[j].stageFlags);
-    }
-  }
+  // for (uint32_t i = 0; i < lida_ShaderReflectGetNumSets(reflect_info); i++) {
+  //   uint32_t num_bindings = lida_ShaderReflectGetNumBindings(reflect_info, i);
+  //   VkDescriptorSetLayoutBinding* bindings = lida_ShaderReflectGetBindings(reflect_info, i);
+  //   for (uint32_t j = 0; j < num_bindings; j++) {
+  //     LIDA_LOG_DEBUG("Binding %u: binding=%u, type=%d, descriptorCount=%u, stageFlags=%d",
+  //                    j, bindings[j].binding, bindings[j].descriptorType,
+  //                    bindings[j].descriptorCount, bindings[j].stageFlags);
+  //   }
+  // }
+  // for (uint32_t i = 0; i < lida_ShaderReflectGetNumRanges(reflect_info); i++) {
+  //   const VkPushConstantRange* ranges = lida_ShaderReflectGetRanges(reflect_info);
+  //   LIDA_LOG_DEBUG("Range %u: stages=%d, offset=%u, size=%u",
+  //                  i, ranges[i].stageFlags, ranges[i].offset, ranges[i].size);
+  // }
 
   VkPipelineVertexInputStateCreateInfo vertex_input_state = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,

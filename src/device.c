@@ -333,7 +333,7 @@ lida_VideoMemoryGetFlags(const lida_VideoMemory* memory)
 }
 
 VkShaderModule
-lida_LoadShader(const char* path, lida_ShaderReflect** reflect)
+lida_LoadShader(const char* path, const lida_ShaderReflect** reflect)
 {
   // check if we already have loaded this shader
   ShaderInfo* info = lida_HT_Search(&g_device->shader_cache, &path);
@@ -544,6 +544,18 @@ lida_ShaderReflectGetBindings(const lida_ShaderReflect* shader, uint32_t set)
 {
   if (set >= shader->set_count) return NULL;
   return shader->sets[set].bindings;
+}
+
+uint32_t
+lida_ShaderReflectGetNumRanges(const lida_ShaderReflect* shader)
+{
+  return shader->range_count;
+}
+
+const VkPushConstantRange*
+lida_ShaderReflectGetRanges(const lida_ShaderReflect* shader)
+{
+  return shader->ranges;
 }
 
 
@@ -913,10 +925,59 @@ typedef struct {
 static uint32_t
 SPIRV_ComputeTypeSize(SPIRV_ID* ids, uint32_t id, uint32_t current_size/*for alignment*/)
 {
-  (void)ids;
-  (void)id;
-  (void)current_size;
-  return 0;
+  // about alignment: https://stackoverflow.com/a/45641579
+  uint32_t offset = 0, alignment = 0;
+  switch (ids[id].opcode) {
+  case SpvOpTypeStruct:
+    // A structure has a base alignment equal to the largest base alignment of
+    // any of its members, rounded up to a multiple of 16.
+    for (uint32_t typeId = 0; typeId < ids[id].data.val_struct.numMemberTypes; typeId++) {
+      uint32_t member_size = SPIRV_ComputeTypeSize(ids, ids[id].data.val_struct.memberTypes[typeId], offset);
+      offset += member_size;
+      if (member_size > alignment)
+        alignment = member_size;
+    }
+    break;
+  case SpvOpTypeArray:
+    // An array has a base alignment equal to the base alignment of its element type,
+    // rounded up to a multiple of 16.
+    {
+      uint32_t arr_size = ids[ids[id].data.val_array.sizeConstantId].data.val_const.constantValue;
+      // FIXME: I feel like we calculating alignment in wrong way
+      uint32_t elem_alignment = SPIRV_ComputeTypeSize(ids, ids[id].data.val_array.elementTypeId, 0);
+      alignment = LIDA_ALIGN_TO(arr_size, 16 * elem_alignment);
+      offset = arr_size * elem_alignment;
+    }
+    break;
+  case SpvOpTypeFloat:
+    return ids[id].data.val_float.floatWidth >> 3;
+  case SpvOpTypeInt:
+    return ids[id].data.val_int.integerWidth >> 3;
+  case SpvOpTypeMatrix:
+    // A column-major matrix has a base alignment equal to the base alignment of the matrix column type.
+    // FIXME: should we check that matrix is row-major?
+    {
+      uint32_t vec_id = ids[id].data.val_vec.componentTypeId;
+      uint32_t vec_size = SPIRV_ComputeTypeSize(ids, vec_id, 0);
+      offset = ids[id].data.val_vec.numComponents * vec_size;
+      uint32_t elem_size = SPIRV_ComputeTypeSize(ids, ids[vec_id].data.val_vec.componentTypeId, 0);
+      alignment = LIDA_ALIGN_TO(ids[vec_id].data.val_vec.numComponents, 2) * elem_size;
+    }
+    break;
+  case SpvOpTypeVector:
+    // A two-component vector, with components of size N, has a base alignment of 2 N.
+    // A three- or four-component vector, with components of size N, has a base alignment of 4 N.
+    {
+      uint32_t component_size = SPIRV_ComputeTypeSize(ids, ids[id].data.val_vec.componentTypeId, 0);
+      offset = ids[id].data.val_vec.numComponents * component_size;
+      uint32_t num_components = LIDA_ALIGN_TO(ids[id].data.val_vec.numComponents, 2);
+      alignment = num_components * component_size;
+    }
+    break;
+  default:
+    assert(0 && "unrecognized type");
+  }
+  return LIDA_ALIGN_TO(current_size, alignment) - current_size + offset;
 }
 
 int
@@ -1056,6 +1117,7 @@ ReflectSPIRV(const uint32_t* code, uint32_t size, lida_ShaderReflect* shader)
   shader->set_count = 0;
   shader->range_count = 0;
   memset(shader->sets, 0, sizeof(BindingSetDesc) * SHADER_REFLECT_MAX_SETS);
+
   // use ids that we parsed to collect reflection data
   for (uint32_t i = 0; i < id_bound; i++) {
     SPIRV_ID* id = &ids[i];
@@ -1109,6 +1171,13 @@ ReflectSPIRV(const uint32_t* code, uint32_t size, lida_ShaderReflect* shader)
     } else if (id->opcode == SpvOpVariable &&
                id->data.binding.storageClass == SpvStorageClassPushConstant) {
       // process push constant
+      assert(ids[id->data.binding.typeId].data.binding.storageClass == SpvStorageClassPushConstant);
+      shader->ranges[shader->range_count] = (VkPushConstantRange) {
+        .stageFlags = shader->stages,
+        .offset = 0,
+        .size = SPIRV_ComputeTypeSize(ids, ids[id->data.binding.typeId].data.binding.typeId, 0),
+      };
+      shader->range_count++;
     }
   }
   lida_TempFree(ids);
