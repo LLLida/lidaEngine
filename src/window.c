@@ -6,14 +6,23 @@
 #include <SDL_timer.h>
 #include <SDL_vulkan.h>
 
+#define NEW_SWAPCHAIN 1
+
 typedef struct {
   VkCommandBuffer cmd;
   VkSemaphore image_available;
+#if NEW_SWAPCHAIN == 0
   VkSemaphore render_finished;
   VkFence fence;
+#endif
   uint64_t submit_time;
 } Frame;
+
+#if NEW_SWAPCHAIN
+#define FRAMES_IN_FLIGHT 2
+#else
 #define FRAMES_IN_FLIGHT 3
+#endif
 
 typedef struct {
   SDL_Window* window;
@@ -23,6 +32,10 @@ typedef struct {
   uint32_t num_images;
   lida_WindowImage* images;
   Frame frames[FRAMES_IN_FLIGHT];
+#if NEW_SWAPCHAIN
+  VkSemaphore render_finished_semaphore;
+  VkFence resources_available_fence;
+#endif
   uint64_t frame_counter;
   uint64_t last_submit;
   float frames_per_second;
@@ -74,10 +87,16 @@ lida_WindowDestroy()
 {
   VkDevice dev = lida_GetLogicalDevice();
   for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; i++) {
+#if NEW_SWAPCHAIN == 0
     vkDestroyFence(dev, g_window->frames[i].fence, NULL);
     vkDestroySemaphore(dev, g_window->frames[i].render_finished, NULL);
+#endif
     vkDestroySemaphore(dev, g_window->frames[i].image_available, NULL);
   }
+#if NEW_SWAPCHAIN == 1
+  vkDestroyFence(dev, g_window->resources_available_fence, NULL);
+  vkDestroySemaphore(dev, g_window->render_finished_semaphore, NULL);
+#endif
   for (uint32_t i = 0; i < g_window->num_images; i++) {
     vkDestroyFramebuffer(dev, g_window->images[i].framebuffer, NULL);
     vkDestroyImageView(dev, g_window->images[i].image_view, NULL);
@@ -149,11 +168,13 @@ VkCommandBuffer
 lida_WindowBeginCommands()
 {
   Frame* frame = &g_window->frames[g_window->frame_counter % FRAMES_IN_FLIGHT];
+#if NEW_SWAPCHAIN == 0
   VkResult err = vkWaitForFences(lida_GetLogicalDevice(), 1, &frame->fence, VK_TRUE, UINT64_MAX);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to wait for fence to start commands with error %s", lida_VkResultToString(err));
     return VK_NULL_HANDLE;
   }
+#endif
   VkCommandBufferBeginInfo begin_info = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
   vkBeginCommandBuffer(frame->cmd, &begin_info);
   return frame->cmd;
@@ -212,6 +233,21 @@ lida_WindowPresent()
   VkDevice dev = lida_GetLogicalDevice();
   Frame* frame = &g_window->frames[g_window->frame_counter % FRAMES_IN_FLIGHT];
   VkResult err;
+#if NEW_SWAPCHAIN == 0
+  // reset fence
+  err = vkResetFences(dev, 1, &frame->fence);
+#else
+  err = vkWaitForFences(lida_GetLogicalDevice(), 1, &g_window->resources_available_fence, VK_TRUE, UINT64_MAX);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to wait for fence before submitting commands with error %s", lida_VkResultToString(err));
+    return err;
+  }
+  err = vkResetFences(dev, 1, &g_window->resources_available_fence);
+#endif
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to reset fences before presenting image with error %s", lida_VkResultToString(err));
+    return err;
+  }
   // submit commands to render current image
   VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
   VkSubmitInfo submit_info = {
@@ -222,14 +258,17 @@ lida_WindowPresent()
     .commandBufferCount = 1,
     .pCommandBuffers = &frame->cmd,
     .signalSemaphoreCount = 1,
+#if NEW_SWAPCHAIN == 0
     .pSignalSemaphores = &frame->render_finished,
+#else
+    .pSignalSemaphores = &g_window->render_finished_semaphore,
+#endif
   };
-  err = vkResetFences(dev, 1, &frame->fence);
-  if (err != VK_SUCCESS) {
-    LIDA_LOG_ERROR("failed to reset fences before presenting image with error %s", lida_VkResultToString(err));
-    return err;
-  }
+#if NEW_SWAPCHAIN == 0
   err = lida_QueueSubmit(&submit_info, 1, frame->fence);
+#else
+  err = lida_QueueSubmit(&submit_info, 1, g_window->resources_available_fence);
+#endif
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to submit commands to graphics queue with error %s", lida_VkResultToString(err));
     return err;
@@ -242,7 +281,11 @@ lida_WindowPresent()
   VkPresentInfoKHR present_info = {
     .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
     .waitSemaphoreCount = 1,
+#if NEW_SWAPCHAIN == 0
     .pWaitSemaphores = &frame->render_finished,
+#else
+    .pWaitSemaphores = &g_window->render_finished_semaphore,
+#endif
     .swapchainCount = 1,
     .pSwapchains = &g_window->swapchain,
     .pImageIndices = &g_window->current_image,
@@ -509,6 +552,7 @@ CreateFrames()
       LIDA_LOG_ERROR("failed to create semaphore with error %s", lida_VkResultToString(err));
       return err;
     }
+#if NEW_SWAPCHAIN == 0
     err = vkCreateSemaphore(dev, &semaphore_info, NULL, &g_window->frames[i].render_finished);
     if (err != VK_SUCCESS) {
       LIDA_LOG_ERROR("failed to create semaphore with error %s", lida_VkResultToString(err));
@@ -519,7 +563,20 @@ CreateFrames()
       LIDA_LOG_ERROR("failed to create fence with error %s", lida_VkResultToString(err));
       return err;
     }
+#endif
   }
+#if NEW_SWAPCHAIN == 1
+  err = vkCreateSemaphore(dev, &semaphore_info, NULL, &g_window->render_finished_semaphore);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create semaphore with error %s", lida_VkResultToString(err));
+    return err;
+  }
+  err = vkCreateFence(dev, &fence_info, NULL, &g_window->resources_available_fence);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create fence with error %s", lida_VkResultToString(err));
+    return err;
+  }
+#endif
   g_window->frame_counter = 0;
   g_window->current_image = UINT32_MAX;
   return err;
