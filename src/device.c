@@ -90,6 +90,8 @@ static uint32_t HashShaderInfo(const void* data);
 static int CompareShaderInfos(const void* lhs, const void* rhs);
 static uint32_t Hash_DS_LayoutInfo(const void* data);
 static int Compare_DS_Layouts(const void* lhs, const void* rhs);
+static void MergeShaderReflects(lida_ShaderReflect* lhs, const lida_ShaderReflect* rhs);
+static lida_ShaderReflect* CollectShaderReflects(const lida_ShaderReflect** shaders, uint32_t count);
 static int ReflectSPIRV(const uint32_t* code, uint32_t size, lida_ShaderReflect* shader);
 
 
@@ -428,6 +430,44 @@ void
 lida_UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, uint32_t count)
 {
   vkUpdateDescriptorSets(g_device->logical_device, count, pDescriptorWrites, 0, NULL);
+}
+
+VkPipelineLayout
+lida_CreatePipelineLayout(const lida_ShaderReflect** shader_templates, uint32_t count)
+{
+  VkDescriptorSetLayout* set_layouts;
+  const lida_ShaderReflect* shader;
+  VkPipelineLayoutCreateInfo layout_info = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
+  };
+  if (count > 0) {
+    if (count == 1) {
+      shader = shader_templates[0];
+    } else {
+      shader = CollectShaderReflects(shader_templates, count);
+    }
+    set_layouts = lida_TempAllocate(shader->set_count * sizeof(VkDescriptorSetLayout));
+    for (uint32_t i = 0; i < shader->set_count; i++) {
+      set_layouts[i] = lida_GetDescriptorSetLayout(lida_ShaderReflectGetBindings(shader, i),
+                                                   lida_ShaderReflectGetNumBindings(shader, i));
+    }
+    layout_info.setLayoutCount = shader->set_count;
+    layout_info.pSetLayouts = set_layouts;
+    layout_info.pushConstantRangeCount = lida_ShaderReflectGetNumRanges(shader);
+    layout_info.pPushConstantRanges = lida_ShaderReflectGetRanges(shader);
+  }
+  VkPipelineLayout pipeline_layout;
+  VkResult err = vkCreatePipelineLayout(g_device->logical_device, &layout_info, NULL,
+                                        &pipeline_layout);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create pipeline layout with error %s", lida_VkResultToString(err));
+  }
+  if (count > 0) {
+    if (count > 1)
+      lida_TempFree((void*)shader);
+    lida_TempFree(set_layouts);
+  }
+  return pipeline_layout;
 }
 
 VkResult
@@ -883,6 +923,72 @@ Compare_DS_Layouts(const void* lhs, const void* rhs)
       return r;
   }
   return 0;
+}
+
+void
+MergeShaderReflects(lida_ShaderReflect* lhs, const lida_ShaderReflect* rhs)
+{
+  lhs->stages |= rhs->stages;
+  if (rhs->set_count > lhs->set_count) lhs->set_count = rhs->set_count;
+  for (uint32_t i = 0; i < rhs->set_count; i++) {
+    const BindingSetDesc* set = &rhs->sets[i];
+    uint32_t* pCount = &lhs->sets[i].binding_count;
+    uint32_t old_count = *pCount;
+    for (uint32_t j = 0; j < set->binding_count; j++) {
+      int found = 0;
+      for (uint32_t k = 0; old_count; k++) {
+        VkDescriptorSetLayoutBinding* binding = &lhs->sets[j].bindings[k];
+        if (binding->binding == set->bindings[j].binding) {
+          if (binding->descriptorType != set->bindings[j].descriptorType ||
+              binding->descriptorCount != set->bindings[j].descriptorCount) {
+            LIDA_LOG_WARN("shader merge error: different uniforms have the same binding number");
+          }
+          binding->stageFlags |= set->bindings[j].stageFlags;
+          found = 1;
+          break;
+        }
+      }
+      if (!found) {
+        // add binding
+        assert(*pCount < SHADER_REFLECT_MAX_BINDINGS_PER_SET &&
+               "shader reflect merge: binding number overflow, "
+               "try to use less number of bindings per set");
+        memcpy(&lhs->sets[i].bindings[*pCount], &set->bindings[i],
+               sizeof(VkDescriptorSetLayoutBinding));
+        (*pCount)++;
+      }
+    }
+  }
+  for (uint32_t i = 0; i < rhs->range_count; i++) {
+    const VkPushConstantRange* lrange, *rrange;
+    int found = 0;
+    rrange = &rhs->ranges[i];
+    for (uint32_t j = 0; j < lhs->range_count; j++) {
+      lrange = &lhs->ranges[j];
+      if (lrange->offset == rrange->offset &&
+          lrange->size == rrange->size) {
+        found = 1;
+        break;
+      }
+    }
+    if (!found) {
+      assert(lhs->range_count < SHADER_REFLECT_MAX_RANGES &&
+             "shader reflect merge: push constant number overflow");
+      memcpy(&lhs->ranges[lhs->range_count], rrange, sizeof(VkPushConstantRange));
+      lhs->range_count++;
+    }
+  }
+}
+
+lida_ShaderReflect*
+CollectShaderReflects(const lida_ShaderReflect** shaders, uint32_t count)
+{
+  lida_ShaderReflect* shader = lida_TempAllocate(sizeof(lida_ShaderReflect));
+  memcpy(shader, shaders[0], sizeof(lida_ShaderReflect));
+  for (uint32_t i = 1; i < count; i++) {
+    MergeShaderReflects(shader, shaders[i]);
+  }
+  return shader;
 }
 
 typedef struct {

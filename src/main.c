@@ -225,26 +225,11 @@ int main(int argc, char** argv) {
 VkPipeline createTrianglePipeline() {
 
   VkShaderModule vertex_shader, fragment_shader;
-  const lida_ShaderReflect* vertex_reflect, *fragment_reflect;
-  vertex_shader = lida_LoadShader("shaders/triangle.vert.spv", &vertex_reflect);
-  fragment_shader = lida_LoadShader("shaders/triangle.frag.spv", &fragment_reflect);
+  const lida_ShaderReflect* reflects[2];
+  vertex_shader = lida_LoadShader("shaders/triangle.vert.spv", &reflects[0]);
+  fragment_shader = lida_LoadShader("shaders/triangle.frag.spv", &reflects[1]);
 
-  // VkDescriptorSetLayoutBinding binding = {
-    // .binding = 0,
-    // .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-    // .descriptorCount = 1,
-    // .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-  // };
-  // VkDescriptorSetLayout set_layout = lida_GetDescriptorSetLayout(&binding, 1);
-  VkDescriptorSetLayout set_layout = lida_GetDescriptorSetLayout(lida_ShaderReflectGetBindings(vertex_reflect, 0), lida_ShaderReflectGetNumBindings(vertex_reflect, 0));
-  VkPipelineLayoutCreateInfo layout_info = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-    .setLayoutCount = 1,
-    .pSetLayouts = &set_layout,
-    .pushConstantRangeCount = lida_ShaderReflectGetNumRanges(vertex_reflect),
-    .pPushConstantRanges = lida_ShaderReflectGetRanges(vertex_reflect)
-  };
-  vkCreatePipelineLayout(lida_GetLogicalDevice(), &layout_info, NULL, &pipeline_layout);
+  pipeline_layout = lida_CreatePipelineLayout(reflects, 2);
 
   VkPipelineShaderStageCreateInfo stages[2];
   stages[0] = (VkPipelineShaderStageCreateInfo) {
