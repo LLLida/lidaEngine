@@ -1,3 +1,5 @@
+#pragma once
+
 #include "volk.h"
 
 #ifdef __cplusplus
@@ -69,6 +71,8 @@ VkResult lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* binding
 VkResult lida_FreeAllocateDescriptorSets(const VkDescriptorSet* sets, uint32_t num_sets);
 void lida_UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, uint32_t count);
 
+VkSampler lida_GetSampler(VkFilter filter, VkSamplerAddressMode mode);
+
 VkPipelineLayout lida_CreatePipelineLayout(const lida_ShaderReflect** shader_templates, uint32_t count);
 
 VkResult lida_BufferCreate(VkBuffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage);
@@ -76,7 +80,11 @@ VkResult lida_BufferBindToMemory(lida_VideoMemory* memory, VkBuffer buffer,
                                  const VkMemoryRequirements* requirements, void** mapped,
                                  VkMappedMemoryRange* mappedRange);
 
+VkFormat lida_FindSupportedFormat(VkFormat* options, uint32_t count, VkImageTiling tiling, VkFormatFeatureFlags flags);
+#define LIDA_FIND_SUPPORTED_FORMAT(options_array, tiling, flags) lida_FindSupportedFormat(options_array, sizeof(options_array) / sizeof(VkFormat), tiling, flags)
+
 const char* lida_VkResultToString(VkResult err);
+const char* lida_VkFormatToString(VkFormat format);
 
 VkShaderStageFlags lida_ShaderReflectGetStage(const lida_ShaderReflect* shader);
 uint32_t lida_ShaderReflectGetNumSets(const lida_ShaderReflect* shader);

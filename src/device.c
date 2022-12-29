@@ -43,6 +43,9 @@ typedef struct {
   lida_TypeInfo ds_layout_info_type;
   lida_HashTable ds_layout_cache;
 
+  lida_TypeInfo sampler_info_type;
+  lida_HashTable sampler_cache;
+
   VkPhysicalDeviceProperties properties;
   VkPhysicalDeviceFeatures features;
   VkPhysicalDeviceMemoryProperties memory_properties;
@@ -81,6 +84,12 @@ typedef struct {
   VkDescriptorSetLayout layout;
 } DS_LayoutInfo;
 
+typedef struct {
+  VkFilter filter;
+  VkSamplerAddressMode mode;
+  VkSampler handle;
+} SamplerInfo;
+
 static VkResult CreateInstance(const lida_DeviceDesc* desc);
 static VkResult PickPhysicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateLogicalDevice(const lida_DeviceDesc* desc);
@@ -90,6 +99,8 @@ static uint32_t HashShaderInfo(const void* data);
 static int CompareShaderInfos(const void* lhs, const void* rhs);
 static uint32_t Hash_DS_LayoutInfo(const void* data);
 static int Compare_DS_Layouts(const void* lhs, const void* rhs);
+static uint32_t HashSamplerInfo(const void* data);
+static int CompareSamplerInfos(const void* lhs, const void* rhs);
 static void MergeShaderReflects(lida_ShaderReflect* lhs, const lida_ShaderReflect* rhs);
 static lida_ShaderReflect* CollectShaderReflects(const lida_ShaderReflect** shaders, uint32_t count);
 static int ReflectSPIRV(const uint32_t* code, uint32_t size, lida_ShaderReflect* shader);
@@ -141,6 +152,11 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
                    Hash_DS_LayoutInfo, Compare_DS_Layouts, 0);
   g_device->ds_layout_cache = LIDA_HT_EMPTY(&g_device->ds_layout_info_type);
 
+  g_device->sampler_info_type =
+    LIDA_TYPE_INFO(SamplerInfo, lida_MallocAllocator(),
+                   HashSamplerInfo, CompareSamplerInfos, 0);
+  g_device->sampler_cache = LIDA_HT_EMPTY(&g_device->sampler_info_type);
+
   return err;
 }
 
@@ -148,12 +164,21 @@ void
 lida_DeviceDestroy(int fast)
 {
   lida_HT_Iterator it;
+
+  // clear sampler cache
+  LIDA_HT_FOREACH(&g_device->sampler_cache, &it) {
+    SamplerInfo* sampler = lida_HT_Iterator_Get(&it);
+    vkDestroySampler(g_device->logical_device, sampler->handle, NULL);
+  }
+  lida_HT_Delete(&g_device->sampler_cache);
+
   // clear descriptor layout cache
   LIDA_HT_FOREACH(&g_device->ds_layout_cache, &it) {
     DS_LayoutInfo* layout = lida_HT_Iterator_Get(&it);
     vkDestroyDescriptorSetLayout(g_device->logical_device, layout->layout, NULL);
   }
   lida_HT_Delete(&g_device->ds_layout_cache);
+
   // clear shader cache
   LIDA_HT_FOREACH(&g_device->shader_cache, &it) {
     ShaderInfo* shader = lida_HT_Iterator_Get(&it);
@@ -432,6 +457,40 @@ lida_UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, uint32_
   vkUpdateDescriptorSets(g_device->logical_device, count, pDescriptorWrites, 0, NULL);
 }
 
+VkSampler
+lida_GetSampler(VkFilter filter, VkSamplerAddressMode mode)
+{
+  SamplerInfo sampler;
+  sampler.filter = filter;
+  sampler.mode = mode;
+  // try to look if have this sampler in cache
+  SamplerInfo* it = lida_HT_Search(&g_device->sampler_cache, &sampler);
+  if (it) {
+    return it->handle;
+  }
+  // create a new sampler
+  VkSamplerCreateInfo sampler_info = {
+    .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+    .magFilter = filter,
+    .minFilter = filter,
+    .mipmapMode = (filter == VK_FILTER_NEAREST) ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR,
+    .addressModeU = mode,
+    .addressModeV = mode,
+    .addressModeW = mode,
+    .minLod = 0.0f,
+    .maxLod = 1.0f,
+    .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE
+  };
+  VkResult err = vkCreateSampler(g_device->logical_device, &sampler_info, NULL, &sampler.handle);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create sampler with error %s", lida_VkResultToString(err));
+    return VK_NULL_HANDLE;
+  }
+  // add sampler to cache if succeeded
+  lida_HT_Insert(&g_device->sampler_cache, &sampler);
+  return sampler.handle;
+}
+
 VkPipelineLayout
 lida_CreatePipelineLayout(const lida_ShaderReflect** shader_templates, uint32_t count)
 {
@@ -523,6 +582,20 @@ lida_BufferBindToMemory(lida_VideoMemory* memory, VkBuffer buffer,
   return err;
 }
 
+VkFormat
+lida_FindSupportedFormat(VkFormat* options, uint32_t count, VkImageTiling tiling, VkFormatFeatureFlags flags)
+{
+  VkFormatProperties properties;
+  for (uint32_t i = 0; i < count; i++) {
+    vkGetPhysicalDeviceFormatProperties(g_device->physical_device, options[i], &properties);
+    if ((tiling == VK_IMAGE_TILING_LINEAR && (properties.linearTilingFeatures & flags)) ||
+        (tiling == VK_IMAGE_TILING_OPTIMAL && (properties.optimalTilingFeatures & flags))) {
+      return options[i];
+    }
+  }
+  return VK_FORMAT_MAX_ENUM;
+}
+
 const char*
 lida_VkResultToString(VkResult err)
 {
@@ -557,6 +630,142 @@ lida_VkResultToString(VkResult err)
   case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: return "VK_ERROR_INCOMPATIBLE_DISPLAY_KHR";
   case VK_ERROR_VALIDATION_FAILED_EXT: return "VK_ERROR_VALIDATION_FAILED_EXT";
   default: return "VkResult(nil)";
+  }
+}
+
+const char*
+lida_VkFormatToString(VkFormat format)
+{
+  switch (format) {
+  case VK_FORMAT_UNDEFINED: return "VK_FORMAT_UNDEFINED";
+  case VK_FORMAT_R4G4_UNORM_PACK8: return "VK_FORMAT_R4G4_UNORM_PACK8";
+  case VK_FORMAT_R4G4B4A4_UNORM_PACK16: return "VK_FORMAT_R4G4B4A4_UNORM_PACK16";
+  case VK_FORMAT_B4G4R4A4_UNORM_PACK16: return "VK_FORMAT_B4G4R4A4_UNORM_PACK16";
+  case VK_FORMAT_R5G6B5_UNORM_PACK16: return "VK_FORMAT_R5G6B5_UNORM_PACK16";
+  case VK_FORMAT_B5G6R5_UNORM_PACK16: return "VK_FORMAT_B5G6R5_UNORM_PACK16";
+  case VK_FORMAT_R5G5B5A1_UNORM_PACK16: return "VK_FORMAT_R5G5B5A1_UNORM_PACK16";
+  case VK_FORMAT_B5G5R5A1_UNORM_PACK16: return "VK_FORMAT_B5G5R5A1_UNORM_PACK16";
+  case VK_FORMAT_A1R5G5B5_UNORM_PACK16: return "VK_FORMAT_A1R5G5B5_UNORM_PACK16";
+  case VK_FORMAT_R8_UNORM: return "VK_FORMAT_R8_UNORM";
+  case VK_FORMAT_R8_SNORM: return "VK_FORMAT_R8_SNORM";
+  case VK_FORMAT_R8_USCALED: return "VK_FORMAT_R8_USCALED";
+  case VK_FORMAT_R8_SSCALED: return "VK_FORMAT_R8_SSCALED";
+  case VK_FORMAT_R8_UINT: return "VK_FORMAT_R8_UINT";
+  case VK_FORMAT_R8_SINT: return "VK_FORMAT_R8_SINT";
+  case VK_FORMAT_R8_SRGB: return "VK_FORMAT_R8_SRGB";
+  case VK_FORMAT_R8G8_UNORM: return "VK_FORMAT_R8G8_UNORM";
+  case VK_FORMAT_R8G8_SNORM: return "VK_FORMAT_R8G8_SNORM";
+  case VK_FORMAT_R8G8_USCALED: return "VK_FORMAT_R8G8_USCALED";
+  case VK_FORMAT_R8G8_SSCALED: return "VK_FORMAT_R8G8_SSCALED";
+  case VK_FORMAT_R8G8_UINT: return "VK_FORMAT_R8G8_UINT";
+  case VK_FORMAT_R8G8_SINT: return "VK_FORMAT_R8G8_SINT";
+  case VK_FORMAT_R8G8_SRGB: return "VK_FORMAT_R8G8_SRGB";
+  case VK_FORMAT_R8G8B8_UNORM: return "VK_FORMAT_R8G8B8_UNORM";
+  case VK_FORMAT_R8G8B8_SNORM: return "VK_FORMAT_R8G8B8_SNORM";
+  case VK_FORMAT_R8G8B8_USCALED: return "VK_FORMAT_R8G8B8_USCALED";
+  case VK_FORMAT_R8G8B8_SSCALED: return "VK_FORMAT_R8G8B8_SSCALED";
+  case VK_FORMAT_R8G8B8_UINT: return "VK_FORMAT_R8G8B8_UINT";
+  case VK_FORMAT_R8G8B8_SINT: return "VK_FORMAT_R8G8B8_SINT";
+  case VK_FORMAT_R8G8B8_SRGB: return "VK_FORMAT_R8G8B8_SRGB";
+  case VK_FORMAT_B8G8R8_UNORM: return "VK_FORMAT_B8G8R8_UNORM";
+  case VK_FORMAT_B8G8R8_SNORM: return "VK_FORMAT_B8G8R8_SNORM";
+  case VK_FORMAT_B8G8R8_USCALED: return "VK_FORMAT_B8G8R8_USCALED";
+  case VK_FORMAT_B8G8R8_SSCALED: return "VK_FORMAT_B8G8R8_SSCALED";
+  case VK_FORMAT_B8G8R8_UINT: return "VK_FORMAT_B8G8R8_UINT";
+  case VK_FORMAT_B8G8R8_SINT: return "VK_FORMAT_B8G8R8_SINT";
+  case VK_FORMAT_B8G8R8_SRGB: return "VK_FORMAT_B8G8R8_SRGB";
+  case VK_FORMAT_R8G8B8A8_UNORM: return "VK_FORMAT_R8G8B8A8_UNORM";
+  case VK_FORMAT_R8G8B8A8_SNORM: return "VK_FORMAT_R8G8B8A8_SNORM";
+  case VK_FORMAT_R8G8B8A8_USCALED: return "VK_FORMAT_R8G8B8A8_USCALED";
+  case VK_FORMAT_R8G8B8A8_SSCALED: return "VK_FORMAT_R8G8B8A8_SSCALED";
+  case VK_FORMAT_R8G8B8A8_UINT: return "VK_FORMAT_R8G8B8A8_UINT";
+  case VK_FORMAT_R8G8B8A8_SINT: return "VK_FORMAT_R8G8B8A8_SINT";
+  case VK_FORMAT_R8G8B8A8_SRGB: return "VK_FORMAT_R8G8B8A8_SRGB";
+  case VK_FORMAT_B8G8R8A8_UNORM: return "VK_FORMAT_B8G8R8A8_UNORM";
+  case VK_FORMAT_B8G8R8A8_SNORM: return "VK_FORMAT_B8G8R8A8_SNORM";
+  case VK_FORMAT_B8G8R8A8_USCALED: return "VK_FORMAT_B8G8R8A8_USCALED";
+  case VK_FORMAT_B8G8R8A8_SSCALED: return "VK_FORMAT_B8G8R8A8_SSCALED";
+  case VK_FORMAT_B8G8R8A8_UINT: return "VK_FORMAT_B8G8R8A8_UINT";
+  case VK_FORMAT_B8G8R8A8_SINT: return "VK_FORMAT_B8G8R8A8_SINT";
+  case VK_FORMAT_B8G8R8A8_SRGB: return "VK_FORMAT_B8G8R8A8_SRGB";
+  case VK_FORMAT_A8B8G8R8_UNORM_PACK32: return "VK_FORMAT_A8B8G8R8_UNORM_PACK32";
+  case VK_FORMAT_A8B8G8R8_SNORM_PACK32: return "VK_FORMAT_A8B8G8R8_SNORM_PACK32";
+  case VK_FORMAT_A8B8G8R8_USCALED_PACK32: return "VK_FORMAT_A8B8G8R8_USCALED_PACK32";
+  case VK_FORMAT_A8B8G8R8_SSCALED_PACK32: return "VK_FORMAT_A8B8G8R8_SSCALED_PACK32";
+  case VK_FORMAT_A8B8G8R8_UINT_PACK32: return "VK_FORMAT_A8B8G8R8_UINT_PACK32";
+  case VK_FORMAT_A8B8G8R8_SINT_PACK32: return "VK_FORMAT_A8B8G8R8_SINT_PACK32";
+  case VK_FORMAT_A8B8G8R8_SRGB_PACK32: return "VK_FORMAT_A8B8G8R8_SRGB_PACK32";
+  case VK_FORMAT_A2R10G10B10_UNORM_PACK32: return "VK_FORMAT_A2R10G10B10_UNORM_PACK32";
+  case VK_FORMAT_A2R10G10B10_SNORM_PACK32: return "VK_FORMAT_A2R10G10B10_SNORM_PACK32";
+  case VK_FORMAT_A2R10G10B10_USCALED_PACK32: return "VK_FORMAT_A2R10G10B10_USCALED_PACK32";
+  case VK_FORMAT_A2R10G10B10_SSCALED_PACK32: return "VK_FORMAT_A2R10G10B10_SSCALED_PACK32";
+  case VK_FORMAT_A2R10G10B10_UINT_PACK32: return "VK_FORMAT_A2R10G10B10_UINT_PACK32";
+  case VK_FORMAT_A2R10G10B10_SINT_PACK32: return "VK_FORMAT_A2R10G10B10_SINT_PACK32";
+  case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return "VK_FORMAT_A2B10G10R10_UNORM_PACK32";
+  case VK_FORMAT_A2B10G10R10_SNORM_PACK32: return "VK_FORMAT_A2B10G10R10_SNORM_PACK32";
+  case VK_FORMAT_A2B10G10R10_USCALED_PACK32: return "VK_FORMAT_A2B10G10R10_USCALED_PACK32";
+  case VK_FORMAT_A2B10G10R10_SSCALED_PACK32: return "VK_FORMAT_A2B10G10R10_SSCALED_PACK32";
+  case VK_FORMAT_A2B10G10R10_UINT_PACK32: return "VK_FORMAT_A2B10G10R10_UINT_PACK32";
+  case VK_FORMAT_A2B10G10R10_SINT_PACK32: return "VK_FORMAT_A2B10G10R10_SINT_PACK32";
+  case VK_FORMAT_R16_UNORM: return "VK_FORMAT_R16_UNORM";
+  case VK_FORMAT_R16_SNORM: return "VK_FORMAT_R16_SNORM";
+  case VK_FORMAT_R16_USCALED: return "VK_FORMAT_R16_USCALED";
+  case VK_FORMAT_R16_SSCALED: return "VK_FORMAT_R16_SSCALED";
+  case VK_FORMAT_R16_UINT: return "VK_FORMAT_R16_UINT";
+  case VK_FORMAT_R16_SINT: return "VK_FORMAT_R16_SINT";
+  case VK_FORMAT_R16_SFLOAT: return "VK_FORMAT_R16_SFLOAT";
+  case VK_FORMAT_R16G16_UNORM: return "VK_FORMAT_R16G16_UNORM";
+  case VK_FORMAT_R16G16_SNORM: return "VK_FORMAT_R16G16_SNORM";
+  case VK_FORMAT_R16G16_USCALED: return "VK_FORMAT_R16G16_USCALED";
+  case VK_FORMAT_R16G16_SSCALED: return "VK_FORMAT_R16G16_SSCALED";
+  case VK_FORMAT_R16G16_UINT: return "VK_FORMAT_R16G16_UINT";
+  case VK_FORMAT_R16G16_SINT: return "VK_FORMAT_R16G16_SINT";
+  case VK_FORMAT_R16G16_SFLOAT: return "VK_FORMAT_R16G16_SFLOAT";
+  case VK_FORMAT_R16G16B16_UNORM: return "VK_FORMAT_R16G16B16_UNORM";
+  case VK_FORMAT_R16G16B16_SNORM: return "VK_FORMAT_R16G16B16_SNORM";
+  case VK_FORMAT_R16G16B16_USCALED: return "VK_FORMAT_R16G16B16_USCALED";
+  case VK_FORMAT_R16G16B16_SSCALED: return "VK_FORMAT_R16G16B16_SSCALED";
+  case VK_FORMAT_R16G16B16_UINT: return "VK_FORMAT_R16G16B16_UINT";
+  case VK_FORMAT_R16G16B16_SINT: return "VK_FORMAT_R16G16B16_SINT";
+  case VK_FORMAT_R16G16B16_SFLOAT: return "VK_FORMAT_R16G16B16_SFLOAT";
+  case VK_FORMAT_R16G16B16A16_UNORM: return "VK_FORMAT_R16G16B16A16_UNORM";
+  case VK_FORMAT_R16G16B16A16_SNORM: return "VK_FORMAT_R16G16B16A16_SNORM";
+  case VK_FORMAT_R16G16B16A16_USCALED: return "VK_FORMAT_R16G16B16A16_USCALED";
+  case VK_FORMAT_R16G16B16A16_SSCALED: return "VK_FORMAT_R16G16B16A16_SSCALED";
+  case VK_FORMAT_R16G16B16A16_UINT: return "VK_FORMAT_R16G16B16A16_UINT";
+  case VK_FORMAT_R16G16B16A16_SINT: return "VK_FORMAT_R16G16B16A16_SINT";
+  case VK_FORMAT_R16G16B16A16_SFLOAT: return "VK_FORMAT_R16G16B16A16_SFLOAT";
+  case VK_FORMAT_R32_UINT: return "VK_FORMAT_R32_UINT";
+  case VK_FORMAT_R32_SINT: return "VK_FORMAT_R32_SINT";
+  case VK_FORMAT_R32_SFLOAT: return "VK_FORMAT_R32_SFLOAT";
+  case VK_FORMAT_R32G32_UINT: return "VK_FORMAT_R32G32_UINT";
+  case VK_FORMAT_R32G32_SINT: return "VK_FORMAT_R32G32_SINT";
+  case VK_FORMAT_R32G32_SFLOAT: return "VK_FORMAT_R32G32_SFLOAT";
+  case VK_FORMAT_R32G32B32_UINT: return "VK_FORMAT_R32G32B32_UINT";
+  case VK_FORMAT_R32G32B32_SINT: return "VK_FORMAT_R32G32B32_SINT";
+  case VK_FORMAT_R32G32B32_SFLOAT: return "VK_FORMAT_R32G32B32_SFLOAT";
+  case VK_FORMAT_R32G32B32A32_UINT: return "VK_FORMAT_R32G32B32A32_UINT";
+  case VK_FORMAT_R32G32B32A32_SINT: return "VK_FORMAT_R32G32B32A32_SINT";
+  case VK_FORMAT_R32G32B32A32_SFLOAT: return "VK_FORMAT_R32G32B32A32_SFLOAT";
+  case VK_FORMAT_R64_UINT: return "VK_FORMAT_R64_UINT";
+  case VK_FORMAT_R64_SINT: return "VK_FORMAT_R64_SINT";
+  case VK_FORMAT_R64_SFLOAT: return "VK_FORMAT_R64_SFLOAT";
+  case VK_FORMAT_R64G64_UINT: return "VK_FORMAT_R64G64_UINT";
+  case VK_FORMAT_R64G64_SINT: return "VK_FORMAT_R64G64_SINT";
+  case VK_FORMAT_R64G64_SFLOAT: return "VK_FORMAT_R64G64_SFLOAT";
+  case VK_FORMAT_R64G64B64_UINT: return "VK_FORMAT_R64G64B64_UINT";
+  case VK_FORMAT_R64G64B64_SINT: return "VK_FORMAT_R64G64B64_SINT";
+  case VK_FORMAT_R64G64B64_SFLOAT: return "VK_FORMAT_R64G64B64_SFLOAT";
+  case VK_FORMAT_R64G64B64A64_UINT: return "VK_FORMAT_R64G64B64A64_UINT";
+  case VK_FORMAT_R64G64B64A64_SINT: return "VK_FORMAT_R64G64B64A64_SINT";
+  case VK_FORMAT_R64G64B64A64_SFLOAT: return "VK_FORMAT_R64G64B64A64_SFLOAT";
+  case VK_FORMAT_D16_UNORM: return "VK_FORMAT_D16_UNORM";
+  case VK_FORMAT_D32_SFLOAT: return "VK_FORMAT_D32_SFLOAT";
+  case VK_FORMAT_S8_UINT: return "VK_FORMAT_S8_UINT";
+  case VK_FORMAT_D16_UNORM_S8_UINT: return "VK_FORMAT_D16_UNORM_S8_UINT";
+  case VK_FORMAT_D24_UNORM_S8_UINT: return "VK_FORMAT_D24_UNORM_S8_UINT";
+  case VK_FORMAT_D32_SFLOAT_S8_UINT: return "VK_FORMAT_D32_SFLOAT_S8_UINT";
+  default: return "VkFormat(nil)";
   }
 }
 
@@ -923,6 +1132,21 @@ Compare_DS_Layouts(const void* lhs, const void* rhs)
       return r;
   }
   return 0;
+}
+
+uint32_t
+HashSamplerInfo(const void* data)
+{
+  const SamplerInfo* sampler = data;
+  uint32_t hash = (uint32_t)sampler->filter;
+  hash ^= (uint32_t)sampler->mode + 0x9e3779b9 + (hash<<6) + (hash>>2);
+  return hash;
+}
+
+int
+CompareSamplerInfos(const void* lhs, const void* rhs)
+{
+  return memcmp(lhs, rhs, sizeof(VkFilter) + sizeof(VkSamplerAddressMode));
 }
 
 void

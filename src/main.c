@@ -5,6 +5,7 @@
 #include "window.h"
 #include "base.h"
 #include "linalg.h"
+#include "render.h"
 
 VkPipeline createTrianglePipeline();
 
@@ -15,15 +16,6 @@ int main(int argc, char** argv) {
   SDL_Init(SDL_INIT_VIDEO);
   lida_TempAllocatorCreate(32 * 1024);
   lida_InitPlatformSpecificLoggers();
-
-  // lida_Mat4 m1 = { 1, 0, 2, 3, 4, 1, 2, 0, 3, 3, 4, 1 };
-  // lida_Mat4 m2 = { 0, 3, 4, 5, 1, 4, 5, 7, 4, 3, 2, 1 };
-  // lida_Mat4Mul(&m1, &m2, &m1);
-  // for (uint32_t i = 0; i < 16; i++)
-  //   if (i % 4 == 3)
-  //     printf("%f\n", ((float*)&m1)[i]);
-  //   else
-  //     printf("%f ", ((float*)&m1)[i]);
 
   LIDA_DEVICE_CREATE(.enable_debug_layers = (argc == 1),
                      .gpu_id = 0,
@@ -38,19 +30,9 @@ int main(int argc, char** argv) {
                      .w = 1080,
                      .h = 720,
                      .preferred_present_mode = VK_PRESENT_MODE_MAILBOX_KHR);
-  // printf("num images in swapchain: %u\n", lida_WindowGetNumImages());
   LIDA_LOG_DEBUG("num images in swapchain: %u\n", lida_WindowGetNumImages());
 
-  // for (uint32_t i = 0; i < lida_GetNumAvailableDeviceExtensions(); i++) {
-  //   printf("%s\n", lida_GetAvailableDeviceExtensions()[i].extensionName);
-  // }
-  // for (uint32_t i = 0; i < lida_GetNumAvailableInstanceExtensions(); i++) {
-  //   printf("%s\n", lida_GetAvailableInstanceExtensions()[i].extensionName);
-  // }
-  // printf("--------------------\n");
-  // for (uint32_t i = 0; i < lida_GetNumEnabledInstanceExtensions(); i++) {
-  //   printf("%s\n", lida_GetEnabledInstanceExtensions()[i]);
-  // }
+  lida_ForwardPassCreate(lida_WindowGetExtent().width, lida_WindowGetExtent().height);
 
   VkPipeline pipeline = createTrianglePipeline();
 
@@ -215,6 +197,7 @@ int main(int argc, char** argv) {
   vkDestroyPipeline(lida_GetLogicalDevice(), pipeline, NULL);
   vkDestroyPipelineLayout(lida_GetLogicalDevice(), pipeline_layout, NULL);
 
+  lida_ForwardPassDestroy();
   lida_WindowDestroy();
   lida_DeviceDestroy(0);
   lida_TempAllocatorDestroy();

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.1)
 project(lidaEngine)
 
 add_library(lidaEngine STATIC
-  device.c memory.c window.c base.c linalg.c ecs.c voxel.cc volk.c)
+  device.c memory.c window.c base.c linalg.c ecs.c render.c voxel.cc volk.c)
 target_link_libraries(lidaEngine PUBLIC SDL2::SDL2)
 target_include_directories(lidaEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(lidaEngine PRIVATE
