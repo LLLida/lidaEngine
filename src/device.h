@@ -61,7 +61,9 @@ VkResult lida_QueuePresent(VkPresentInfoKHR* present_info);
 VkResult lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
                                   VkMemoryPropertyFlags flags, uint32_t memory_type_bits);
 void lida_VideoMemoryFree(lida_VideoMemory* memory);
+void lida_VideoMemoryReset(lida_VideoMemory* memory);
 VkMemoryPropertyFlags lida_VideoMemoryGetFlags(const lida_VideoMemory* memory);
+void lida_MergeMemoryRequirements(const VkMemoryRequirements* requirements, uint32_t count, VkMemoryRequirements* out);
 
 VkShaderModule lida_LoadShader(const char* path, const lida_ShaderReflect** reflect);
 
@@ -82,6 +84,8 @@ VkResult lida_BufferBindToMemory(lida_VideoMemory* memory, VkBuffer buffer,
 
 VkFormat lida_FindSupportedFormat(VkFormat* options, uint32_t count, VkImageTiling tiling, VkFormatFeatureFlags flags);
 #define LIDA_FIND_SUPPORTED_FORMAT(options_array, tiling, flags) lida_FindSupportedFormat(options_array, sizeof(options_array) / sizeof(VkFormat), tiling, flags)
+VkResult lida_ImageBindToMemory(lida_VideoMemory* memory, VkImage image,
+                                const VkMemoryRequirements* requirements);
 
 const char* lida_VkResultToString(VkResult err);
 const char* lida_VkFormatToString(VkFormat format);

@@ -95,6 +95,7 @@ static VkResult PickPhysicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateLogicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateCommandPool();
 static VkResult CreateDescriptorPools();
+static VkResult VideoMemoryProvide(lida_VideoMemory* memory, const VkMemoryRequirements* requirements);
 static uint32_t HashShaderInfo(const void* data);
 static int CompareShaderInfos(const void* lhs, const void* rhs);
 static uint32_t Hash_DS_LayoutInfo(const void* data);
@@ -353,10 +354,26 @@ lida_VideoMemoryFree(lida_VideoMemory* memory)
   memory->handle = VK_NULL_HANDLE;
 }
 
+void
+lida_VideoMemoryReset(lida_VideoMemory* memory)
+{
+  memory->offset = 0;
+}
+
 VkMemoryPropertyFlags
 lida_VideoMemoryGetFlags(const lida_VideoMemory* memory)
 {
   return g_device->memory_properties.memoryTypes[memory->type].propertyFlags;
+}
+
+void
+lida_MergeMemoryRequirements(const VkMemoryRequirements* requirements, uint32_t count, VkMemoryRequirements* out)
+{
+  memcpy(out, &requirements[0], sizeof(VkMemoryRequirements));
+  for (uint32_t i = 1; i < count; i++) {
+    out->size = LIDA_ALIGN_TO(out->size, requirements[i].alignment) + requirements[i].size;
+    out->memoryTypeBits &= requirements[i].memoryTypeBits;
+  }
 }
 
 VkShaderModule
@@ -550,24 +567,18 @@ lida_BufferBindToMemory(lida_VideoMemory* memory, VkBuffer buffer,
                         const VkMemoryRequirements* requirements, void** mapped,
                         VkMappedMemoryRange* mappedRange)
 {
-  if (((1 << memory->type) & requirements->memoryTypeBits) == 0) {
-    LIDA_LOG_ERROR("buffer cannot be bound to memory. bits %u are needed, but bit %u is available",
-                   requirements->memoryTypeBits, memory->type);
-    return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+  VkResult err = VideoMemoryProvide(memory, requirements);
+  if (err != VK_SUCCESS) {
+    return err;
   }
-  memory->offset = LIDA_ALIGN_TO(memory->offset, requirements->alignment);
-  if (memory->offset > memory->size) {
-    LIDA_LOG_ERROR("out of video memory");
-    return VK_ERROR_OUT_OF_DEVICE_MEMORY;
-  }
-  VkResult err = vkBindBufferMemory(g_device->logical_device, buffer, memory->handle, memory->offset);
+  err = vkBindBufferMemory(g_device->logical_device, buffer, memory->handle, memory->offset);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to bind buffer to memory with error %s", lida_VkResultToString(err));
   } else if (mapped) {
     if (memory->mapped) {
       *mapped = (char*)memory->mapped + memory->offset;
     } else {
-      LIDA_LOG_ERROR("memory is not mapped, can't access it's content from CPU");
+      LIDA_LOG_WARN("memory is not mapped, can't access it's content from CPU");
     }
     if (mappedRange) {
       mappedRange->memory = memory->handle;
@@ -577,8 +588,8 @@ lida_BufferBindToMemory(lida_VideoMemory* memory, VkBuffer buffer,
       // of memory
       mappedRange->size = LIDA_ALIGN_TO(requirements->size, g_device->properties.limits.nonCoherentAtomSize);
     }
+    memory->offset += requirements->size;
   }
-  memory->offset += requirements->size;
   return err;
 }
 
@@ -594,6 +605,22 @@ lida_FindSupportedFormat(VkFormat* options, uint32_t count, VkImageTiling tiling
     }
   }
   return VK_FORMAT_MAX_ENUM;
+}
+
+VkResult
+lida_ImageBindToMemory(lida_VideoMemory* memory, VkImage image, const VkMemoryRequirements* requirements)
+{
+  VkResult err = VideoMemoryProvide(memory, requirements);
+  if (err != VK_SUCCESS) {
+    return err;
+  }
+  err = vkBindImageMemory(g_device->logical_device, image, memory->handle, memory->offset);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to bind image to memory with error %s", lida_VkResultToString(err));
+  } else {
+    memory->offset += requirements->size;
+  }
+  return err;
 }
 
 const char*
@@ -1094,6 +1121,21 @@ CreateDescriptorPools()
   return err;
 }
 
+VkResult VideoMemoryProvide(lida_VideoMemory* memory, const VkMemoryRequirements* requirements)
+{
+  if (((1 << memory->type) & requirements->memoryTypeBits) == 0) {
+    LIDA_LOG_ERROR("buffer cannot be bound to memory. bits %u are needed, but bit %u is available",
+                   requirements->memoryTypeBits, memory->type);
+    return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+  }
+  memory->offset = LIDA_ALIGN_TO(memory->offset, requirements->alignment);
+  if (memory->offset > memory->size) {
+    LIDA_LOG_ERROR("out of video memory");
+    return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+  }
+  return VK_SUCCESS;
+}
+
 uint32_t
 HashShaderInfo(const void* data)
 {
@@ -1139,6 +1181,7 @@ HashSamplerInfo(const void* data)
 {
   const SamplerInfo* sampler = data;
   uint32_t hash = (uint32_t)sampler->filter;
+  // https://stackoverflow.com/questions/2590677/how-do-i-combine-hash-values-in-c0x
   hash ^= (uint32_t)sampler->mode + 0x9e3779b9 + (hash<<6) + (hash>>2);
   return hash;
 }

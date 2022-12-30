@@ -195,8 +195,8 @@ void lida_DynArrayDelete(lida_DynArray* array)
 
 #define LIDA_ARR_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
 
-#define LIDA_ALIGN_TO(number, alignment) ((number) % (alignment)) ? \
-  ((number) + (alignment) - (number) % (alignment)) : (number)
+#define LIDA_ALIGN_MASK(number, mask) (((number)+(mask))&~(mask))
+#define LIDA_ALIGN_TO(number, alignment) LIDA_ALIGN_MASK(number, (alignment)-1)
 
 // compute 32-bit hash for string
 uint32_t lida_HashString32(const char* str);
