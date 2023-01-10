@@ -1,5 +1,6 @@
 #include "render.h"
 #include "base.h"
+#include "device.h"
 #include "memory.h"
 
 typedef struct {

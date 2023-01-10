@@ -1,7 +1,7 @@
 #pragma once
 
-#include "device.h"
 #include "linalg.h"
+#include "volk.h"
 
 #ifdef __cplusplus
 extern "C"{
