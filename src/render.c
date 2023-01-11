@@ -51,6 +51,7 @@ VkResult
 lida_ForwardPassCreate(uint32_t width, uint32_t height)
 {
   g_fwd_pass = lida_TempAllocate(sizeof(lida_ForwardPass));
+  g_fwd_pass->render_extent = (VkExtent2D) {width, height};
   FWD_ChooseFromats();
   VkResult err = FWD_CreateRenderPass();
   if (err != VK_SUCCESS) {
@@ -111,6 +112,18 @@ lida_ForwardPassGetDS0()
   return g_fwd_pass->scene_data_set;
 }
 
+VkDescriptorSet
+lida_ForwardPassGetDS1()
+{
+  return g_fwd_pass->resulting_image_set;
+}
+
+VkRenderPass
+lida_ForwardPassGetRenderPass()
+{
+  return g_fwd_pass->render_pass;
+}
+
 void
 lida_ForwardPassSendData()
 {
@@ -119,6 +132,40 @@ lida_ForwardPassSendData()
   if (err != VK_SUCCESS) {
     LIDA_LOG_WARN("failed to flush memory with error %s", lida_VkResultToString(err));
   }
+}
+
+void
+lida_ForwardPassBegin(VkCommandBuffer cmd)
+{
+  VkClearValue clearValues[2];
+  // color attachment
+  clearValues[0].color.float32[0] = 0.0f;
+  clearValues[0].color.float32[1] = 0.0f;
+  clearValues[0].color.float32[2] = 0.0f;
+  clearValues[0].color.float32[3] = 0.0f;
+  // depth attachment
+  clearValues[1].depthStencil.depth = 0.0f;
+  clearValues[1].depthStencil.stencil = 0;
+  VkRect2D render_area = { .offset = {0, 0},
+                           .extent = g_fwd_pass->render_extent };
+  VkRenderPassBeginInfo begin_info = {
+    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+    .renderPass = g_fwd_pass->render_pass,
+    .framebuffer = g_fwd_pass->framebuffer,
+    .pClearValues = clearValues,
+    .clearValueCount = 2,
+    .renderArea = render_area
+  };
+  vkCmdBeginRenderPass(cmd, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+  VkViewport viewport = {
+    .x = 0.0f, .y = 0.0f,
+    .width = (float)render_area.extent.width,
+    .height = (float)render_area.extent.height,
+    .minDepth = 0.0f,
+    .maxDepth = 1.0f,
+  };
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+  vkCmdSetScissor(cmd, 0, 1, &render_area);
 }
 
 
@@ -336,12 +383,13 @@ VkResult FWD_AllocateDescriptorSets()
     return err;
   }
   // update descriptor sets
+  VkWriteDescriptorSet write_sets[2];
   VkDescriptorBufferInfo buffer_info = {
     .buffer = g_fwd_pass->uniform_buffer,
     .offset = 0,
     .range = sizeof(lida_SceneDataStruct)
   };
-  VkWriteDescriptorSet write_set = {
+  write_sets[0] = (VkWriteDescriptorSet) {
     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
     .dstSet = g_fwd_pass->scene_data_set,
     .dstBinding = 0,
@@ -349,6 +397,19 @@ VkResult FWD_AllocateDescriptorSets()
     .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
     .pBufferInfo = &buffer_info,
   };
-  lida_UpdateDescriptorSets(&write_set, 1);
+  VkDescriptorImageInfo image_info = {
+    .imageView = g_fwd_pass->color_image_view,
+    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    .sampler = lida_GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+  };
+  write_sets[1] = (VkWriteDescriptorSet) {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .dstSet = g_fwd_pass->resulting_image_set,
+    .dstBinding = 0,
+    .descriptorCount = 1,
+    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .pImageInfo = &image_info
+  };
+  lida_UpdateDescriptorSets(write_sets, 2);
   return err;
 }

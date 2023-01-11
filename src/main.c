@@ -8,8 +8,10 @@
 #include "render.h"
 
 VkPipeline createTrianglePipeline();
+VkPipeline createRectPipeline();
 
 VkPipelineLayout pipeline_layout;
+VkPipelineLayout pipeline_layout2;
 lida_Camera camera;
 
 int main(int argc, char** argv) {
@@ -35,9 +37,7 @@ int main(int argc, char** argv) {
   lida_ForwardPassCreate(lida_WindowGetExtent().width, lida_WindowGetExtent().height);
 
   VkPipeline pipeline = createTrianglePipeline();
-
-  lida_VideoMemory memory;
-  lida_VideoMemoryAllocate(&memory, 128*1024*1024, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT|VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, UINT32_MAX);
+  VkPipeline rect_pipeline = createRectPipeline();
 
   camera.z_near = 0.01f;
   camera.position = LIDA_VEC3_CREATE(0.0f, 0.0f, -2.0f);
@@ -142,8 +142,7 @@ int main(int argc, char** argv) {
       LIDA_VEC4_CREATE(0.2f, 0.35f, 0.76f, 1.0f)
     };
 
-    float clear_color[4] = {0.7f, 0.1f, 0.7f, 1.0f};
-    lida_WindowBeginRendering(clear_color);
+    lida_ForwardPassBegin(cmd);
     vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(lida_Vec4)*2 + sizeof(lida_Vec3), &colors);
     VkDescriptorSet ds_set = lida_ForwardPassGetDS0();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, &ds_set, 0, NULL);
@@ -151,17 +150,30 @@ int main(int argc, char** argv) {
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
 
+    float clear_color[4] = {0.7f, 0.1f, 0.7f, 1.0f};
+    lida_WindowBeginRendering(clear_color);
+    // vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(lida_Vec4)*2 + sizeof(lida_Vec3), &colors);
+    // VkDescriptorSet ds_set = lida_ForwardPassGetDS0();
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, &ds_set, 0, NULL);
+    // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    // vkCmdDraw(cmd, 3, 1, 0, 0);
+    ds_set = lida_ForwardPassGetDS1();
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout2, 0, 1, &ds_set, 0, NULL);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, rect_pipeline);
+    vkCmdDraw(cmd, 4, 1, 0, 0);
+    vkCmdEndRenderPass(cmd);
+
     vkEndCommandBuffer(cmd);
     lida_WindowPresent();
   }
 
-  printf("Exited successfully\n");
+  LIDA_LOG_TRACE("Exited successfully");
 
   vkDeviceWaitIdle(lida_GetLogicalDevice());
 
-  lida_VideoMemoryFree(&memory);
-
+  vkDestroyPipeline(lida_GetLogicalDevice(), rect_pipeline, NULL);
   vkDestroyPipeline(lida_GetLogicalDevice(), pipeline, NULL);
+  vkDestroyPipelineLayout(lida_GetLogicalDevice(), pipeline_layout2, NULL);
   vkDestroyPipelineLayout(lida_GetLogicalDevice(), pipeline_layout, NULL);
 
   lida_ForwardPassDestroy();
@@ -195,27 +207,106 @@ VkPipeline createTrianglePipeline() {
     .pName = "main",
   };
 
-  // for (uint32_t i = 0; i < lida_ShaderReflectGetNumSets(reflect_info); i++) {
-  //   uint32_t num_bindings = lida_ShaderReflectGetNumBindings(reflect_info, i);
-  //   VkDescriptorSetLayoutBinding* bindings = lida_ShaderReflectGetBindings(reflect_info, i);
-  //   for (uint32_t j = 0; j < num_bindings; j++) {
-  //     LIDA_LOG_DEBUG("Binding %u: binding=%u, type=%d, descriptorCount=%u, stageFlags=%d",
-  //                    j, bindings[j].binding, bindings[j].descriptorType,
-  //                    bindings[j].descriptorCount, bindings[j].stageFlags);
-  //   }
-  // }
-  // for (uint32_t i = 0; i < lida_ShaderReflectGetNumRanges(reflect_info); i++) {
-  //   const VkPushConstantRange* ranges = lida_ShaderReflectGetRanges(reflect_info);
-  //   LIDA_LOG_DEBUG("Range %u: stages=%d, offset=%u, size=%u",
-  //                  i, ranges[i].stageFlags, ranges[i].offset, ranges[i].size);
-  // }
-
   VkPipelineVertexInputStateCreateInfo vertex_input_state = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
   };
   VkPipelineInputAssemblyStateCreateInfo input_assembly_state = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+  };
+  VkPipelineViewportStateCreateInfo viewport_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+    .viewportCount = 1,
+    .scissorCount = 1,
+  };
+  VkPipelineRasterizationStateCreateInfo rasterization_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+    .depthClampEnable = VK_FALSE,
+    .rasterizerDiscardEnable = VK_FALSE,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_NONE,
+    .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+    .depthBiasEnable = VK_FALSE,
+  };
+  VkPipelineMultisampleStateCreateInfo multisample_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+    .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+    .sampleShadingEnable = VK_FALSE,
+    .alphaToCoverageEnable = VK_FALSE,
+  };
+  VkPipelineDepthStencilStateCreateInfo depthstencil_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+    .depthTestEnable = VK_TRUE,
+    .depthCompareOp = VK_COMPARE_OP_GREATER,
+    .depthBoundsTestEnable = VK_FALSE,
+  };
+  VkPipelineColorBlendAttachmentState colorblend_attachment = {
+    .blendEnable = VK_FALSE,
+    .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
+  };
+  VkPipelineColorBlendStateCreateInfo colorblend_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+    .logicOpEnable = VK_FALSE,
+    .attachmentCount = 1,
+    .pAttachments = &colorblend_attachment,
+  };
+  VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+  VkPipelineDynamicStateCreateInfo dynamic_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+    .dynamicStateCount = 2,
+    .pDynamicStates = dynamic_states,
+  };
+  VkGraphicsPipelineCreateInfo pipeline_info = {
+    .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+    .stageCount = 2,
+    .pStages = stages,
+    .pVertexInputState = &vertex_input_state,
+    .pInputAssemblyState = &input_assembly_state,
+    .pViewportState = &viewport_state,
+    .pRasterizationState = &rasterization_state,
+    .pMultisampleState = &multisample_state,
+    .pDepthStencilState = &depthstencil_state,
+    .pColorBlendState = &colorblend_state,
+    .pDynamicState = &dynamic_state,
+    .layout = pipeline_layout,
+    .renderPass = lida_ForwardPassGetRenderPass(),
+    .subpass = 0,
+  };
+
+  VkPipeline ret;
+  vkCreateGraphicsPipelines(lida_GetLogicalDevice(), VK_NULL_HANDLE, 1, &pipeline_info, NULL, &ret);
+  return ret;
+}
+
+VkPipeline createRectPipeline()
+{
+  VkShaderModule vertex_shader, fragment_shader;
+  const lida_ShaderReflect* reflects[2];
+  vertex_shader = lida_LoadShader("shaders/rect.vert.spv", &reflects[0]);
+  fragment_shader = lida_LoadShader("shaders/rect.frag.spv", &reflects[1]);
+
+  pipeline_layout2 = lida_CreatePipelineLayout(reflects, 2);
+
+  VkPipelineShaderStageCreateInfo stages[2];
+  stages[0] = (VkPipelineShaderStageCreateInfo) {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+    .stage = VK_SHADER_STAGE_VERTEX_BIT,
+    .module = vertex_shader,
+    .pName = "main",
+  };
+  stages[1] = (VkPipelineShaderStageCreateInfo) {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+    .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+    .module = fragment_shader,
+    .pName = "main",
+  };
+
+  VkPipelineVertexInputStateCreateInfo vertex_input_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+  };
+  VkPipelineInputAssemblyStateCreateInfo input_assembly_state = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
   };
   VkPipelineViewportStateCreateInfo viewport_state = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
@@ -264,7 +355,7 @@ VkPipeline createTrianglePipeline() {
     .pMultisampleState = &multisample_state,
     .pColorBlendState = &colorblend_state,
     .pDynamicState = &dynamic_state,
-    .layout = pipeline_layout,
+    .layout = pipeline_layout2,
     .renderPass = lida_WindowGetRenderPass(),
     .subpass = 0,
   };

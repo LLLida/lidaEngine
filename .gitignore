@@ -6,3 +6,4 @@ bin/
 SDL2
 vulkan
 .cache/
+.ccls-cache/

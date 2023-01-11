@@ -13,6 +13,8 @@ set(ENABLE_ASAN 0)
 add_subdirectory(shaders)
 add_shader(tst "triangle.vert")
 add_shader(tst "triangle.frag")
+add_shader(tst "rect.vert")
+add_shader(tst "rect.frag")
 
 include(CTest)
 add_subdirectory(test)

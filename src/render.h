@@ -19,7 +19,10 @@ void lida_ForwardPassDestroy();
 
 lida_SceneDataStruct* lida_ForwardPassGetSceneData();
 VkDescriptorSet lida_ForwardPassGetDS0();
+VkDescriptorSet lida_ForwardPassGetDS1();
+VkRenderPass lida_ForwardPassGetRenderPass();
 void lida_ForwardPassSendData();
+void lida_ForwardPassBegin(VkCommandBuffer cmd);
 
 #ifdef __cplusplus
 }
