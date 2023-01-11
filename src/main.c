@@ -39,39 +39,6 @@ int main(int argc, char** argv) {
   lida_VideoMemory memory;
   lida_VideoMemoryAllocate(&memory, 128*1024*1024, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT|VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, UINT32_MAX);
 
-  VkDescriptorSetLayoutBinding binding = {
-    .binding = 0,
-    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-    .descriptorCount = 1,
-    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-  };
-  VkDescriptorSet ds_set;
-  VkResult err = lida_AllocateDescriptorSets(&binding, 1, &ds_set, 1, 0);
-  VkBuffer buffer;
-  lida_BufferCreate(&buffer, 1024, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-  void* mapped;
-  VkMemoryRequirements requirements;
-  vkGetBufferMemoryRequirements(lida_GetLogicalDevice(), buffer, &requirements);
-  lida_BufferBindToMemory(&memory, buffer, &requirements, &mapped, NULL);
-
-  VkDescriptorBufferInfo buffer_info = {
-    .buffer = buffer,
-    .offset = 0,
-    .range = 128,
-  };
-
-  VkWriteDescriptorSet write_set = {
-    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-    .dstSet = ds_set,
-    .dstBinding = 0,
-    .descriptorCount = 1,
-    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-    .pBufferInfo = &buffer_info,
-  };
-  lida_UpdateDescriptorSets(&write_set, 1);
-
-  float* numbers = mapped;
-
   camera.z_near = 0.01f;
   camera.position = LIDA_VEC3_CREATE(0.0f, 0.0f, -2.0f);
   camera.rotation = LIDA_VEC3_CREATE(0.0f, M_PI, 0.0f);
@@ -163,8 +130,9 @@ int main(int argc, char** argv) {
     lida_CameraUpdateProjection(&camera);
     lida_CameraUpdateView(&camera);
 
-    memcpy(numbers, &camera.projection_matrix, sizeof(lida_Mat4));
-    memcpy(numbers + 16, &camera.view_matrix, sizeof(lida_Mat4));
+    lida_SceneDataStruct* sc_data = lida_ForwardPassGetSceneData();
+    memcpy(&sc_data->camera_projection, &camera.projection_matrix, sizeof(lida_Mat4));
+    memcpy(&sc_data->camera_view, &camera.view_matrix, sizeof(lida_Mat4));
 
     VkCommandBuffer cmd = lida_WindowBeginCommands();
 
@@ -177,6 +145,7 @@ int main(int argc, char** argv) {
     float clear_color[4] = {0.7f, 0.1f, 0.7f, 1.0f};
     lida_WindowBeginRendering(clear_color);
     vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(lida_Vec4)*2 + sizeof(lida_Vec3), &colors);
+    VkDescriptorSet ds_set = lida_ForwardPassGetDS0();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, &ds_set, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     vkCmdDraw(cmd, 3, 1, 0, 0);
@@ -189,8 +158,6 @@ int main(int argc, char** argv) {
   printf("Exited successfully\n");
 
   vkDeviceWaitIdle(lida_GetLogicalDevice());
-
-  vkDestroyBuffer(lida_GetLogicalDevice(), buffer, NULL);
 
   lida_VideoMemoryFree(&memory);
 

@@ -2,13 +2,7 @@
 #include "base.h"
 #include "device.h"
 #include "memory.h"
-
-typedef struct {
-  lida_Mat4 camera_projview;
-  lida_Mat4 camera_projection;
-  lida_Mat4 camera_view;
-  lida_Mat4 camera_invproj;
-} SceneInfo;
+#include <vulkan/vulkan_core.h>
 
 typedef struct {
 
@@ -20,11 +14,15 @@ typedef struct {
   VkImageView depth_image_view;
   VkFramebuffer framebuffer;
   VkRenderPass render_pass;
+  VkBuffer uniform_buffer;
+  uint32_t uniform_buffer_size;
+  void* uniform_buffer_mapped;
   VkDescriptorSet scene_data_set;
   VkDescriptorSet resulting_image_set;
   VkFormat color_format;
   VkFormat depth_format;
   VkExtent2D render_extent;
+  VkMappedMemoryRange uniform_buffer_range;
 
 } lida_ForwardPass;
 
@@ -32,7 +30,9 @@ lida_ForwardPass* g_fwd_pass;
 
 static void FWD_ChooseFromats();
 static VkResult FWD_CreateRenderPass();
-static VkResult FWD_CreateResources(uint32_t width, uint32_t height);
+static VkResult FWD_CreateAttachments(uint32_t width, uint32_t height);
+static VkResult FWD_CreateBuffers();
+static VkResult FWD_AllocateDescriptorSets();
 
 #define ATTACHMENT_DESCRIPTION(format_, load_op, store_op, initial_layout, final_layout) (VkAttachmentDescription) { \
     .format = format_,                                                  \
@@ -57,9 +57,20 @@ lida_ForwardPassCreate(uint32_t width, uint32_t height)
     LIDA_LOG_ERROR("failed to create render pass with error %s", lida_VkResultToString(err));
     goto err;
   }
-  err = FWD_CreateResources(width, height);
+  err = FWD_CreateAttachments(width, height);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create attachments");
+    goto err;
+  }
+  g_fwd_pass->uniform_buffer_size = 2048;
+  err = FWD_CreateBuffers();
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create buffers");
+    goto err;
+  }
+  err = FWD_AllocateDescriptorSets();
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to allocate descriptor sets");
     goto err;
   }
   return VK_SUCCESS;
@@ -72,15 +83,42 @@ void
 lida_ForwardPassDestroy()
 {
   VkDevice dev = lida_GetLogicalDevice();
+
+  vkDestroyBuffer(dev, g_fwd_pass->uniform_buffer, NULL);
+
   vkDestroyFramebuffer(dev, g_fwd_pass->framebuffer, NULL);
   vkDestroyImageView(dev, g_fwd_pass->depth_image_view, NULL);
   vkDestroyImageView(dev, g_fwd_pass->color_image_view, NULL);
   vkDestroyImage(dev, g_fwd_pass->depth_image, NULL);
   vkDestroyImage(dev, g_fwd_pass->color_image, NULL);
-  lida_VideoMemoryFree(&g_fwd_pass->gpu_memory);
   vkDestroyRenderPass(dev, g_fwd_pass->render_pass, NULL);
-  
+
+  lida_VideoMemoryFree(&g_fwd_pass->cpu_memory);
+  lida_VideoMemoryFree(&g_fwd_pass->gpu_memory);
+
   lida_TempFree(g_fwd_pass);
+}
+
+lida_SceneDataStruct*
+lida_ForwardPassGetSceneData()
+{
+  return g_fwd_pass->uniform_buffer_mapped;
+}
+
+VkDescriptorSet
+lida_ForwardPassGetDS0()
+{
+  return g_fwd_pass->scene_data_set;
+}
+
+void
+lida_ForwardPassSendData()
+{
+  VkResult err = vkFlushMappedMemoryRanges(lida_GetLogicalDevice(),
+                                           1, &g_fwd_pass->uniform_buffer_range);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_WARN("failed to flush memory with error %s", lida_VkResultToString(err));
+  }
 }
 
 
@@ -155,7 +193,7 @@ FWD_CreateRenderPass()
 }
 
 VkResult
-FWD_CreateResources(uint32_t width, uint32_t height)
+FWD_CreateAttachments(uint32_t width, uint32_t height)
 {
   VkImageCreateInfo image_info = {
     .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -186,13 +224,14 @@ FWD_CreateResources(uint32_t width, uint32_t height)
     return err;
   }
   // allocate memory
-  VkMemoryRequirements requirements[3];
-  vkGetImageMemoryRequirements(lida_GetLogicalDevice(), g_fwd_pass->color_image, &requirements[0]);
-  vkGetImageMemoryRequirements(lida_GetLogicalDevice(), g_fwd_pass->color_image, &requirements[1]);
-  lida_MergeMemoryRequirements(requirements, 2, &requirements[2]);
-  if (requirements[2].size > g_fwd_pass->gpu_memory.size) {
-    err = lida_VideoMemoryAllocate(&g_fwd_pass->gpu_memory, requirements[2].size,
-                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, requirements[2].memoryTypeBits);
+  VkMemoryRequirements image_requirements[2];
+  VkMemoryRequirements requirements;
+  vkGetImageMemoryRequirements(lida_GetLogicalDevice(), g_fwd_pass->color_image, &image_requirements[0]);
+  vkGetImageMemoryRequirements(lida_GetLogicalDevice(), g_fwd_pass->color_image, &image_requirements[1]);
+  lida_MergeMemoryRequirements(image_requirements, 2, &requirements);
+  if (requirements.size > g_fwd_pass->gpu_memory.size) {
+    err = lida_VideoMemoryAllocate(&g_fwd_pass->gpu_memory, requirements.size,
+                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, requirements.memoryTypeBits);
     if (err != VK_SUCCESS) {
       LIDA_LOG_ERROR("failed to allocate GPU memory for attachments with error %s",
                      lida_VkResultToString(err));
@@ -202,8 +241,8 @@ FWD_CreateResources(uint32_t width, uint32_t height)
     lida_VideoMemoryReset(&g_fwd_pass->gpu_memory);
   }
   // bind images to memory
-  lida_ImageBindToMemory(&g_fwd_pass->gpu_memory, g_fwd_pass->color_image, &requirements[0]);
-  lida_ImageBindToMemory(&g_fwd_pass->gpu_memory, g_fwd_pass->depth_image, &requirements[1]);
+  lida_ImageBindToMemory(&g_fwd_pass->gpu_memory, g_fwd_pass->color_image, &image_requirements[0]);
+  lida_ImageBindToMemory(&g_fwd_pass->gpu_memory, g_fwd_pass->depth_image, &image_requirements[1]);
   // create image views
   VkImageViewCreateInfo image_view_info = {
     .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -241,6 +280,75 @@ FWD_CreateResources(uint32_t width, uint32_t height)
     LIDA_LOG_ERROR("failed to create framebuffer with error %s", lida_VkResultToString(err));
     return err;
   }
-  LIDA_LOG_TRACE("allocated %u bytes for attachments", (uint32_t)requirements[2].size);
+  LIDA_LOG_TRACE("allocated %u bytes for attachments", (uint32_t)requirements.size);
+  return err;
+}
+
+VkResult FWD_CreateBuffers()
+{
+  VkResult err = lida_BufferCreate(&g_fwd_pass->uniform_buffer, g_fwd_pass->uniform_buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create uniform buffer with error %s", lida_VkResultToString(err));
+    return err;
+  }
+  VkMemoryRequirements buffer_requirements[1];
+  vkGetBufferMemoryRequirements(lida_GetLogicalDevice(), g_fwd_pass->uniform_buffer, &buffer_requirements[0]);
+  VkMemoryRequirements requirements;
+  lida_MergeMemoryRequirements(buffer_requirements, 1, &requirements);
+  err = lida_VideoMemoryAllocate(&g_fwd_pass->cpu_memory, requirements.size,
+                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_CACHED_BIT, requirements.memoryTypeBits);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to allocate memory for buffers with error %s", lida_VkResultToString(err));
+    return err;
+  }
+  err = lida_BufferBindToMemory(&g_fwd_pass->cpu_memory, g_fwd_pass->uniform_buffer, &buffer_requirements[0],
+                                &g_fwd_pass->uniform_buffer_mapped, &g_fwd_pass->uniform_buffer_range);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to bind uniform buffer to memory with error %s", lida_VkResultToString(err));
+    return err;
+  }
+  LIDA_LOG_TRACE("allocated %u bytes for attachments", (uint32_t)requirements.size);
+  return err;
+}
+
+VkResult FWD_AllocateDescriptorSets()
+{
+  // allocate descriptor sets
+  VkDescriptorSetLayoutBinding bindings[4];
+  bindings[0] = (VkDescriptorSetLayoutBinding) {
+    .binding = 0,
+    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    .descriptorCount = 1,
+    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+  };
+  VkResult err = lida_AllocateDescriptorSets(bindings, 1, &g_fwd_pass->scene_data_set, 1, 0);
+  if (err == VK_SUCCESS) {
+    bindings[0] = (VkDescriptorSetLayoutBinding) {
+      .binding = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+    };
+    err = lida_AllocateDescriptorSets(bindings, 1, &g_fwd_pass->resulting_image_set, 1, 1);
+  }
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to allocate descriptor sets with error %s", lida_VkResultToString(err));
+    return err;
+  }
+  // update descriptor sets
+  VkDescriptorBufferInfo buffer_info = {
+    .buffer = g_fwd_pass->uniform_buffer,
+    .offset = 0,
+    .range = sizeof(lida_SceneDataStruct)
+  };
+  VkWriteDescriptorSet write_set = {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .dstSet = g_fwd_pass->scene_data_set,
+    .dstBinding = 0,
+    .descriptorCount = 1,
+    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    .pBufferInfo = &buffer_info,
+  };
+  lida_UpdateDescriptorSets(&write_set, 1);
   return err;
 }
