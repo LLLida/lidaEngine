@@ -22,7 +22,7 @@ VkDescriptorSet lida_ForwardPassGetDS0();
 VkDescriptorSet lida_ForwardPassGetDS1();
 VkRenderPass lida_ForwardPassGetRenderPass();
 void lida_ForwardPassSendData();
-void lida_ForwardPassBegin(VkCommandBuffer cmd);
+void lida_ForwardPassBegin(VkCommandBuffer cmd, float clear_color[4]);
 
 #ifdef __cplusplus
 }

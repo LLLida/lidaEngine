@@ -7,3 +7,4 @@ SDL2
 vulkan
 .cache/
 .ccls-cache/
+compile_commands.json

@@ -2,6 +2,7 @@
 #include "base.h"
 #include "device.h"
 #include "memory.h"
+#include <string.h>
 #include <vulkan/vulkan_core.h>
 
 typedef struct {
@@ -135,14 +136,11 @@ lida_ForwardPassSendData()
 }
 
 void
-lida_ForwardPassBegin(VkCommandBuffer cmd)
+lida_ForwardPassBegin(VkCommandBuffer cmd, float clear_color[4])
 {
   VkClearValue clearValues[2];
   // color attachment
-  clearValues[0].color.float32[0] = 0.0f;
-  clearValues[0].color.float32[1] = 0.0f;
-  clearValues[0].color.float32[2] = 0.0f;
-  clearValues[0].color.float32[3] = 0.0f;
+  memcpy(clearValues[0].color.float32, clear_color, sizeof(float) * 4);
   // depth attachment
   clearValues[1].depthStencil.depth = 0.0f;
   clearValues[1].depthStencil.stencil = 0;

@@ -46,7 +46,7 @@ float lida_WindowGetFPS();
 // till previous commands end on GPU
 VkCommandBuffer lida_WindowBeginCommands();
 // Wait for an available swapchain image and start rendering to it(start main render pass)
-VkResult lida_WindowBeginRendering(float clear_color[4]);
+VkResult lida_WindowBeginRendering();
 // submit render commands and present image to screen
 // this function doesn't wait for commands to end, it just *sends* them to GPU
 VkResult lida_WindowPresent();

@@ -156,7 +156,7 @@ lida_WindowBeginCommands()
 }
 
 VkResult
-lida_WindowBeginRendering(float clear_color[4])
+lida_WindowBeginRendering()
 {
   Frame* frame = &g_window->frames[g_window->frame_counter % FRAMES_IN_FLIGHT];
   VkResult err = vkAcquireNextImageKHR(lida_GetLogicalDevice(),
@@ -176,17 +176,14 @@ lida_WindowBeginRendering(float clear_color[4])
     return err;
   }
   // start render pass
-  VkClearValue clear_value;
-  memcpy(clear_value.color.float32, clear_color, sizeof(float) * 4);
   VkRect2D render_area = { .offset = {0, 0},
-                          .extent = g_window->swapchain_extent };
+                           .extent = g_window->swapchain_extent };
   VkRenderPassBeginInfo begin_info = {
     .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
     .renderPass = g_window->render_pass,
     .framebuffer = g_window->images[g_window->current_image].framebuffer,
     .renderArea = render_area,
-    .clearValueCount = 1,
-    .pClearValues = &clear_value,
+    .clearValueCount = 0,
   };
   vkCmdBeginRenderPass(frame->cmd, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
   VkViewport viewport = {
@@ -441,7 +438,7 @@ CreateRenderPass()
   VkAttachmentDescription attachment = {
     .format = g_window->format.format,
     .samples = VK_SAMPLE_COUNT_1_BIT,
-    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+    .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
     .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
     .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
