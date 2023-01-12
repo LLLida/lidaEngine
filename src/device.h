@@ -29,6 +29,23 @@ typedef struct {
 
 typedef struct lida_ShaderReflect lida_ShaderReflect;
 
+typedef struct {
+  const char* vertex_shader;
+  const char* fragment_shader;
+  // TODO: simplify
+  VkPipelineVertexInputStateCreateInfo* vertex_input;
+  VkPipelineInputAssemblyStateCreateInfo* input_assembly;
+  VkPipelineViewportStateCreateInfo* viewport;
+  VkPipelineRasterizationStateCreateInfo* rasterization;
+  VkPipelineMultisampleStateCreateInfo* multisample;
+  VkPipelineDepthStencilStateCreateInfo* depth_stencil;
+  VkPipelineColorBlendStateCreateInfo* color_blend;
+  VkPipelineDynamicStateCreateInfo* dynamic;
+  VkRenderPass render_pass;
+  uint32_t subpass;
+  const char* marker;
+} lida_PipelineDesc;
+
 VkResult lida_DeviceCreate(const lida_DeviceDesc* desc);
 #define LIDA_DEVICE_CREATE(...) lida_DeviceCreate(&(lida_DeviceDesc) { __VA_ARGS__ })
 
@@ -54,12 +71,13 @@ uint32_t lida_GetNumAvailableDeviceExtensions();
 
 uint32_t lida_GetGraphicsQueueFamily();
 
-VkResult lida_AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCommandBufferLevel level);
+VkResult lida_AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCommandBufferLevel level, const char* marker);
 VkResult lida_QueueSubmit(VkSubmitInfo* submits, uint32_t count, VkFence fence);
 VkResult lida_QueuePresent(VkPresentInfoKHR* present_info);
 
 VkResult lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
-                                  VkMemoryPropertyFlags flags, uint32_t memory_type_bits);
+                                  VkMemoryPropertyFlags flags, uint32_t memory_type_bits,
+                                  const char* marker);
 void lida_VideoMemoryFree(lida_VideoMemory* memory);
 void lida_VideoMemoryReset(lida_VideoMemory* memory);
 VkMemoryPropertyFlags lida_VideoMemoryGetFlags(const lida_VideoMemory* memory);
@@ -69,8 +87,8 @@ VkShaderModule lida_LoadShader(const char* path, const lida_ShaderReflect** refl
 
 VkDescriptorSetLayout lida_GetDescriptorSetLayout(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings);
 VkResult lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings,
-                                     VkDescriptorSet* sets, uint32_t num_sets, int dynamic);
-VkResult lida_FreeAllocateDescriptorSets(const VkDescriptorSet* sets, uint32_t num_sets);
+                                     VkDescriptorSet* sets, uint32_t num_sets, int dynamic, const char* marker);
+VkResult lida_FreeDescriptorSets(const VkDescriptorSet* sets, uint32_t num_sets);
 void lida_UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, uint32_t count);
 
 VkSampler lida_GetSampler(VkFilter filter, VkSamplerAddressMode mode);
@@ -94,6 +112,8 @@ VkResult lida_ImageBindToMemory(lida_VideoMemory* memory, VkImage image,
 VkResult lida_FramebufferCreate(VkFramebuffer* framebuffer, const VkFramebufferCreateInfo* framebuffer_info, const char* marker);
 
 VkSampleCountFlagBits lida_MaxSampleCount(VkSampleCountFlagBits max_samples);
+
+VkResult lida_CreateGraphicsPipelines(VkPipeline* pipelines, uint32_t count, const lida_PipelineDesc* descs, VkPipelineLayout* layouts);
 
 const char* lida_VkResultToString(VkResult err);
 const char* lida_VkFormatToString(VkFormat format);

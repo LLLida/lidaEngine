@@ -205,7 +205,7 @@ lida_WindowPresent()
   VkDevice dev = lida_GetLogicalDevice();
   Frame* frame = &g_window->frames[g_window->frame_counter % FRAMES_IN_FLIGHT];
   VkResult err;
-  err = vkWaitForFences(lida_GetLogicalDevice(), 1, &g_window->resources_available_fence, VK_TRUE, UINT64_MAX);
+  err = vkWaitForFences(dev, 1, &g_window->resources_available_fence, VK_TRUE, UINT64_MAX);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to wait for fence before submitting commands with error %s", lida_VkResultToString(err));
     return err;
@@ -492,7 +492,8 @@ CreateFrames()
   VkResult err;
   VkCommandBuffer command_buffers[FRAMES_IN_FLIGHT];
   err = lida_AllocateCommandBuffers(command_buffers, FRAMES_IN_FLIGHT,
-                                    VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+                                    VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                                    "main-command-buffer");
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to allocate command buffers with error %s", lida_VkResultToString(err));
     return err;

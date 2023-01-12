@@ -130,9 +130,13 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
   if (err != VK_SUCCESS) {
     LIDA_LOG_FATAL("failed to pick a GPU with error %s", lida_VkResultToString(err));
   }
-  err =  CreateLogicalDevice(desc);
+  err = CreateLogicalDevice(desc);
   if (err != VK_SUCCESS) {
     LIDA_LOG_FATAL("failed to create vulkan device with error %s", lida_VkResultToString(err));
+  }
+  err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT, (uint64_t)g_device->logical_device, "lida-engine-device");
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_WARN("failed to debug mark Vulkan device object with error %s", lida_VkResultToString(err));
   }
   // we use only 1 device in the application
   // so load device-related Vulkan entrypoints directly from the driver
@@ -140,6 +144,10 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
   volkLoadDevice(g_device->logical_device);
   vkGetDeviceQueue(g_device->logical_device, g_device->graphics_queue_family, 0,
                    &g_device->graphics_queue);
+  err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_QUEUE_EXT, (uint64_t)g_device->graphics_queue, "graphics-queue");
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_WARN("failed to mark graphics queue with error %s", lida_VkResultToString(err));
+  }
   err = CreateCommandPool();
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create command pool with error %s", lida_VkResultToString(err));
@@ -285,7 +293,7 @@ lida_GetGraphicsQueueFamily()
 }
 
 VkResult
-lida_AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCommandBufferLevel level)
+lida_AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCommandBufferLevel level, const char* marker)
 {
   VkCommandBufferAllocateInfo alloc_info = {
     .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -293,7 +301,20 @@ lida_AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCommandBuff
     .level = level,
     .commandBufferCount = count,
   };
-  return vkAllocateCommandBuffers(g_device->logical_device, &alloc_info, cmds);
+  VkResult err = vkAllocateCommandBuffers(g_device->logical_device, &alloc_info, cmds);
+  if (err == VK_SUCCESS) {
+    char buff[64];
+    for (uint32_t i = 0; i < count; i++) {
+      snprintf(buff, sizeof(buff), "%s[%u]", marker, i);
+      err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT, (uint64_t)cmds[i], buff);
+      if (err != VK_SUCCESS) {
+        LIDA_LOG_WARN("failed to debug mark command buffers '%s' with error %s",
+                      marker, lida_VkResultToString(err));
+        break;
+      }
+    }
+  }
+  return err;
 }
 
 VkResult
@@ -311,7 +332,8 @@ lida_QueuePresent(VkPresentInfoKHR* present_info)
 
 VkResult
 lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
-                         VkMemoryPropertyFlags flags, uint32_t memory_type_bits)
+                         VkMemoryPropertyFlags flags, uint32_t memory_type_bits,
+                         const char* marker)
 {
   uint32_t best_type = 0;
   for (uint32_t i = 0; i < g_device->memory_properties.memoryTypeCount; i++) {
@@ -343,6 +365,10 @@ lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
     }
   } else {
     memory->mapped = NULL;
+  }
+  err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_MEMORY_EXT, (uint64_t)memory->handle, marker);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_WARN("failed to mark memory '%s' with error %s", marker, lida_VkResultToString(err));
   }
   return VK_SUCCESS;
 }
@@ -448,7 +474,8 @@ lida_GetDescriptorSetLayout(const VkDescriptorSetLayoutBinding* bindings, uint32
 
 VkResult
 lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings,
-                            VkDescriptorSet* sets, uint32_t num_sets, int dynamic)
+                            VkDescriptorSet* sets, uint32_t num_sets, int dynamic,
+                            const char* marker)
 {
   VkDescriptorSetLayout layout = lida_GetDescriptorSetLayout(bindings, num_bindings);
   VkDescriptorSetLayout* layouts = lida_TempAllocate(num_sets * sizeof(VkDescriptorSetLayout));
@@ -456,20 +483,32 @@ lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, uint32
     layouts[i] = layout;
   VkDescriptorSetAllocateInfo allocate_info = {
     .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-    .descriptorPool = (dynamic) ? g_device->dynamic_ds_pool : g_device->static_ds_pool,
-    .descriptorSetCount = num_sets,
-    .pSetLayouts = layouts,
+      .descriptorPool = (dynamic) ? g_device->dynamic_ds_pool : g_device->static_ds_pool,
+      .descriptorSetCount = num_sets,
+      .pSetLayouts = layouts,
   };
   VkResult err = vkAllocateDescriptorSets(g_device->logical_device, &allocate_info, sets);
   if (err != VK_SUCCESS) {
     LIDA_LOG_WARN("failed to allocate descriptor sets with error %s", lida_VkResultToString(err));
   }
   lida_TempFree(layouts);
+  if (err == VK_SUCCESS) {
+    char buff[64];
+    const char* type = (dynamic != 0 ? "resetable" : "static");
+    for (uint32_t i = 0; i < num_sets; i++) {
+      snprintf(buff, sizeof(buff), "%s[%u]-%s", marker, i, type);
+      err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_EXT, (uint64_t)sets[i], buff);
+      if (err != VK_SUCCESS) {
+        LIDA_LOG_WARN("failed to debug marker descriptor sets '%s' with error %s", marker, lida_VkResultToString(err));
+        break;
+      }
+    }
+  }
   return err;
 }
 
 VkResult
-lida_FreeAllocateDescriptorSets(const VkDescriptorSet* sets, uint32_t num_sets)
+lida_FreeDescriptorSets(const VkDescriptorSet* sets, uint32_t num_sets)
 {
   return vkFreeDescriptorSets(g_device->logical_device, g_device->dynamic_ds_pool,
                               num_sets, sets);
@@ -725,6 +764,67 @@ lida_MaxSampleCount(VkSampleCountFlagBits max_samples)
       ret = options[i];
   }
   return ret;
+}
+
+VkResult
+lida_CreateGraphicsPipelines(VkPipeline* pipelines, uint32_t count, const lida_PipelineDesc* descs, VkPipelineLayout* layouts)
+{
+  VkGraphicsPipelineCreateInfo* create_infos = lida_TempAllocate(count * sizeof(VkGraphicsPipelineCreateInfo));
+  VkPipelineShaderStageCreateInfo* stages = lida_TempAllocate(2 * count * sizeof(VkPipelineShaderStageCreateInfo));
+  VkShaderModule* modules = lida_TempAllocate(2 * count * sizeof(VkShaderModule));
+  const lida_ShaderReflect** reflects = lida_TempAllocate(2 * count * sizeof(lida_ShaderReflect*));
+  for (uint32_t i = 0; i < count; i++) {
+    modules[2*i] = lida_LoadShader(descs[i].vertex_shader, &reflects[2*i]);
+    modules[2*i+1] = lida_LoadShader(descs[i].fragment_shader, &reflects[2*i+1]);
+    stages[2*i] = (VkPipelineShaderStageCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .stage = VK_SHADER_STAGE_VERTEX_BIT,
+      .module = modules[2*i],
+      .pName = "main"
+    };
+    stages[2*i+1] = (VkPipelineShaderStageCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+      .module = modules[2*i+1],
+      .pName = "main"
+    };
+    layouts[i] = lida_CreatePipelineLayout(&reflects[2*i], 2);
+    create_infos[i] = (VkGraphicsPipelineCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+      .stageCount = 2,
+      .pStages = &stages[i*2],
+      .pVertexInputState = descs[i].vertex_input,
+      .pInputAssemblyState = descs[i].input_assembly,
+      .pViewportState = descs[i].viewport,
+      .pRasterizationState = descs[i].rasterization,
+      .pMultisampleState = descs[i].multisample,
+      .pDepthStencilState = descs[i].depth_stencil,
+      .pColorBlendState = descs[i].color_blend,
+      .pDynamicState = descs[i].dynamic,
+      .layout = layouts[i],
+      .renderPass = descs[i].render_pass,
+      .subpass = descs[i].subpass
+    };
+  }
+  VkResult err = vkCreateGraphicsPipelines(g_device->logical_device, VK_NULL_HANDLE,
+                                           count, create_infos, VK_NULL_HANDLE, pipelines);
+  lida_TempFree(reflects);
+  lida_TempFree(modules);
+  lida_TempFree(stages);
+  lida_TempFree(create_infos);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create graphics pipelines with error %s", lida_VkResultToString(err));
+  } else {
+    for (uint32_t i = 0; i < count; i++) {
+      err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT, (uint64_t)pipelines[i],
+                            descs[i].marker);
+      if (err != VK_SUCCESS) {
+        LIDA_LOG_ERROR("failed to debug mark graphics pipeline '%s' with error %s", descs[i].marker,
+                       lida_VkResultToString(err));
+      }
+    }
+  }
+  return err;
 }
 
 const char*
@@ -1148,14 +1248,16 @@ CreateLogicalDevice(const lida_DeviceDesc* desc)
   };
 
   if (desc->num_device_extensions) {
-    g_device->num_enabled_device_extensions = desc->num_device_extensions;
+    g_device->num_enabled_device_extensions = desc->num_device_extensions + (desc->enable_debug_layers != 0);
     g_device->enabled_device_extensions =
       lida_TempAllocate(desc->num_device_extensions * sizeof(const char*));
     for (uint32_t i = 0; i < desc->num_device_extensions; i++) {
       g_device->enabled_device_extensions[i] = desc->device_extensions[i];
-      if (strcmp(desc->device_extensions[i], VK_EXT_DEBUG_MARKER_EXTENSION_NAME) == 0) {
-        g_device->debug_marker_enabled = 1;
-      }
+    }
+    // add DEBUG_MARKER extension if debug layers are enabled
+    if (desc->enable_debug_layers) {
+      g_device->enabled_device_extensions[desc->num_device_extensions] = VK_EXT_DEBUG_MARKER_EXTENSION_NAME;
+      g_device->debug_marker_enabled = 1;
     }
   } else {
     g_device->num_enabled_device_extensions = g_device->num_available_device_extensions;

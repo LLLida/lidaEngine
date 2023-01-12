@@ -324,7 +324,8 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
   lida_MergeMemoryRequirements(image_requirements, 2 + (g_fwd_pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT), &requirements);
   if (requirements.size > g_fwd_pass->gpu_memory.size) {
     err = lida_VideoMemoryAllocate(&g_fwd_pass->gpu_memory, requirements.size,
-                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, requirements.memoryTypeBits);
+                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, requirements.memoryTypeBits,
+                                   "forward/attachment-memory");
     if (err != VK_SUCCESS) {
       LIDA_LOG_ERROR("failed to allocate GPU memory for attachments with error %s",
                      lida_VkResultToString(err));
@@ -401,7 +402,8 @@ VkResult FWD_CreateBuffers()
   VkMemoryRequirements requirements;
   lida_MergeMemoryRequirements(buffer_requirements, 1, &requirements);
   err = lida_VideoMemoryAllocate(&g_fwd_pass->cpu_memory, requirements.size,
-                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_CACHED_BIT, requirements.memoryTypeBits);
+                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_CACHED_BIT, requirements.memoryTypeBits,
+                                 "forward/buffer-memory");
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to allocate memory for buffers with error %s", lida_VkResultToString(err));
     return err;
@@ -426,7 +428,7 @@ VkResult FWD_AllocateDescriptorSets()
     .descriptorCount = 1,
     .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
   };
-  VkResult err = lida_AllocateDescriptorSets(bindings, 1, &g_fwd_pass->scene_data_set, 1, 0);
+  VkResult err = lida_AllocateDescriptorSets(bindings, 1, &g_fwd_pass->scene_data_set, 1, 0, "forward/scene-data");
   if (err == VK_SUCCESS) {
     bindings[0] = (VkDescriptorSetLayoutBinding) {
       .binding = 0,
@@ -434,7 +436,7 @@ VkResult FWD_AllocateDescriptorSets()
       .descriptorCount = 1,
       .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
     };
-    err = lida_AllocateDescriptorSets(bindings, 1, &g_fwd_pass->resulting_image_set, 1, 1);
+    err = lida_AllocateDescriptorSets(bindings, 1, &g_fwd_pass->resulting_image_set, 1, 1, "forward/resulting-image");
   }
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to allocate descriptor sets with error %s", lida_VkResultToString(err));

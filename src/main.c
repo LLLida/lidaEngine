@@ -64,8 +64,8 @@ int main(int argc, char** argv) {
                        .gpu_id = 0,
                        .app_name = "tst",
                        .app_version = VK_MAKE_VERSION(0, 0, 0),
-                       .device_extensions = (const char*[]){ VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME, VK_EXT_DEBUG_MARKER_EXTENSION_NAME },
-                       .num_device_extensions = 3);
+                       .device_extensions = (const char*[]){ VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME },
+                       .num_device_extensions = 2);
 
     LIDA_WINDOW_CREATE(.name = "hello world",
                        .x = SDL_WINDOWPOS_CENTERED,
@@ -229,27 +229,6 @@ int main(int argc, char** argv) {
 
 VkPipeline createTrianglePipeline() {
 
-  VkShaderModule vertex_shader, fragment_shader;
-  const lida_ShaderReflect* reflects[2];
-  vertex_shader = lida_LoadShader("shaders/triangle.vert.spv", &reflects[0]);
-  fragment_shader = lida_LoadShader("shaders/triangle.frag.spv", &reflects[1]);
-
-  pipeline_layout = lida_CreatePipelineLayout(reflects, 2);
-
-  VkPipelineShaderStageCreateInfo stages[2];
-  stages[0] = (VkPipelineShaderStageCreateInfo) {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-    .stage = VK_SHADER_STAGE_VERTEX_BIT,
-    .module = vertex_shader,
-    .pName = "main",
-  };
-  stages[1] = (VkPipelineShaderStageCreateInfo) {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-    .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-    .module = fragment_shader,
-    .pName = "main",
-  };
-
   VkPipelineVertexInputStateCreateInfo vertex_input_state = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
   };
@@ -300,51 +279,30 @@ VkPipeline createTrianglePipeline() {
     .dynamicStateCount = 2,
     .pDynamicStates = dynamic_states,
   };
-  VkGraphicsPipelineCreateInfo pipeline_info = {
-    .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-    .stageCount = 2,
-    .pStages = stages,
-    .pVertexInputState = &vertex_input_state,
-    .pInputAssemblyState = &input_assembly_state,
-    .pViewportState = &viewport_state,
-    .pRasterizationState = &rasterization_state,
-    .pMultisampleState = &multisample_state,
-    .pDepthStencilState = &depthstencil_state,
-    .pColorBlendState = &colorblend_state,
-    .pDynamicState = &dynamic_state,
-    .layout = pipeline_layout,
-    .renderPass = lida_ForwardPassGetRenderPass(),
-    .subpass = 0,
-  };
 
   VkPipeline ret;
-  vkCreateGraphicsPipelines(lida_GetLogicalDevice(), VK_NULL_HANDLE, 1, &pipeline_info, NULL, &ret);
+  lida_PipelineDesc pipeline_desc = {
+    .vertex_shader = "shaders/triangle.vert.spv",
+    .fragment_shader = "shaders/triangle.frag.spv",
+    .vertex_input = &vertex_input_state,
+    .input_assembly = &input_assembly_state,
+    .viewport = &viewport_state,
+    .rasterization = &rasterization_state,
+    .multisample = &multisample_state,
+    .depth_stencil = &depthstencil_state,
+    .color_blend = &colorblend_state,
+    .dynamic = &dynamic_state,
+    .render_pass = lida_ForwardPassGetRenderPass(),
+    .subpass = 0,
+    .marker = "draw-triangle-pipeline"
+  };
+  lida_CreateGraphicsPipelines(&ret, 1, &pipeline_desc, &pipeline_layout);
+
   return ret;
 }
 
 VkPipeline createRectPipeline()
 {
-  VkShaderModule vertex_shader, fragment_shader;
-  const lida_ShaderReflect* reflects[2];
-  vertex_shader = lida_LoadShader("shaders/rect.vert.spv", &reflects[0]);
-  fragment_shader = lida_LoadShader("shaders/rect.frag.spv", &reflects[1]);
-
-  pipeline_layout2 = lida_CreatePipelineLayout(reflects, 2);
-
-  VkPipelineShaderStageCreateInfo stages[2];
-  stages[0] = (VkPipelineShaderStageCreateInfo) {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-    .stage = VK_SHADER_STAGE_VERTEX_BIT,
-    .module = vertex_shader,
-    .pName = "main",
-  };
-  stages[1] = (VkPipelineShaderStageCreateInfo) {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-    .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-    .module = fragment_shader,
-    .pName = "main",
-  };
-
   VkPipelineVertexInputStateCreateInfo vertex_input_state = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
   };
@@ -388,23 +346,22 @@ VkPipeline createRectPipeline()
     .dynamicStateCount = 2,
     .pDynamicStates = dynamic_states,
   };
-  VkGraphicsPipelineCreateInfo pipeline_info = {
-    .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-    .stageCount = 2,
-    .pStages = stages,
-    .pVertexInputState = &vertex_input_state,
-    .pInputAssemblyState = &input_assembly_state,
-    .pViewportState = &viewport_state,
-    .pRasterizationState = &rasterization_state,
-    .pMultisampleState = &multisample_state,
-    .pColorBlendState = &colorblend_state,
-    .pDynamicState = &dynamic_state,
-    .layout = pipeline_layout2,
-    .renderPass = lida_WindowGetRenderPass(),
+  lida_PipelineDesc pipeline_desc = {
+    .vertex_shader = "shaders/rect.vert.spv",
+    .fragment_shader = "shaders/rect.frag.spv",
+    .vertex_input = &vertex_input_state,
+    .input_assembly = &input_assembly_state,
+    .viewport = &viewport_state,
+    .rasterization = &rasterization_state,
+    .multisample = &multisample_state,
+    .color_blend = &colorblend_state,
+    .dynamic = &dynamic_state,
+    .render_pass = lida_WindowGetRenderPass(),
     .subpass = 0,
+    .marker = "blit-3D-scene-fullscreen"
   };
 
   VkPipeline ret;
-  vkCreateGraphicsPipelines(lida_GetLogicalDevice(), VK_NULL_HANDLE, 1, &pipeline_info, NULL, &ret);
+  lida_CreateGraphicsPipelines(&ret, 1, &pipeline_desc, &pipeline_layout2);
   return ret;
 }
