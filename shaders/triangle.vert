@@ -21,15 +21,15 @@ layout (binding = 0) uniform SceneInfo {
 } camera;
 
 layout (push_constant) uniform Color {
-  // vec3 values[3];
   vec3 red;
   vec3 green;
   vec3 blue;
+  vec3 pos;
 } colors;
 
 void main() {
   // gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-  gl_Position =  camera.projection * camera.view * vec4(positions[gl_VertexIndex], 0.0, 1.0);
+  gl_Position =  camera.projection * camera.view * vec4(colors.pos + vec3(positions[gl_VertexIndex], 0.0), 1.0);
   // outColor = colors[gl_VertexIndex];
   if (gl_VertexIndex == 0) {
     outColor = colors.red;

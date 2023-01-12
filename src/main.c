@@ -178,18 +178,24 @@ int main(int argc, char** argv) {
 
     VkCommandBuffer cmd = lida_WindowBeginCommands();
 
-    lida_Vec4 colors[3] = {
+    lida_Vec4 colors[] = {
       LIDA_VEC4_CREATE(1.0f, 0.2f, 0.2f, 1.0f),
       LIDA_VEC4_CREATE(0.0f, 0.9f, 0.4f, 1.0f),
-      LIDA_VEC4_CREATE(0.2f, 0.35f, 0.76f, 1.0f)
+      LIDA_VEC4_CREATE(0.2f, 0.35f, 0.76f, 1.0f),
+      LIDA_VEC4_CREATE(0.0f, 0.0f, 0.0f, 0.0f)
     };
     float clear_color[4] = { 0.08f, 0.2f, 0.25f, 1.0f };
 
     lida_ForwardPassBegin(cmd, clear_color);
-    vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(lida_Vec4)*2 + sizeof(lida_Vec3), &colors);
     VkDescriptorSet ds_set = lida_ForwardPassGetDS0();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, &ds_set, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    // 1st draw
+    vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(lida_Vec4)*3 + sizeof(lida_Vec3), &colors);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    // 2nd draw
+    colors[3] = LIDA_VEC4_CREATE(0.1f, 0.0f, 1.0f, 0.0f);
+    vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(lida_Vec4)*3 + sizeof(lida_Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
 
@@ -274,6 +280,7 @@ VkPipeline createTrianglePipeline() {
   VkPipelineDepthStencilStateCreateInfo depthstencil_state = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
     .depthTestEnable = VK_TRUE,
+    .depthWriteEnable = VK_TRUE,
     .depthCompareOp = VK_COMPARE_OP_GREATER,
     .depthBoundsTestEnable = VK_FALSE,
   };

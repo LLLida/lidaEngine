@@ -41,6 +41,7 @@ VkRenderPass lida_WindowGetRenderPass();
 VkSurfaceFormatKHR lida_WindowGetFormat();
 VkPresentModeKHR lida_WindowGetPresentMode();
 float lida_WindowGetFPS();
+
 // wait for an available command buffer and begin it
 // this function will take the most of the time if not used properly as it waits
 // till previous commands end on GPU
