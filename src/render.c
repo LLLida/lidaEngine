@@ -260,7 +260,7 @@ FWD_CreateRenderPass()
     .dependencyCount = LIDA_ARR_SIZE(dependencies),
     .pDependencies = dependencies,
   };
-  return vkCreateRenderPass(lida_GetLogicalDevice(), &render_pass_info, NULL, &g_fwd_pass->render_pass);
+  return lida_RenderPassCreate(&g_fwd_pass->render_pass, &render_pass_info, "forward/render-pass");
 }
 
 VkResult
@@ -286,9 +286,8 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
     image_info.usage |= VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
   }
   image_info.samples = g_fwd_pass->msaa_samples;
-  err = vkCreateImage(lida_GetLogicalDevice(), &image_info, NULL, &g_fwd_pass->color_image);
+  err = lida_ImageCreate(&g_fwd_pass->color_image, &image_info, "forward/color-image");
   if (err != VK_SUCCESS) {
-    LIDA_LOG_ERROR("failed to create color image with error %s", lida_VkResultToString(err));
     return err;
   }
   // create depth image
@@ -296,9 +295,8 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
   image_info.extent = (VkExtent3D) { width, height, 1 };
   image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT;
   image_info.samples = g_fwd_pass->msaa_samples;
-  err = vkCreateImage(lida_GetLogicalDevice(), &image_info, NULL, &g_fwd_pass->depth_image);
+  err = lida_ImageCreate(&g_fwd_pass->depth_image, &image_info, "forward/depth-image");
   if (err != VK_SUCCESS) {
-    LIDA_LOG_ERROR("failed to create depth image with error %s", lida_VkResultToString(err));
     return err;
   }
   // create resolve image if msaa_samples > 1
@@ -308,9 +306,8 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
     image_info.extent = (VkExtent3D) { width, height, 1 };
     image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-    err = vkCreateImage(lida_GetLogicalDevice(), &image_info, NULL, &g_fwd_pass->resolve_image);
+    err = lida_ImageCreate(&g_fwd_pass->resolve_image, &image_info, "forward/resolve-image");
     if (err != VK_SUCCESS) {
-      LIDA_LOG_ERROR("failed to create resolve image with error %s", lida_VkResultToString(err));
       return err;
     }
   } else {
@@ -350,26 +347,23 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
   image_view_info.image = g_fwd_pass->color_image;
   image_view_info.format = g_fwd_pass->color_format;
   image_view_info.subresourceRange = (VkImageSubresourceRange) { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-  err = vkCreateImageView(lida_GetLogicalDevice(), &image_view_info, NULL, &g_fwd_pass->color_image_view);
+  err = lida_ImageViewCreate(&g_fwd_pass->color_image_view, &image_view_info, "forward/color-image-view");
   if (err != VK_SUCCESS) {
-    LIDA_LOG_ERROR("failed to create color image view with error %s", lida_VkResultToString(err));
     return err;
   }
   image_view_info.image = g_fwd_pass->depth_image;
   image_view_info.format = g_fwd_pass->depth_format;
   image_view_info.subresourceRange = (VkImageSubresourceRange) { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
-  err = vkCreateImageView(lida_GetLogicalDevice(), &image_view_info, NULL, &g_fwd_pass->depth_image_view);
+  err = lida_ImageViewCreate(&g_fwd_pass->depth_image_view, &image_view_info, "forward/depth-image-view");
   if (err != VK_SUCCESS) {
-    LIDA_LOG_ERROR("failed to create depth image view with error %s", lida_VkResultToString(err));
     return err;
   }
   if (g_fwd_pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
     image_view_info.image = g_fwd_pass->resolve_image;
     image_view_info.format = g_fwd_pass->color_format;
     image_view_info.subresourceRange = (VkImageSubresourceRange) { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-    err = vkCreateImageView(lida_GetLogicalDevice(), &image_view_info, NULL, &g_fwd_pass->resolve_image_view);
+    err = lida_ImageViewCreate(&g_fwd_pass->resolve_image_view, &image_view_info, "forward/resolve-image-view");
     if (err != VK_SUCCESS) {
-      LIDA_LOG_ERROR("failed to create resolve image with error %s", lida_VkResultToString(err));
       return err;
     }
   } else {
@@ -386,9 +380,8 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
     .height = height,
     .layers = 1,
   };
-  err = vkCreateFramebuffer(lida_GetLogicalDevice(), &framebuffer_info, NULL, &g_fwd_pass->framebuffer);
+  err = lida_FramebufferCreate(&g_fwd_pass->framebuffer, &framebuffer_info, "forward/framebuffer");
   if (err != VK_SUCCESS) {
-    LIDA_LOG_ERROR("failed to create framebuffer with error %s", lida_VkResultToString(err));
     return err;
   }
   LIDA_LOG_TRACE("allocated %u bytes for attachments", (uint32_t)requirements.size);
@@ -397,7 +390,8 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
 
 VkResult FWD_CreateBuffers()
 {
-  VkResult err = lida_BufferCreate(&g_fwd_pass->uniform_buffer, g_fwd_pass->uniform_buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+  VkResult err = lida_BufferCreate(&g_fwd_pass->uniform_buffer, g_fwd_pass->uniform_buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                   "forward/uniform");
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create uniform buffer with error %s", lida_VkResultToString(err));
     return err;

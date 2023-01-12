@@ -37,6 +37,8 @@ typedef struct {
   const char** enabled_device_extensions;
   uint32_t num_enabled_device_extensions;
 
+  int debug_marker_enabled;
+
   lida_TypeInfo shader_info_type;
   lida_HashTable shader_cache;
 
@@ -95,6 +97,7 @@ static VkResult PickPhysicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateLogicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateCommandPool();
 static VkResult CreateDescriptorPools();
+static VkResult DebugMarkObject(VkDebugReportObjectTypeEXT type, uint64_t obj, const char* name);
 static VkResult VideoMemoryProvide(lida_VideoMemory* memory, const VkMemoryRequirements* requirements);
 static uint32_t HashShaderInfo(const void* data);
 static int CompareShaderInfos(const void* lhs, const void* rhs);
@@ -402,6 +405,10 @@ lida_LoadShader(const char* path, const lida_ShaderReflect** reflect)
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create shader module with error %s", lida_VkResultToString(err));
   } else {
+    err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT, (uint64_t)ret, path);
+    if (err != VK_SUCCESS) {
+      LIDA_LOG_WARN("failed to mark shader module '%s' with error %s", path, lida_VkResultToString(err));
+    }
     // Insert shader to cache if succeeded
     ShaderInfo* shader_info = lida_HT_Insert(&g_device->shader_cache,
                                              &(ShaderInfo) { .name = path, .module = ret });
@@ -547,7 +554,24 @@ lida_CreatePipelineLayout(const lida_ShaderReflect** shader_templates, uint32_t 
 }
 
 VkResult
-lida_BufferCreate(VkBuffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage)
+lida_RenderPassCreate(VkRenderPass* render_pass, const VkRenderPassCreateInfo* render_pass_info, const char* marker)
+{
+  VkResult err = vkCreateRenderPass(g_device->logical_device, render_pass_info, NULL, render_pass);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create render pass '%s' with error %s",
+                   marker, lida_VkResultToString(err));
+  } else {
+    err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_RENDER_PASS_EXT, (uint64_t)*render_pass, marker);
+    if (err != VK_SUCCESS) {
+      LIDA_LOG_WARN("failed to mark render pass '%s' with error %s",
+                    marker, lida_VkResultToString(err));
+    }
+  }
+  return err;
+}
+
+VkResult
+lida_BufferCreate(VkBuffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage, const char* marker)
 {
   VkBufferCreateInfo buffer_info = {
     .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -557,7 +581,13 @@ lida_BufferCreate(VkBuffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage)
   };
   VkResult err = vkCreateBuffer(g_device->logical_device, &buffer_info, NULL, buffer);
   if (err != VK_SUCCESS) {
-    LIDA_LOG_ERROR("failed to create buffer with error %s", lida_VkResultToString(err));
+    LIDA_LOG_ERROR("failed to create buffer '%s' with error %s", marker, lida_VkResultToString(err));
+  } else {
+    err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, (uint64_t)*buffer, marker);
+    if (err != VK_SUCCESS) {
+      LIDA_LOG_WARN("failed to mark buffer '%s' with error %s",
+                    marker, lida_VkResultToString(err));
+    }
   }
   return err;
 }
@@ -608,6 +638,38 @@ lida_FindSupportedFormat(VkFormat* options, uint32_t count, VkImageTiling tiling
 }
 
 VkResult
+lida_ImageCreate(VkImage* image, const VkImageCreateInfo* image_info, const char* marker)
+{
+  VkResult err = vkCreateImage(g_device->logical_device, image_info, NULL, image);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create image '%s' with error %s", marker, lida_VkResultToString(err));
+  } else {
+    err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, (uint64_t)*image, marker);
+    if (err != VK_SUCCESS) {
+      LIDA_LOG_WARN("failed to mark image '%s' with error %s",
+                    marker, lida_VkResultToString(err));
+    }
+  }
+  return err;
+}
+
+VkResult
+lida_ImageViewCreate(VkImageView* image_view, const VkImageViewCreateInfo* image_view_info, const char* marker)
+{
+  VkResult err = vkCreateImageView(g_device->logical_device, image_view_info, NULL, image_view);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create image view '%s' with error %s", marker, lida_VkResultToString(err));
+  } else {
+    err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_VIEW_EXT, (uint64_t)*image_view, marker);
+    if (err != VK_SUCCESS) {
+      LIDA_LOG_WARN("failed to mark image view '%s' with error %s",
+                    marker, lida_VkResultToString(err));
+    }
+  }
+  return err;
+}
+
+VkResult
 lida_ImageBindToMemory(lida_VideoMemory* memory, VkImage image, const VkMemoryRequirements* requirements)
 {
   VkResult err = VideoMemoryProvide(memory, requirements);
@@ -619,6 +681,23 @@ lida_ImageBindToMemory(lida_VideoMemory* memory, VkImage image, const VkMemoryRe
     LIDA_LOG_ERROR("failed to bind image to memory with error %s", lida_VkResultToString(err));
   } else {
     memory->offset += requirements->size;
+  }
+  return err;
+}
+
+VkResult
+lida_FramebufferCreate(VkFramebuffer* framebuffer, const VkFramebufferCreateInfo* framebuffer_info, const char* marker)
+{
+  VkResult err = vkCreateFramebuffer(g_device->logical_device, framebuffer_info, NULL, framebuffer);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create framebuffer '%s' with error %s",
+                   marker, lida_VkResultToString(err));
+  } else if (g_device->debug_marker_enabled) {
+    err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_FRAMEBUFFER_EXT, (uint64_t)*framebuffer, marker);
+    if (err != VK_SUCCESS) {
+      LIDA_LOG_WARN("failed to mark framebuffer '%s' with error %s",
+                    marker, lida_VkResultToString(err));
+    }
   }
   return err;
 }
@@ -1074,6 +1153,9 @@ CreateLogicalDevice(const lida_DeviceDesc* desc)
       lida_TempAllocate(desc->num_device_extensions * sizeof(const char*));
     for (uint32_t i = 0; i < desc->num_device_extensions; i++) {
       g_device->enabled_device_extensions[i] = desc->device_extensions[i];
+      if (strcmp(desc->device_extensions[i], VK_EXT_DEBUG_MARKER_EXTENSION_NAME) == 0) {
+        g_device->debug_marker_enabled = 1;
+      }
     }
   } else {
     g_device->num_enabled_device_extensions = g_device->num_available_device_extensions;
@@ -1136,12 +1218,36 @@ CreateDescriptorPools()
     LIDA_LOG_ERROR("failed to create pool for static resources with error %d", err);
     return err;
   }
+  err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_VIEW_EXT, (uint64_t)g_device->static_ds_pool, "static-descriptor-pool");
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_WARN("failed to mark static descriptor pool with error %s", lida_VkResultToString(err));
+  }
   pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
   err = vkCreateDescriptorPool(g_device->logical_device, &pool_info, NULL,
                                &g_device->dynamic_ds_pool);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create pool for dynamic resources with error %d", err);
     return err;
+  }
+  err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_VIEW_EXT, (uint64_t)g_device->static_ds_pool, "dynamic-descriptor-pool");
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_WARN("failed to mark dynamic descriptor pool with error %s", lida_VkResultToString(err));
+  }
+  return err;
+}
+
+VkResult
+DebugMarkObject(VkDebugReportObjectTypeEXT type, uint64_t obj, const char* name)
+{
+  VkResult err = VK_SUCCESS;
+  if (g_device->debug_marker_enabled) {
+    VkDebugMarkerObjectNameInfoEXT object_name_info = {
+      .sType = VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT,
+      .objectType = type,
+      .object = obj,
+      .pObjectName = name,
+    };
+    err = vkDebugMarkerSetObjectNameEXT(g_device->logical_device, &object_name_info);
   }
   return err;
 }

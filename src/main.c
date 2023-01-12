@@ -64,8 +64,8 @@ int main(int argc, char** argv) {
                        .gpu_id = 0,
                        .app_name = "tst",
                        .app_version = VK_MAKE_VERSION(0, 0, 0),
-                       .device_extensions = (const char*[]){ VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME },
-                       .num_device_extensions = 2);
+                       .device_extensions = (const char*[]){ VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME, VK_EXT_DEBUG_MARKER_EXTENSION_NAME },
+                       .num_device_extensions = 3);
 
     LIDA_WINDOW_CREATE(.name = "hello world",
                        .x = SDL_WINDOWPOS_CENTERED,

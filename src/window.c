@@ -415,14 +415,17 @@ CreateSwapchain(VkPresentModeKHR present_mode)
     .layers = 1,
   };
   for (uint32_t i = 0; i < g_window->num_images; i++) {
+    char buff[64];
     g_window->images[i].image = swapchain_images[i];
     image_view_info.image = swapchain_images[i];
-    err = vkCreateImageView(log_dev, &image_view_info, NULL, &g_window->images[i].image_view);
+    sprintf(buff, "swapchain-image-view[%u]", i);
+    err = lida_ImageViewCreate(&g_window->images[i].image_view, &image_view_info, "buff");
     if (err != VK_SUCCESS) {
       LIDA_LOG_ERROR("failed to create image view no. %u with error %s", i, lida_VkResultToString(err));
     }
     framebuffer_info.pAttachments = &g_window->images[i].image_view;
-    err = vkCreateFramebuffer(log_dev, &framebuffer_info, NULL, &g_window->images[i].framebuffer);
+    sprintf(buff, "swapchain-framebuffer[%u]", i);
+    err = lida_FramebufferCreate(&g_window->images[i].framebuffer, &framebuffer_info, buff);
     if (err != VK_SUCCESS) {
       LIDA_LOG_ERROR("failed to create framebuffer no. %u with error %s", i, lida_VkResultToString(err));
     }
@@ -480,9 +483,7 @@ CreateRenderPass()
     .dependencyCount = 2,
     .pDependencies = dependencies,
   };
-  return vkCreateRenderPass(lida_GetLogicalDevice(),
-                            &render_pass_info, NULL,
-                            &g_window->render_pass);
+  return lida_RenderPassCreate(&g_window->render_pass, &render_pass_info, "main-render-pass");
 }
 
 VkResult
