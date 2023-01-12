@@ -7,8 +7,11 @@
 #include "linalg.h"
 #include "render.h"
 
-VkPipeline createTrianglePipeline();
-VkPipeline createRectPipeline();
+#include <unistd.h>
+
+static int checkOption(const char* opt);
+static VkPipeline createTrianglePipeline();
+static VkPipeline createRectPipeline();
 
 VkPipelineLayout pipeline_layout;
 VkPipelineLayout pipeline_layout2;
@@ -17,24 +20,63 @@ lida_Camera camera;
 int main(int argc, char** argv) {
   SDL_Init(SDL_INIT_VIDEO);
   lida_TempAllocatorCreate(32 * 1024);
-  lida_InitPlatformSpecificLoggers();
 
-  LIDA_DEVICE_CREATE(.enable_debug_layers = (argc == 1),
-                     .gpu_id = 0,
-                     .app_name = "tst",
-                     .app_version = VK_MAKE_VERSION(0, 0, 0),
-                     .device_extensions = (const char*[]){ VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME },
-                     .num_device_extensions = 2);
+  {
+    int enable_debug_layers = 1;
+    VkSampleCountFlagBits msaa_samples = VK_SAMPLE_COUNT_4_BIT;
+    int window_w = 1080;
+    int window_h = 720;
+    int opt;
+    while ((opt = getopt(argc, argv, "d:s:w:h:")) != -1) {
+      switch (opt) {
+      case 'd':
+        enable_debug_layers = atoi(optarg);
+        break;
+      case 's':
+        switch (optarg[0]) {
+        case '1':
+          msaa_samples = VK_SAMPLE_COUNT_1_BIT;
+          break;
+        case '2':
+          msaa_samples = VK_SAMPLE_COUNT_2_BIT;
+          break;
+        case '4':
+          msaa_samples = VK_SAMPLE_COUNT_4_BIT;
+          break;
+        case '8':
+          msaa_samples = VK_SAMPLE_COUNT_8_BIT;
+          break;
+        default:
+          LIDA_LOG_WARN("invalid option for MSAA samples: %s", optarg);
+          break;
+        }
+        break;
+      case 'w':
+        window_w = atoi(optarg);
+        break;
+      case 'h':
+        window_h = atoi(optarg);
+        break;
+      }
+    }
+    lida_InitPlatformSpecificLoggers();
+    LIDA_DEVICE_CREATE(.enable_debug_layers = enable_debug_layers,
+                       .gpu_id = 0,
+                       .app_name = "tst",
+                       .app_version = VK_MAKE_VERSION(0, 0, 0),
+                       .device_extensions = (const char*[]){ VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME },
+                       .num_device_extensions = 2);
 
-  LIDA_WINDOW_CREATE(.name = "hello world",
-                     .x = SDL_WINDOWPOS_CENTERED,
-                     .y = SDL_WINDOWPOS_CENTERED,
-                     .w = 1080,
-                     .h = 720,
-                     .preferred_present_mode = VK_PRESENT_MODE_MAILBOX_KHR);
+    LIDA_WINDOW_CREATE(.name = "hello world",
+                       .x = SDL_WINDOWPOS_CENTERED,
+                       .y = SDL_WINDOWPOS_CENTERED,
+                       .w = window_w,
+                       .h = window_h,
+                       .preferred_present_mode = VK_PRESENT_MODE_MAILBOX_KHR);
+    lida_ForwardPassCreate(lida_WindowGetExtent().width, lida_WindowGetExtent().height, msaa_samples);
+  }
   LIDA_LOG_DEBUG("num images in swapchain: %u\n", lida_WindowGetNumImages());
 
-  lida_ForwardPassCreate(lida_WindowGetExtent().width, lida_WindowGetExtent().height, VK_SAMPLE_COUNT_4_BIT);
 
   VkPipeline pipeline = createTrianglePipeline();
   VkPipeline rect_pipeline = createRectPipeline();
@@ -141,7 +183,7 @@ int main(int argc, char** argv) {
       LIDA_VEC4_CREATE(0.0f, 0.9f, 0.4f, 1.0f),
       LIDA_VEC4_CREATE(0.2f, 0.35f, 0.76f, 1.0f)
     };
-    float clear_color[4] = { 0.1f, 0.5f, 0.55f, 1.0f };
+    float clear_color[4] = { 0.08f, 0.2f, 0.25f, 1.0f };
 
     lida_ForwardPassBegin(cmd, clear_color);
     vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(lida_Vec4)*2 + sizeof(lida_Vec3), &colors);

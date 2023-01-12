@@ -190,10 +190,11 @@ void FWD_ChooseFromats(VkSampleCountFlagBits samples)
   g_fwd_pass->depth_format = LIDA_FIND_SUPPORTED_FORMAT(depth_formats, VK_IMAGE_TILING_OPTIMAL,
                                                         VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT|
                                                         VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
-  LIDA_LOG_TRACE("Renderer formats: color=%s, depth=%s",
-                 lida_VkFormatToString(g_fwd_pass->color_format),
-                lida_VkFormatToString(g_fwd_pass->depth_format));
   g_fwd_pass->msaa_samples = lida_MaxSampleCount(samples);
+  LIDA_LOG_TRACE("Renderer formats(samples=%d): color=%s, depth=%s",
+                 (int)g_fwd_pass->msaa_samples,
+                 lida_VkFormatToString(g_fwd_pass->color_format),
+                 lida_VkFormatToString(g_fwd_pass->depth_format));
 }
 
 VkResult
