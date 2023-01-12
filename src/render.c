@@ -11,8 +11,10 @@ typedef struct {
   lida_VideoMemory cpu_memory;
   VkImage color_image;
   VkImage depth_image;
+  VkImage resolve_image;
   VkImageView color_image_view;
   VkImageView depth_image_view;
+  VkImageView resolve_image_view;
   VkFramebuffer framebuffer;
   VkRenderPass render_pass;
   VkBuffer uniform_buffer;
@@ -22,6 +24,7 @@ typedef struct {
   VkDescriptorSet resulting_image_set;
   VkFormat color_format;
   VkFormat depth_format;
+  VkSampleCountFlagBits msaa_samples;
   VkExtent2D render_extent;
   VkMappedMemoryRange uniform_buffer_range;
 
@@ -29,31 +32,20 @@ typedef struct {
 
 lida_ForwardPass* g_fwd_pass;
 
-static void FWD_ChooseFromats();
+static void FWD_ChooseFromats(VkSampleCountFlagBits samples);
 static VkResult FWD_CreateRenderPass();
 static VkResult FWD_CreateAttachments(uint32_t width, uint32_t height);
 static VkResult FWD_CreateBuffers();
 static VkResult FWD_AllocateDescriptorSets();
 
-#define ATTACHMENT_DESCRIPTION(format_, load_op, store_op, initial_layout, final_layout) (VkAttachmentDescription) { \
-    .format = format_,                                                  \
-      .samples = VK_SAMPLE_COUNT_1_BIT,                                 \
-      .loadOp = load_op,                                                \
-      .storeOp = store_op,                                              \
-      .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,                 \
-      .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,               \
-      .initialLayout = initial_layout,                                  \
-      .finalLayout = final_layout                                       \
-      }
-
 
 
 VkResult
-lida_ForwardPassCreate(uint32_t width, uint32_t height)
+lida_ForwardPassCreate(uint32_t width, uint32_t height, VkSampleCountFlagBits samples)
 {
   g_fwd_pass = lida_TempAllocate(sizeof(lida_ForwardPass));
   g_fwd_pass->render_extent = (VkExtent2D) {width, height};
-  FWD_ChooseFromats();
+  FWD_ChooseFromats(samples);
   VkResult err = FWD_CreateRenderPass();
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create render pass with error %s", lida_VkResultToString(err));
@@ -91,8 +83,12 @@ lida_ForwardPassDestroy()
   vkDestroyFramebuffer(dev, g_fwd_pass->framebuffer, NULL);
   vkDestroyImageView(dev, g_fwd_pass->depth_image_view, NULL);
   vkDestroyImageView(dev, g_fwd_pass->color_image_view, NULL);
+  if (g_fwd_pass->resolve_image_view)
+    vkDestroyImageView(dev, g_fwd_pass->resolve_image_view, NULL);
   vkDestroyImage(dev, g_fwd_pass->depth_image, NULL);
   vkDestroyImage(dev, g_fwd_pass->color_image, NULL);
+  if (g_fwd_pass->resolve_image)
+    vkDestroyImage(dev, g_fwd_pass->resolve_image, NULL);
   vkDestroyRenderPass(dev, g_fwd_pass->render_pass, NULL);
 
   lida_VideoMemoryFree(&g_fwd_pass->cpu_memory);
@@ -123,6 +119,12 @@ VkRenderPass
 lida_ForwardPassGetRenderPass()
 {
   return g_fwd_pass->render_pass;
+}
+
+VkSampleCountFlagBits
+lida_ForwardPassGet_MSAA_Samples()
+{
+  return g_fwd_pass->msaa_samples;
 }
 
 void
@@ -168,7 +170,7 @@ lida_ForwardPassBegin(VkCommandBuffer cmd, float clear_color[4])
 
 
 
-void FWD_ChooseFromats()
+void FWD_ChooseFromats(VkSampleCountFlagBits samples)
 {
   VkFormat hdr_formats[] = {
     VK_FORMAT_R16G16B16A16_SFLOAT,
@@ -191,30 +193,53 @@ void FWD_ChooseFromats()
   LIDA_LOG_TRACE("Renderer formats: color=%s, depth=%s",
                  lida_VkFormatToString(g_fwd_pass->color_format),
                 lida_VkFormatToString(g_fwd_pass->depth_format));
+  g_fwd_pass->msaa_samples = lida_MaxSampleCount(samples);
 }
 
 VkResult
 FWD_CreateRenderPass()
 {
-  VkAttachmentDescription attachments[2];
-  attachments[0] = ATTACHMENT_DESCRIPTION(g_fwd_pass->color_format,
-                                          VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                          VK_ATTACHMENT_STORE_OP_STORE,
-                                          VK_IMAGE_LAYOUT_UNDEFINED,
-                                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-  attachments[1] = ATTACHMENT_DESCRIPTION(g_fwd_pass->depth_format,
-                                          VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                          VK_ATTACHMENT_STORE_OP_DONT_CARE,
-                                          VK_IMAGE_LAYOUT_UNDEFINED,
-                                          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-  VkAttachmentReference references[2];
-  references[0] = (VkAttachmentReference) { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-  references[1] = (VkAttachmentReference) { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+  VkAttachmentDescription attachments[3];
+  attachments[0] = (VkAttachmentDescription) {
+    .format = g_fwd_pass->color_format,
+    .samples = g_fwd_pass->msaa_samples,
+    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+  };
+  attachments[1] = (VkAttachmentDescription) {
+    .format = g_fwd_pass->depth_format,
+    .samples = g_fwd_pass->msaa_samples,
+    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+    .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+  };
+  if (g_fwd_pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
+    attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    attachments[2] = (VkAttachmentDescription) {
+      .format = g_fwd_pass->color_format,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+      .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    };
+  }
+  VkAttachmentReference color_references[1];
+  color_references[0] = (VkAttachmentReference) { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+  VkAttachmentReference depth_reference = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+  VkAttachmentReference resolve_references[1];
+  resolve_references[0] = (VkAttachmentReference) { 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
   VkSubpassDescription subpass = {
     .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-    .colorAttachmentCount = 1,
-    .pColorAttachments = references,
-    .pDepthStencilAttachment = references + 1,
+    .colorAttachmentCount = LIDA_ARR_SIZE(color_references),
+    .pColorAttachments = color_references,
+    .pDepthStencilAttachment = &depth_reference,
+    .pResolveAttachments = (g_fwd_pass->msaa_samples == VK_SAMPLE_COUNT_1_BIT) ? NULL : resolve_references,
   };
   VkSubpassDependency dependencies[2];
   dependencies[0] = (VkSubpassDependency) { VK_SUBPASS_EXTERNAL, 0,
@@ -227,11 +252,11 @@ FWD_CreateRenderPass()
                       VK_DEPENDENCY_BY_REGION_BIT };
   VkRenderPassCreateInfo render_pass_info = {
     .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-    .attachmentCount = 2,
+    .attachmentCount = 2 + (g_fwd_pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT),
     .pAttachments = attachments,
     .subpassCount = 1,
     .pSubpasses = &subpass,
-    .dependencyCount = 2,
+    .dependencyCount = LIDA_ARR_SIZE(dependencies),
     .pDependencies = dependencies,
   };
   return vkCreateRenderPass(lida_GetLogicalDevice(), &render_pass_info, NULL, &g_fwd_pass->render_pass);
@@ -245,7 +270,6 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
     .imageType = VK_IMAGE_TYPE_2D,
     .mipLevels = 1,
     .arrayLayers = 1,
-    .samples = VK_SAMPLE_COUNT_1_BIT,
     .tiling = VK_IMAGE_TILING_OPTIMAL,
     .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
   };
@@ -253,7 +277,14 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
   // create color image
   image_info.format = g_fwd_pass->color_format;
   image_info.extent = (VkExtent3D) { width, height, 1 };
-  image_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT;
+  image_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  if (g_fwd_pass->msaa_samples == VK_SAMPLE_COUNT_1_BIT) {
+    image_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+  } else {
+    // TODO: try to use memory with LAZILY_ALLOCATED property
+    image_info.usage |= VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+  }
+  image_info.samples = g_fwd_pass->msaa_samples;
   err = vkCreateImage(lida_GetLogicalDevice(), &image_info, NULL, &g_fwd_pass->color_image);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create color image with error %s", lida_VkResultToString(err));
@@ -263,17 +294,36 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
   image_info.format = g_fwd_pass->depth_format;
   image_info.extent = (VkExtent3D) { width, height, 1 };
   image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT;
+  image_info.samples = g_fwd_pass->msaa_samples;
   err = vkCreateImage(lida_GetLogicalDevice(), &image_info, NULL, &g_fwd_pass->depth_image);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create depth image with error %s", lida_VkResultToString(err));
     return err;
   }
+  // create resolve image if msaa_samples > 1
+  if (g_fwd_pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
+    // FIXME: should we use another format for resolve image?
+    image_info.format = g_fwd_pass->color_format;
+    image_info.extent = (VkExtent3D) { width, height, 1 };
+    image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    err = vkCreateImage(lida_GetLogicalDevice(), &image_info, NULL, &g_fwd_pass->resolve_image);
+    if (err != VK_SUCCESS) {
+      LIDA_LOG_ERROR("failed to create resolve image with error %s", lida_VkResultToString(err));
+      return err;
+    }
+  } else {
+    g_fwd_pass->resolve_image = VK_NULL_HANDLE;
+  }
   // allocate memory
-  VkMemoryRequirements image_requirements[2];
+  VkMemoryRequirements image_requirements[3];
   VkMemoryRequirements requirements;
   vkGetImageMemoryRequirements(lida_GetLogicalDevice(), g_fwd_pass->color_image, &image_requirements[0]);
   vkGetImageMemoryRequirements(lida_GetLogicalDevice(), g_fwd_pass->color_image, &image_requirements[1]);
-  lida_MergeMemoryRequirements(image_requirements, 2, &requirements);
+  if (g_fwd_pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
+    vkGetImageMemoryRequirements(lida_GetLogicalDevice(), g_fwd_pass->resolve_image, &image_requirements[2]);
+  }
+  lida_MergeMemoryRequirements(image_requirements, 2 + (g_fwd_pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT), &requirements);
   if (requirements.size > g_fwd_pass->gpu_memory.size) {
     err = lida_VideoMemoryAllocate(&g_fwd_pass->gpu_memory, requirements.size,
                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, requirements.memoryTypeBits);
@@ -288,6 +338,9 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
   // bind images to memory
   lida_ImageBindToMemory(&g_fwd_pass->gpu_memory, g_fwd_pass->color_image, &image_requirements[0]);
   lida_ImageBindToMemory(&g_fwd_pass->gpu_memory, g_fwd_pass->depth_image, &image_requirements[1]);
+  if (g_fwd_pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
+    lida_ImageBindToMemory(&g_fwd_pass->gpu_memory, g_fwd_pass->resolve_image, &image_requirements[2]);
+  }
   // create image views
   VkImageViewCreateInfo image_view_info = {
     .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -309,12 +362,24 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
     LIDA_LOG_ERROR("failed to create depth image view with error %s", lida_VkResultToString(err));
     return err;
   }
+  if (g_fwd_pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
+    image_view_info.image = g_fwd_pass->resolve_image;
+    image_view_info.format = g_fwd_pass->color_format;
+    image_view_info.subresourceRange = (VkImageSubresourceRange) { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    err = vkCreateImageView(lida_GetLogicalDevice(), &image_view_info, NULL, &g_fwd_pass->resolve_image_view);
+    if (err != VK_SUCCESS) {
+      LIDA_LOG_ERROR("failed to create resolve image with error %s", lida_VkResultToString(err));
+      return err;
+    }
+  } else {
+    g_fwd_pass->resolve_image_view = VK_NULL_HANDLE;
+  }
   // create framebuffer
-  VkImageView attachments[2] = { g_fwd_pass->color_image_view, g_fwd_pass->depth_image_view };
+  VkImageView attachments[3] = { g_fwd_pass->color_image_view, g_fwd_pass->depth_image_view, g_fwd_pass->resolve_image_view };
   VkFramebufferCreateInfo framebuffer_info = {
     .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
     .renderPass = g_fwd_pass->render_pass,
-    .attachmentCount = 2,
+    .attachmentCount = 2 + (g_fwd_pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT),
     .pAttachments = attachments,
     .width = width,
     .height = height,
@@ -396,7 +461,7 @@ VkResult FWD_AllocateDescriptorSets()
     .pBufferInfo = &buffer_info,
   };
   VkDescriptorImageInfo image_info = {
-    .imageView = g_fwd_pass->color_image_view,
+    .imageView = (g_fwd_pass->msaa_samples == VK_SAMPLE_COUNT_1_BIT) ? g_fwd_pass->color_image_view : g_fwd_pass->resolve_image_view,
     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     .sampler = lida_GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
   };

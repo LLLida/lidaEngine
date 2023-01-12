@@ -87,6 +87,8 @@ VkFormat lida_FindSupportedFormat(VkFormat* options, uint32_t count, VkImageTili
 VkResult lida_ImageBindToMemory(lida_VideoMemory* memory, VkImage image,
                                 const VkMemoryRequirements* requirements);
 
+VkSampleCountFlagBits lida_MaxSampleCount(VkSampleCountFlagBits max_samples);
+  
 const char* lida_VkResultToString(VkResult err);
 const char* lida_VkFormatToString(VkFormat format);
 

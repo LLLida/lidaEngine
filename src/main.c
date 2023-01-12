@@ -34,7 +34,7 @@ int main(int argc, char** argv) {
                      .preferred_present_mode = VK_PRESENT_MODE_MAILBOX_KHR);
   LIDA_LOG_DEBUG("num images in swapchain: %u\n", lida_WindowGetNumImages());
 
-  lida_ForwardPassCreate(lida_WindowGetExtent().width, lida_WindowGetExtent().height);
+  lida_ForwardPassCreate(lida_WindowGetExtent().width, lida_WindowGetExtent().height, VK_SAMPLE_COUNT_4_BIT);
 
   VkPipeline pipeline = createTrianglePipeline();
   VkPipeline rect_pipeline = createRectPipeline();
@@ -225,7 +225,7 @@ VkPipeline createTrianglePipeline() {
   };
   VkPipelineMultisampleStateCreateInfo multisample_state = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-    .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+    .rasterizationSamples = lida_ForwardPassGet_MSAA_Samples(),
     .sampleShadingEnable = VK_FALSE,
     .alphaToCoverageEnable = VK_FALSE,
   };

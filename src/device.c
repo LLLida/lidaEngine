@@ -623,6 +623,31 @@ lida_ImageBindToMemory(lida_VideoMemory* memory, VkImage image, const VkMemoryRe
   return err;
 }
 
+VkSampleCountFlagBits
+lida_MaxSampleCount(VkSampleCountFlagBits max_samples)
+{
+  VkSampleCountFlags flags =
+    g_device->properties.limits.framebufferColorSampleCounts &
+    g_device->properties.limits.framebufferDepthSampleCounts &
+    // FIXME: should we use this? we don't currently use stencil test
+    g_device->properties.limits.framebufferStencilSampleCounts;
+  // SAMPLE_COUNT_1 is guaranteed to work
+  VkSampleCountFlagBits ret = VK_SAMPLE_COUNT_1_BIT;
+  VkSampleCountFlagBits options[] = {
+    VK_SAMPLE_COUNT_2_BIT,
+    VK_SAMPLE_COUNT_4_BIT,
+    VK_SAMPLE_COUNT_8_BIT,
+    VK_SAMPLE_COUNT_16_BIT,
+    VK_SAMPLE_COUNT_32_BIT,
+    VK_SAMPLE_COUNT_64_BIT,
+  };
+  for (uint32_t i = 0; i < LIDA_ARR_SIZE(options); i++) {
+    if (options[i] <= max_samples && options[i] & flags)
+      ret = options[i];
+  }
+  return ret;
+}
+
 const char*
 lida_VkResultToString(VkResult err)
 {
