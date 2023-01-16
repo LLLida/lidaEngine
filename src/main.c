@@ -229,33 +229,6 @@ int main(int argc, char** argv) {
 
 VkPipeline createTrianglePipeline() {
 
-  VkPipelineVertexInputStateCreateInfo vertex_input_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-  };
-  VkPipelineInputAssemblyStateCreateInfo input_assembly_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-  };
-  VkPipelineViewportStateCreateInfo viewport_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-    .viewportCount = 1,
-    .scissorCount = 1,
-  };
-  VkPipelineRasterizationStateCreateInfo rasterization_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-    .depthClampEnable = VK_FALSE,
-    .rasterizerDiscardEnable = VK_FALSE,
-    .polygonMode = VK_POLYGON_MODE_FILL,
-    .cullMode = VK_CULL_MODE_NONE,
-    .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-    .depthBiasEnable = VK_FALSE,
-  };
-  VkPipelineMultisampleStateCreateInfo multisample_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-    .rasterizationSamples = lida_ForwardPassGet_MSAA_Samples(),
-    .sampleShadingEnable = VK_FALSE,
-    .alphaToCoverageEnable = VK_FALSE,
-  };
   VkPipelineDepthStencilStateCreateInfo depthstencil_state = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
     .depthTestEnable = VK_TRUE,
@@ -267,31 +240,25 @@ VkPipeline createTrianglePipeline() {
     .blendEnable = VK_FALSE,
     .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
   };
-  VkPipelineColorBlendStateCreateInfo colorblend_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-    .logicOpEnable = VK_FALSE,
-    .attachmentCount = 1,
-    .pAttachments = &colorblend_attachment,
-  };
   VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-  VkPipelineDynamicStateCreateInfo dynamic_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-    .dynamicStateCount = 2,
-    .pDynamicStates = dynamic_states,
-  };
 
   VkPipeline ret;
   lida_PipelineDesc pipeline_desc = {
     .vertex_shader = "shaders/triangle.vert.spv",
     .fragment_shader = "shaders/triangle.frag.spv",
-    .vertex_input = &vertex_input_state,
-    .input_assembly = &input_assembly_state,
-    .viewport = &viewport_state,
-    .rasterization = &rasterization_state,
-    .multisample = &multisample_state,
-    .depth_stencil = &depthstencil_state,
-    .color_blend = &colorblend_state,
-    .dynamic = &dynamic_state,
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_NONE,
+    .depthBiasEnable = VK_FALSE,
+    .msaa_samples = lida_ForwardPassGet_MSAA_Samples(),
+    .depth_test = VK_TRUE,
+    .depth_write = VK_TRUE,
+    .depth_compare_op = VK_COMPARE_OP_GREATER,
+    .blend_logic_enable = VK_FALSE,
+    .attachment_count = 1,
+    .attachments = &colorblend_attachment,
+    .dynamic_state_count = LIDA_ARR_SIZE(dynamic_states),
+    .dynamic_states = dynamic_states,
     .render_pass = lida_ForwardPassGetRenderPass(),
     .subpass = 0,
     .marker = "draw-triangle-pipeline"
@@ -303,33 +270,6 @@ VkPipeline createTrianglePipeline() {
 
 VkPipeline createRectPipeline()
 {
-  VkPipelineVertexInputStateCreateInfo vertex_input_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-  };
-  VkPipelineInputAssemblyStateCreateInfo input_assembly_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
-  };
-  VkPipelineViewportStateCreateInfo viewport_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-    .viewportCount = 1,
-    .scissorCount = 1,
-  };
-  VkPipelineRasterizationStateCreateInfo rasterization_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-    .depthClampEnable = VK_FALSE,
-    .rasterizerDiscardEnable = VK_FALSE,
-    .polygonMode = VK_POLYGON_MODE_FILL,
-    .cullMode = VK_CULL_MODE_NONE,
-    .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-    .depthBiasEnable = VK_FALSE,
-  };
-  VkPipelineMultisampleStateCreateInfo multisample_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-    .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-    .sampleShadingEnable = VK_FALSE,
-    .alphaToCoverageEnable = VK_FALSE,
-  };
   VkPipelineColorBlendAttachmentState colorblend_attachment = {
     .blendEnable = VK_FALSE,
     .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
@@ -341,21 +281,19 @@ VkPipeline createRectPipeline()
     .pAttachments = &colorblend_attachment,
   };
   VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-  VkPipelineDynamicStateCreateInfo dynamic_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-    .dynamicStateCount = 2,
-    .pDynamicStates = dynamic_states,
-  };
   lida_PipelineDesc pipeline_desc = {
     .vertex_shader = "shaders/rect.vert.spv",
     .fragment_shader = "shaders/rect.frag.spv",
-    .vertex_input = &vertex_input_state,
-    .input_assembly = &input_assembly_state,
-    .viewport = &viewport_state,
-    .rasterization = &rasterization_state,
-    .multisample = &multisample_state,
-    .color_blend = &colorblend_state,
-    .dynamic = &dynamic_state,
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_NONE,
+    .depthBiasEnable = VK_FALSE,
+    .msaa_samples = VK_SAMPLE_COUNT_1_BIT,
+    .blend_logic_enable = VK_FALSE,
+    .attachment_count = 1,
+    .attachments = &colorblend_attachment,
+    .dynamic_state_count = LIDA_ARR_SIZE(dynamic_states),
+    .dynamic_states = dynamic_states,
     .render_pass = lida_WindowGetRenderPass(),
     .subpass = 0,
     .marker = "blit-3D-scene-fullscreen"

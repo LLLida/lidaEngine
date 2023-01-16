@@ -32,15 +32,35 @@ typedef struct lida_ShaderReflect lida_ShaderReflect;
 typedef struct {
   const char* vertex_shader;
   const char* fragment_shader;
-  // TODO: simplify
-  VkPipelineVertexInputStateCreateInfo* vertex_input;
-  VkPipelineInputAssemblyStateCreateInfo* input_assembly;
-  VkPipelineViewportStateCreateInfo* viewport;
-  VkPipelineRasterizationStateCreateInfo* rasterization;
-  VkPipelineMultisampleStateCreateInfo* multisample;
-  VkPipelineDepthStencilStateCreateInfo* depth_stencil;
-  VkPipelineColorBlendStateCreateInfo* color_blend;
-  VkPipelineDynamicStateCreateInfo* dynamic;
+  uint32_t vertex_binding_count;
+  const VkVertexInputBindingDescription* vertex_bindings;
+  uint32_t vertex_attribute_count;
+  const VkVertexInputAttributeDescription* vertex_attributes;
+  VkPrimitiveTopology topology;
+  VkViewport* viewport;
+  VkRect2D* scissor;
+  VkPolygonMode polygonMode;
+  VkCullModeFlags cullMode;
+  VkBool32 depthBiasEnable;
+  // FIXME: should we support these?
+  float depthBiasConstantFactor;
+  float depthBiasClamp;
+  float depthBiasSlopeFactor;
+  float lineWidth;
+
+  VkSampleCountFlagBits msaa_samples;
+  // TODO: support sample_shading_enable = VK_TRUE
+  // VkBool32 sample_shading_enable;
+  VkBool32 depth_test;
+  VkBool32 depth_write;
+  VkCompareOp depth_compare_op;
+  uint32_t blend_logic_enable;
+  VkLogicOp blend_logic_op;
+  uint32_t attachment_count;
+  const VkPipelineColorBlendAttachmentState* attachments;
+  float blend_constants[4];
+  uint32_t dynamic_state_count;
+  VkDynamicState* dynamic_states;
   VkRenderPass render_pass;
   uint32_t subpass;
   const char* marker;

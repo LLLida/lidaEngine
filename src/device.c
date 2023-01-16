@@ -773,6 +773,14 @@ lida_CreateGraphicsPipelines(VkPipeline* pipelines, uint32_t count, const lida_P
   VkPipelineShaderStageCreateInfo* stages = lida_TempAllocate(2 * count * sizeof(VkPipelineShaderStageCreateInfo));
   VkShaderModule* modules = lida_TempAllocate(2 * count * sizeof(VkShaderModule));
   const lida_ShaderReflect** reflects = lida_TempAllocate(2 * count * sizeof(lida_ShaderReflect*));
+  VkPipelineVertexInputStateCreateInfo* vertex_input_states = lida_TempAllocate(count * sizeof(VkPipelineVertexInputStateCreateInfo));
+  VkPipelineInputAssemblyStateCreateInfo* input_assembly_states = lida_TempAllocate(count * sizeof(VkPipelineInputAssemblyStateCreateInfo));
+  VkPipelineViewportStateCreateInfo* viewport_states = lida_TempAllocate(count * sizeof(VkPipelineViewportStateCreateInfo));
+  VkPipelineRasterizationStateCreateInfo* rasterization_states = lida_TempAllocate(count * sizeof(VkPipelineRasterizationStateCreateInfo));
+  VkPipelineMultisampleStateCreateInfo* multisample_states = lida_TempAllocate(count * sizeof(VkPipelineMultisampleStateCreateInfo));
+  VkPipelineDepthStencilStateCreateInfo* depth_stencil_states = lida_TempAllocate(count * sizeof(VkPipelineDepthStencilStateCreateInfo));
+  VkPipelineColorBlendStateCreateInfo* color_blend_states = lida_TempAllocate(count * sizeof(VkPipelineColorBlendStateCreateInfo));
+  VkPipelineDynamicStateCreateInfo* dynamic_states = lida_TempAllocate(count * sizeof(VkPipelineDynamicStateCreateInfo));
   for (uint32_t i = 0; i < count; i++) {
     modules[2*i] = lida_LoadShader(descs[i].vertex_shader, &reflects[2*i]);
     modules[2*i+1] = lida_LoadShader(descs[i].fragment_shader, &reflects[2*i+1]);
@@ -789,18 +797,79 @@ lida_CreateGraphicsPipelines(VkPipeline* pipelines, uint32_t count, const lida_P
       .pName = "main"
     };
     layouts[i] = lida_CreatePipelineLayout(&reflects[2*i], 2);
+    vertex_input_states[i] = (VkPipelineVertexInputStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .vertexBindingDescriptionCount = descs[i].vertex_binding_count,
+      .pVertexBindingDescriptions = descs[i].vertex_bindings,
+      .vertexAttributeDescriptionCount = descs[i].vertex_attribute_count,
+      .pVertexAttributeDescriptions = descs[i].vertex_attributes
+    };
+    input_assembly_states[i] = (VkPipelineInputAssemblyStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+      .topology = descs[i].topology,
+      // currently we don't use primitiveRestartEnable in lidaEngine
+      .primitiveRestartEnable = VK_FALSE
+    };
+    viewport_states[i] = (VkPipelineViewportStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+      // currently we always 1 viewport and 1 scissor, maybe I should add an option to use multiple scissors
+      .viewportCount = 1,
+      .pViewports = descs[i].viewport,
+      .scissorCount = 1,
+      .pScissors = descs[i].scissor,
+    };
+    rasterization_states[i] = (VkPipelineRasterizationStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+      .depthClampEnable = VK_FALSE,
+      .rasterizerDiscardEnable = VK_FALSE,
+      .polygonMode = descs[i].polygonMode,
+      .cullMode = descs[i].cullMode,
+      // we always use CCW
+      .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+      .depthBiasEnable = descs[i].depthBiasEnable,
+      .depthBiasConstantFactor = descs[i].depthBiasConstantFactor,
+      .depthBiasClamp = descs[i].depthBiasClamp,
+      .depthBiasSlopeFactor = descs[i].depthBiasSlopeFactor,
+      .lineWidth = descs[i].lineWidth
+    };
+    multisample_states[i] = (VkPipelineMultisampleStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+      .rasterizationSamples = descs[i].msaa_samples,
+      .sampleShadingEnable = VK_FALSE,
+    };
+    depth_stencil_states[i] = (VkPipelineDepthStencilStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+      .depthTestEnable = descs[i].depth_test,
+      .depthWriteEnable = descs[i].depth_write,
+      .depthCompareOp = descs[i].depth_compare_op,
+      // we're not using depth bounds
+      .depthBoundsTestEnable = VK_FALSE,
+    };
+    color_blend_states[i] = (VkPipelineColorBlendStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+      .logicOpEnable = descs[i].blend_logic_enable,
+      .logicOp = descs[i].blend_logic_op,
+      .attachmentCount = descs[i].attachment_count,
+      .pAttachments = descs[i].attachments,
+    };
+    memcpy(color_blend_states[i].blendConstants, descs[i].blend_constants, sizeof(float)*4);
+    dynamic_states[i] = (VkPipelineDynamicStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+      .dynamicStateCount = descs[i].dynamic_state_count,
+      .pDynamicStates = descs[i].dynamic_states,
+    };
     create_infos[i] = (VkGraphicsPipelineCreateInfo) {
       .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
       .stageCount = 2,
       .pStages = &stages[i*2],
-      .pVertexInputState = descs[i].vertex_input,
-      .pInputAssemblyState = descs[i].input_assembly,
-      .pViewportState = descs[i].viewport,
-      .pRasterizationState = descs[i].rasterization,
-      .pMultisampleState = descs[i].multisample,
-      .pDepthStencilState = descs[i].depth_stencil,
-      .pColorBlendState = descs[i].color_blend,
-      .pDynamicState = descs[i].dynamic,
+      .pVertexInputState = &vertex_input_states[i],
+      .pInputAssemblyState = &input_assembly_states[i],
+      .pViewportState = &viewport_states[i],
+      .pRasterizationState = &rasterization_states[i],
+      .pMultisampleState = &multisample_states[i],
+      .pDepthStencilState = (descs[i].depth_write || descs[i].depth_test) ? &depth_stencil_states[i] : NULL,
+      .pColorBlendState = &color_blend_states[i],
+      .pDynamicState = &dynamic_states[i],
       .layout = layouts[i],
       .renderPass = descs[i].render_pass,
       .subpass = descs[i].subpass
@@ -808,6 +877,13 @@ lida_CreateGraphicsPipelines(VkPipeline* pipelines, uint32_t count, const lida_P
   }
   VkResult err = vkCreateGraphicsPipelines(g_device->logical_device, VK_NULL_HANDLE,
                                            count, create_infos, VK_NULL_HANDLE, pipelines);
+  lida_TempFree(dynamic_states);
+  lida_TempFree(color_blend_states);
+  lida_TempFree(depth_stencil_states);
+  lida_TempFree(multisample_states);
+  lida_TempFree(viewport_states);
+  lida_TempFree(input_assembly_states);
+  lida_TempFree(vertex_input_states);
   lida_TempFree(reflects);
   lida_TempFree(modules);
   lida_TempFree(stages);
