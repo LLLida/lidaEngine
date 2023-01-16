@@ -104,6 +104,7 @@ VkResult lida_AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCo
 VkResult lida_QueueSubmit(VkSubmitInfo* submits, uint32_t count, VkFence fence);
 VkResult lida_QueuePresent(VkPresentInfoKHR* present_info);
 
+// allocate memory block and try to tag it with 'marker'
 VkResult lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
                                   VkMemoryPropertyFlags flags, uint32_t memory_type_bits,
                                   const char* marker);
@@ -112,39 +113,53 @@ void lida_VideoMemoryReset(lida_VideoMemory* memory);
 VkMemoryPropertyFlags lida_VideoMemoryGetFlags(const lida_VideoMemory* memory);
 void lida_MergeMemoryRequirements(const VkMemoryRequirements* requirements, uint32_t count, VkMemoryRequirements* out);
 
+// load a shader (SPIR-V format) and parse its contents
+// parse results are then writed to 'reflect'. 'reflect' can be NULL
 VkShaderModule lida_LoadShader(const char* path, const lida_ShaderReflect** reflect);
 
+// try to find a descriptor layout in cache, if not found then create a new one
 VkDescriptorSetLayout lida_GetDescriptorSetLayout(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings);
+// allocate descriptor sets and try to tag them with 'marker'
 VkResult lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings,
                                      VkDescriptorSet* sets, uint32_t num_sets, int dynamic, const char* marker);
 VkResult lida_FreeDescriptorSets(const VkDescriptorSet* sets, uint32_t num_sets);
 void lida_UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, uint32_t count);
 
+// try to find a sampler in cache, if not found then create a new one
 VkSampler lida_GetSampler(VkFilter filter, VkSamplerAddressMode mode);
 
+// try to find a pipeline layout in cache, if not found then create a new one
 VkPipelineLayout lida_CreatePipelineLayout(const lida_ShaderReflect** shader_templates, uint32_t count);
 
+// create a render pass and try to tag it with 'marker'
 VkResult lida_RenderPassCreate(VkRenderPass* render_pass, const VkRenderPassCreateInfo* render_pass_info, const char* marker);
 
+// create a buffer and try to tag it with 'marker'
 VkResult lida_BufferCreate(VkBuffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage, const char* marker);
 VkResult lida_BufferBindToMemory(lida_VideoMemory* memory, VkBuffer buffer,
                                  const VkMemoryRequirements* requirements, void** mapped,
                                  VkMappedMemoryRange* mappedRange);
 
+// return first of formats that support 'tiling' and 'flags' on this GPU
 VkFormat lida_FindSupportedFormat(VkFormat* options, uint32_t count, VkImageTiling tiling, VkFormatFeatureFlags flags);
 #define LIDA_FIND_SUPPORTED_FORMAT(options_array, tiling, flags) lida_FindSupportedFormat(options_array, sizeof(options_array) / sizeof(VkFormat), tiling, flags)
+// create an image and try to tag it with 'marker'
 VkResult lida_ImageCreate(VkImage* image, const VkImageCreateInfo* image_info, const char* marker);
+// create an image view and try to tag it with 'marker'
 VkResult lida_ImageViewCreate(VkImageView* image_view, const VkImageViewCreateInfo* image_view_info, const char* marker);
 VkResult lida_ImageBindToMemory(lida_VideoMemory* memory, VkImage image,
                                 const VkMemoryRequirements* requirements);
 
+// create a framebuffer and try to tag it with 'marker'
 VkResult lida_FramebufferCreate(VkFramebuffer* framebuffer, const VkFramebufferCreateInfo* framebuffer_info, const char* marker);
 
 VkSampleCountFlagBits lida_MaxSampleCount(VkSampleCountFlagBits max_samples);
 
 VkResult lida_CreateGraphicsPipelines(VkPipeline* pipelines, uint32_t count, const lida_PipelineDesc* descs, VkPipelineLayout* layouts);
 
+// convert a VkResult enum to string
 const char* lida_VkResultToString(VkResult err);
+// convert a VkFormat enum to string
 const char* lida_VkFormatToString(VkFormat format);
 
 VkShaderStageFlags lida_ShaderReflectGetStage(const lida_ShaderReflect* shader);
