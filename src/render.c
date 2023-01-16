@@ -218,6 +218,7 @@ FWD_CreateRenderPass()
     .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
   };
   if (g_fwd_pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
+    // if we msaa is enabled then also configure resolve attachment
     attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
@@ -385,7 +386,7 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
   if (err != VK_SUCCESS) {
     return err;
   }
-  LIDA_LOG_TRACE("allocated %u bytes for attachments", (uint32_t)requirements.size);
+  LIDA_LOG_TRACE("allocated %'u bytes for attachments", (uint32_t)requirements.size);
   return err;
 }
 

@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#define STB_SPRINTF_IMPLEMENTATION
+#include "stb_sprintf.h" 
+
 
 /// Logging
 
@@ -32,7 +35,8 @@ lida_Log(int level, const char* file, int line, const char* fmt, ...)
   va_list ap;
   va_start(ap, fmt);
   // write message to buffer
-  g_log_event.strlen = vsnprintf(g_log_buffer, sizeof(g_log_buffer), fmt, ap);
+  // g_log_event.strlen = vsnprintf(g_log_buffer, sizeof(g_log_buffer), fmt, ap);
+  g_log_event.strlen = stbsp_vsnprintf(g_log_buffer, sizeof(g_log_buffer), fmt, ap);
   va_end(ap);
   // call loggers
   for (uint32_t i = 0; i < g_num_loggers; i++) {
