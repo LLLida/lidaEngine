@@ -66,6 +66,8 @@ typedef struct {
   const char* marker;
 } lida_PipelineDesc;
 
+// Create device
+// if desc->enable_debug_layers then try to load validation layers and enable VK_EXT_DEBUG_MARKER extension
 VkResult lida_DeviceCreate(const lida_DeviceDesc* desc);
 #define LIDA_DEVICE_CREATE(...) lida_DeviceCreate(&(lida_DeviceDesc) { __VA_ARGS__ })
 
@@ -73,22 +75,29 @@ VkResult lida_DeviceCreate(const lida_DeviceDesc* desc);
 // This is intended for case when TempAllocator will be freed anyway.
 void lida_DeviceDestroy(int fast);
 
+// Get underlying Vulkan Instance handle
 VkInstance lida_GetVulkanInstance();
+// Get underlying VkDevice handle
 VkDevice lida_GetLogicalDevice();
 VkPhysicalDevice lida_GetPhysicalDevice();
 
+// get list of enabled instance extensions
 const char** lida_GetEnabledInstanceExtensions();
 uint32_t lida_GetNumEnabledInstanceExtensions();
 
+// get list of available instance extensions
 const VkExtensionProperties* lida_GetAvailableInstanceExtensions();
 uint32_t lida_GetNumAvailableInstanceExtensions();
 
+// get list of enabled device extensions
 const char** lida_GetEnabledDeviceExtensions();
 uint32_t lida_GetNumEnabledDeviceExtensions();
 
+// get list of available device extensions
 const VkExtensionProperties* lida_GetAvailableDeviceExtensions();
 uint32_t lida_GetNumAvailableDeviceExtensions();
 
+// currently we have 1 queue for whole application, we might consider adding compute queue
 uint32_t lida_GetGraphicsQueueFamily();
 
 VkResult lida_AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCommandBufferLevel level, const char* marker);

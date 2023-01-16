@@ -216,8 +216,6 @@ int main(int argc, char** argv) {
 
   vkDestroyPipeline(lida_GetLogicalDevice(), rect_pipeline, NULL);
   vkDestroyPipeline(lida_GetLogicalDevice(), pipeline, NULL);
-  vkDestroyPipelineLayout(lida_GetLogicalDevice(), pipeline_layout2, NULL);
-  vkDestroyPipelineLayout(lida_GetLogicalDevice(), pipeline_layout, NULL);
 
   lida_ForwardPassDestroy();
   lida_WindowDestroy();

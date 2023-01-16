@@ -48,6 +48,9 @@ typedef struct {
   lida_TypeInfo sampler_info_type;
   lida_HashTable sampler_cache;
 
+  lida_TypeInfo pipeline_layout_info_type;
+  lida_HashTable pipeline_layout_cache;
+
   VkPhysicalDeviceProperties properties;
   VkPhysicalDeviceFeatures features;
   VkPhysicalDeviceMemoryProperties memory_properties;
@@ -92,6 +95,14 @@ typedef struct {
   VkSampler handle;
 } SamplerInfo;
 
+typedef struct {
+  VkDescriptorSetLayout set_layouts[SHADER_REFLECT_MAX_SETS];
+  uint32_t num_sets;
+  VkPushConstantRange ranges[SHADER_REFLECT_MAX_RANGES];
+  uint32_t num_ranges;
+  VkPipelineLayout handle;
+} PipelineLayoutInfo;
+
 static VkResult CreateInstance(const lida_DeviceDesc* desc);
 static VkResult PickPhysicalDevice(const lida_DeviceDesc* desc);
 static VkResult CreateLogicalDevice(const lida_DeviceDesc* desc);
@@ -105,6 +116,8 @@ static uint32_t Hash_DS_LayoutInfo(const void* data);
 static int Compare_DS_Layouts(const void* lhs, const void* rhs);
 static uint32_t HashSamplerInfo(const void* data);
 static int CompareSamplerInfos(const void* lhs, const void* rhs);
+static uint32_t HashPipelineLayoutInfo(const void* data);
+static int ComparePipelineLayoutInfos(const void* lhs, const void* rhs);
 static void MergeShaderReflects(lida_ShaderReflect* lhs, const lida_ShaderReflect* rhs);
 static lida_ShaderReflect* CollectShaderReflects(const lida_ShaderReflect** shaders, uint32_t count);
 static int ReflectSPIRV(const uint32_t* code, uint32_t size, lida_ShaderReflect* shader);
@@ -169,6 +182,11 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
                    HashSamplerInfo, CompareSamplerInfos, 0);
   g_device->sampler_cache = LIDA_HT_EMPTY(&g_device->sampler_info_type);
 
+  g_device->pipeline_layout_info_type =
+    LIDA_TYPE_INFO(PipelineLayoutInfo, lida_MallocAllocator(),
+                   HashPipelineLayoutInfo, ComparePipelineLayoutInfos, 0);
+  g_device->pipeline_layout_cache = LIDA_HT_EMPTY(&g_device->pipeline_layout_info_type);
+
   return err;
 }
 
@@ -176,6 +194,13 @@ void
 lida_DeviceDestroy(int fast)
 {
   lida_HT_Iterator it;
+
+  // clear pipeline layout cache
+  LIDA_HT_FOREACH(&g_device->pipeline_layout_cache, &it) {
+    PipelineLayoutInfo* layout = lida_HT_Iterator_Get(&it);
+    vkDestroyPipelineLayout(g_device->logical_device, layout->handle, NULL);
+  }
+  lida_HT_Delete(&g_device->pipeline_layout_cache);
 
   // clear sampler cache
   LIDA_HT_FOREACH(&g_device->sampler_cache, &it) {
@@ -557,39 +582,47 @@ lida_GetSampler(VkFilter filter, VkSamplerAddressMode mode)
 VkPipelineLayout
 lida_CreatePipelineLayout(const lida_ShaderReflect** shader_templates, uint32_t count)
 {
-  VkDescriptorSetLayout* set_layouts;
   const lida_ShaderReflect* shader;
-  VkPipelineLayoutCreateInfo layout_info = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
-  };
+  PipelineLayoutInfo layout_info = { .num_sets = 0, .num_ranges = 0 };
   if (count > 0) {
     if (count == 1) {
       shader = shader_templates[0];
     } else {
       shader = CollectShaderReflects(shader_templates, count);
     }
-    set_layouts = lida_TempAllocate(shader->set_count * sizeof(VkDescriptorSetLayout));
+    layout_info.num_sets = shader->set_count;
     for (uint32_t i = 0; i < shader->set_count; i++) {
-      set_layouts[i] = lida_GetDescriptorSetLayout(lida_ShaderReflectGetBindings(shader, i),
+      layout_info.set_layouts[i] = lida_GetDescriptorSetLayout(lida_ShaderReflectGetBindings(shader, i),
                                                    lida_ShaderReflectGetNumBindings(shader, i));
     }
-    layout_info.setLayoutCount = shader->set_count;
-    layout_info.pSetLayouts = set_layouts;
-    layout_info.pushConstantRangeCount = lida_ShaderReflectGetNumRanges(shader);
-    layout_info.pPushConstantRanges = lida_ShaderReflectGetRanges(shader);
+    layout_info.num_ranges = shader->range_count;
+    for (uint32_t i = 0; i < shader->range_count; i++) {
+      layout_info.ranges[i] = shader->ranges[i];
+    }
   }
-  VkPipelineLayout pipeline_layout;
-  VkResult err = vkCreatePipelineLayout(g_device->logical_device, &layout_info, NULL,
-                                        &pipeline_layout);
+  PipelineLayoutInfo* it = lida_HT_Search(&g_device->pipeline_layout_cache, &layout_info);
+  if (it) {
+    return it->handle;
+  }
+  // create a new pipeline layout
+  VkPipelineLayoutCreateInfo pipeline_layout = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+    .setLayoutCount = layout_info.num_sets,
+    .pSetLayouts = layout_info.set_layouts,
+    .pushConstantRangeCount = layout_info.num_ranges,
+    .pPushConstantRanges = layout_info.ranges,
+  };
+  VkResult err = vkCreatePipelineLayout(g_device->logical_device, &pipeline_layout, NULL,
+                                        &layout_info.handle);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create pipeline layout with error %s", lida_VkResultToString(err));
+  } else {
+    // add pipeline layout to cache if succeeded
+    lida_HT_Insert(&g_device->pipeline_layout_cache, &layout_info);
   }
-  if (count > 0) {
-    if (count > 1)
-      lida_TempFree((void*)shader);
-    lida_TempFree(set_layouts);
-  }
-  return pipeline_layout;
+  if (count > 1)
+    lida_TempFree((void*)shader);
+  return layout_info.handle;
 }
 
 VkResult
@@ -1499,6 +1532,28 @@ int
 CompareSamplerInfos(const void* lhs, const void* rhs)
 {
   return memcmp(lhs, rhs, sizeof(VkFilter) + sizeof(VkSamplerAddressMode));
+}
+
+uint32_t
+HashPipelineLayoutInfo(const void* data)
+{
+  const PipelineLayoutInfo* info = data;
+  uint32_t hashes[SHADER_REFLECT_MAX_SETS+SHADER_REFLECT_MAX_RANGES];
+  for (uint32_t i = 0; i < info->num_sets; i++) {
+    uint64_t handle = (uint64_t)info->set_layouts[i];
+    hashes[i] = ((handle >> 32) + 3) ^ (handle & (((uint64_t)1 << 32)-1));
+  }
+  for (uint32_t i = 0; i < info->num_ranges; i++) {
+    hashes[i + info->num_sets] = lida_HashCombine32((uint32_t*)&info->ranges[i],
+                                                    sizeof(VkPushConstantRange)/sizeof(uint32_t));
+  }
+  return lida_HashCombine32(hashes, info->num_sets+info->num_ranges);
+}
+
+int
+ComparePipelineLayoutInfos(const void* lhs, const void* rhs)
+{
+  return memcmp(lhs, rhs, sizeof(PipelineLayoutInfo));
 }
 
 void
