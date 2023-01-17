@@ -157,6 +157,10 @@ void lida_CameraUpdate(lida_Camera* camera, float dt, uint32_t window_width, uin
 #define LIDA_MAT4_ROW(mat, i) (lida_Vec4*)(&mat.m00 + (i) * 4)
 
 #ifdef __cplusplus
+}
+#endif
+
+#ifdef __cplusplus
 
 inline lida_Vec2 operator+(const lida_Vec2& lhs, const lida_Vec2& rhs) {
   return { lhs.x + rhs.x, lhs.y + rhs.y };
@@ -206,8 +210,4 @@ inline lida_Vec4 operator*(float num, const lida_Vec4& rhs) {
   return { rhs.x * num, rhs.y * num, num * rhs.z, num * rhs.w };
 }
 
-#endif
-
-#ifdef __cplusplus
-}
 #endif
