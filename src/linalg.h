@@ -74,6 +74,21 @@ typedef struct {
 
 } lida_Camera;
 
+// same as lida_Vec2 but fields are ints
+typedef struct {
+  int x, y;
+} lida_iVec2;
+
+// same as lida_Vec3 but fields are ints
+typedef struct {
+  int x, y, z;
+} lida_iVec3;
+
+// same as lida_Vec4 but fields are ints
+typedef struct {
+  int x, y, z, w;
+} lida_iVec4;
+
 float lida_rqsqrt(float number);
 
 void lida_Vec2Normalize(const lida_Vec2* in, lida_Vec2* out);
@@ -140,6 +155,58 @@ void lida_CameraUpdate(lida_Camera* camera, float dt, uint32_t window_width, uin
       0.0f, 0.0f, 0.0f, 1.0f                    \
       }
 #define LIDA_MAT4_ROW(mat, i) (lida_Vec4*)(&mat.m00 + (i) * 4)
+
+#ifdef __cplusplus
+
+inline lida_Vec2 operator+(const lida_Vec2& lhs, const lida_Vec2& rhs) {
+  return { lhs.x + rhs.x, lhs.y + rhs.y };
+}
+
+inline lida_Vec2 operator-(const lida_Vec2& lhs, const lida_Vec2& rhs) {
+  return { lhs.x - rhs.x, lhs.y - rhs.y };
+}
+
+inline lida_Vec2 operator*(const lida_Vec2& lhs, float num) {
+  return { lhs.x * num, lhs.y * num };
+}
+
+inline lida_Vec2 operator*(float num, const lida_Vec2& rhs) {
+  return { rhs.x * num, rhs.y * num };
+}
+
+inline lida_Vec3 operator+(const lida_Vec3& lhs, const lida_Vec3& rhs) {
+  return { lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z };
+}
+
+inline lida_Vec3 operator-(const lida_Vec3& lhs, const lida_Vec3& rhs) {
+  return { lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z };
+}
+
+inline lida_Vec3 operator*(const lida_Vec3& lhs, float num) {
+  return { lhs.x * num, lhs.y * num, lhs.z * num };
+}
+
+inline lida_Vec3 operator*(float num, const lida_Vec3& rhs) {
+  return { rhs.x * num, rhs.y * num, rhs.z * num };
+}
+
+inline lida_Vec4 operator+(const lida_Vec4& lhs, const lida_Vec4& rhs) {
+  return { lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w };
+}
+
+inline lida_Vec4 operator-(const lida_Vec4& lhs, const lida_Vec4& rhs) {
+  return { lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z, lhs.w - rhs.w };
+}
+
+inline lida_Vec4 operator*(const lida_Vec4& lhs, float num) {
+  return { lhs.x * num, lhs.y * num, lhs.z * num, lhs.w * num };
+}
+
+inline lida_Vec4 operator*(float num, const lida_Vec4& rhs) {
+  return { rhs.x * num, rhs.y * num, num * rhs.z, num * rhs.w };
+}
+
+#endif
 
 #ifdef __cplusplus
 }
