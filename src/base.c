@@ -451,7 +451,7 @@ uint32_t
 lida_HashMemory32(const void* key, uint32_t bytes)
 {
   // based on MurmurHash2: https://sites.google.com/site/murmurhash/
-  const uint32_t seed = 1;
+  const uint32_t seed = LIDA_ENGINE_VERSION;
   const uint32_t m = 0x5bd1e995;
   const int r = 24;
   uint32_t h = seed ^ bytes;
@@ -488,7 +488,7 @@ uint64_t
 lida_HashMemory64(const void* key, uint32_t bytes)
 {
   // based on MurmurHash2
-  const uint32_t seed = 1;
+  const uint32_t seed = LIDA_ENGINE_VERSION;
   const uint64_t m = 0xc6a4a7935bd1e995;
   const int r = 47;
   uint64_t h = seed ^ (bytes * m);

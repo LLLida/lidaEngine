@@ -5,9 +5,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#define LIDA_ENGINE_VERSION 202301
 
 #ifdef __GNUC__
 // https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#Common-Function-Attributes
@@ -18,6 +16,10 @@ extern "C" {
 #define LIDA_ATTRIBUTE_PRINTF(i)
 #define LIDA_ATTRIBUTE_NONNULL(...)
 #define LIDA_ATTRIBUTE_FALLTHROUGH()
+#endif
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 
