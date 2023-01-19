@@ -13,9 +13,11 @@ extern "C" {
 // https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#Common-Function-Attributes
 #define LIDA_ATTRIBUTE_PRINTF(i) __attribute__((format (printf, i, i+1)))
 #define LIDA_ATTRIBUTE_NONNULL(...) __attribute__((nonnull (__VA_ARGS__)))
+#define LIDA_ATTRIBUTE_FALLTHROUGH() __attribute__((fallthrough))
 #else
 #define LIDA_ATTRIBUTE_PRINTF(i)
 #define LIDA_ATTRIBUTE_NONNULL(...)
+#define LIDA_ATTRIBUTE_FALLTHROUGH()
 #endif
 
 
@@ -83,18 +85,19 @@ typedef struct {
 
   // type's name
   const char* name;
-  uint64_t type_hash;
   lida_Allocator* allocator;
-  // a pure function which returns a 32 bit unsigned integer based on input
-  lida_HashFunction hasher;
-  // a pure function which compares two objects
-  lida_CompareFunction compare;
+  uint64_t type_hash;
   uint16_t elem_size;
   uint16_t flags;
 
 } lida_TypeInfo;
 
-#define LIDA_TYPE_INFO(type, allocator_, hasher_, equal_, flags_) (lida_TypeInfo) { .name = #type, .allocator = allocator_, .hasher = hasher_, .compare = equal_, .type_hash = lida_HashString64(#type), .elem_size = sizeof(type), .flags = flags_ }
+#ifndef __cplusplus
+#define LIDA_TYPE_INFO(type, allocator_, flags_) (lida_TypeInfo) { .name = #type, .allocator = allocator_, .type_hash = lida_HashString64(#type), .elem_size = sizeof(type), .flags = flags_ }
+#else
+// C++ under 20 yells at designated initializers
+#define LIDA_TYPE_INFO(type, allocator_, flags_) lida_TypeInfo { #type, allocator_, lida_HashString64(#type), sizeof(type), flags_ }
+#endif
 
 
 /// Hash table
@@ -206,9 +209,29 @@ uint64_t lida_HashString64(const char* str);
 uint32_t lida_HashCombine32(const uint32_t* hashes, uint32_t num_hashes);
 uint64_t lida_HashCombine64(const uint64_t* hashes, uint32_t num_hashes);
 #define lida_HashCombine(hashes, num_hashes) lida_HashCombine32(hashes, num_hashes)
-
-void lida_qsort(void* data, uint32_t num_elements, lida_TypeInfo* type);
+uint32_t lida_HashMemory32(const void* data, uint32_t bytes);
+uint64_t lida_HashMemory64(const void* data, uint32_t bytes);
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef __cplusplus
+
+namespace lida {
+
+  inline lida_HashTable ht_empty(lida_TypeInfo* type_info) {
+    lida_HashTable ht = {};
+    ht.type = type_info;
+    return ht;
+  }
+
+  inline lida_DynArray dyn_array_empty(lida_TypeInfo* type_info) {
+    lida_DynArray da = {};
+    da.type = type_info;
+    return da;
+  }
+
+}
+
 #endif

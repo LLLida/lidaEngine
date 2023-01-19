@@ -48,18 +48,8 @@ typedef struct {
   int age;
 } Person;
 
-uint32_t hash_person(const void* data) {
-  const Person* person = (Person*)data;
-  return lida_HashString(person->name);
-}
-
-int cmp_person(const void* lhs, const void* rhs) {
-  const Person* left = lhs, *right = rhs;
-  return strcmp(left->name, right->name);
-}
-
 void test2() {
-  lida_TypeInfo desc = LIDA_TYPE_INFO(Person, lida_MallocAllocator(), hash_person, cmp_person, 0);
+  lida_TypeInfo desc = LIDA_TYPE_INFO(Person, lida_MallocAllocator(), 0);
   lida_HashTable ht = LIDA_HT_EMPTY(&desc);
 
   Person singers[] = {
@@ -90,7 +80,7 @@ void test2() {
 }
 
 void test3() {
-  lida_TypeInfo desc = LIDA_TYPE_INFO(Person, lida_MallocAllocator(), NULL, NULL, 0);
+  lida_TypeInfo desc = LIDA_TYPE_INFO(Person, lida_MallocAllocator(), 0);
   lida_DynArray array = LIDA_DA_EMPTY(&desc);
 
   Person chads[] = {

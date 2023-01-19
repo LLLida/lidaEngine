@@ -110,14 +110,7 @@ static VkResult CreateCommandPool();
 static VkResult CreateDescriptorPools();
 static VkResult DebugMarkObject(VkDebugReportObjectTypeEXT type, uint64_t obj, const char* name);
 static VkResult VideoMemoryProvide(lida_VideoMemory* memory, const VkMemoryRequirements* requirements);
-static uint32_t HashShaderInfo(const void* data);
-static int CompareShaderInfos(const void* lhs, const void* rhs);
-static uint32_t Hash_DS_LayoutInfo(const void* data);
-static int Compare_DS_Layouts(const void* lhs, const void* rhs);
-static uint32_t HashSamplerInfo(const void* data);
-static int CompareSamplerInfos(const void* lhs, const void* rhs);
-static uint32_t HashPipelineLayoutInfo(const void* data);
-static int ComparePipelineLayoutInfos(const void* lhs, const void* rhs);
+static int Compare_DSLB(const void* l, const void* r);
 static void MergeShaderReflects(lida_ShaderReflect* lhs, const lida_ShaderReflect* rhs);
 static lida_ShaderReflect* CollectShaderReflects(const lida_ShaderReflect** shaders, uint32_t count);
 static int ReflectSPIRV(const uint32_t* code, uint32_t size, lida_ShaderReflect* shader);
@@ -169,22 +162,22 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
   err = CreateDescriptorPools();
 
   g_device->shader_info_type =
-    LIDA_TYPE_INFO(ShaderInfo, lida_MallocAllocator(), HashShaderInfo, CompareShaderInfos, 0);
+    LIDA_TYPE_INFO(ShaderInfo, lida_MallocAllocator(), 0);
   g_device->shader_cache = LIDA_HT_EMPTY(&g_device->shader_info_type);
 
   g_device->ds_layout_info_type =
     LIDA_TYPE_INFO(DS_LayoutInfo, lida_MallocAllocator(),
-                   Hash_DS_LayoutInfo, Compare_DS_Layouts, 0);
+                   0);
   g_device->ds_layout_cache = LIDA_HT_EMPTY(&g_device->ds_layout_info_type);
 
   g_device->sampler_info_type =
     LIDA_TYPE_INFO(SamplerInfo, lida_MallocAllocator(),
-                   HashSamplerInfo, CompareSamplerInfos, 0);
+                   0);
   g_device->sampler_cache = LIDA_HT_EMPTY(&g_device->sampler_info_type);
 
   g_device->pipeline_layout_info_type =
     LIDA_TYPE_INFO(PipelineLayoutInfo, lida_MallocAllocator(),
-                   HashPipelineLayoutInfo, ComparePipelineLayoutInfos, 0);
+                   0);
   g_device->pipeline_layout_cache = LIDA_HT_EMPTY(&g_device->pipeline_layout_info_type);
 
   return err;
@@ -479,7 +472,7 @@ lida_GetDescriptorSetLayout(const VkDescriptorSetLayoutBinding* bindings, uint32
   key.num_bindings = num_bindings;
   assert(num_bindings <= LIDA_ARR_SIZE(key.bindings));
   memcpy(key.bindings, bindings, num_bindings * sizeof(VkDescriptorSetLayoutBinding));
-  lida_qsort(key.bindings, num_bindings, &g_device->ds_layout_info_type);
+  SDL_qsort(key.bindings, num_bindings, sizeof(VkDescriptorSetLayoutBinding), &Compare_DSLB);
   DS_LayoutInfo* layout = lida_HT_Search(&g_device->ds_layout_cache, &key);
   if (layout) {
     return layout->layout;
@@ -1478,82 +1471,10 @@ VkResult VideoMemoryProvide(lida_VideoMemory* memory, const VkMemoryRequirements
   return VK_SUCCESS;
 }
 
-uint32_t
-HashShaderInfo(const void* data)
-{
-  const ShaderInfo* shader = data;
-  return lida_HashString32(shader->name);
-}
-
 int
-CompareShaderInfos(const void* lhs, const void* rhs)
+Compare_DSLB(const void* l, const void* r)
 {
-  const ShaderInfo* left = lhs, *right = rhs;
-  return strcmp(left->name, right->name);
-}
-
-uint32_t
-Hash_DS_LayoutInfo(const void* data)
-{
-  const DS_LayoutInfo* layout = data;
-  uint32_t hashes[16];
-  for (uint32_t i = 0; i < layout->num_bindings; i++) {
-    hashes[i] = lida_HashCombine32((uint32_t*)&layout->bindings[i],
-                                   sizeof(VkDescriptorSetLayoutBinding) / sizeof(uint32_t));
-  }
-  return lida_HashCombine32(hashes, layout->num_bindings);
-}
-
-int
-Compare_DS_Layouts(const void* lhs, const void* rhs)
-{
-  const DS_LayoutInfo* left = lhs, *right = rhs;
-  if (left->num_bindings != right->num_bindings)
-    return 1;
-  for (uint32_t i = 0; i < left->num_bindings; i++) {
-    int r = memcmp(&left->bindings[i], &right->bindings[i], sizeof(VkDescriptorSetLayoutBinding));
-    if (r != 0)
-      return r;
-  }
-  return 0;
-}
-
-uint32_t
-HashSamplerInfo(const void* data)
-{
-  const SamplerInfo* sampler = data;
-  uint32_t hash = (uint32_t)sampler->filter;
-  // https://stackoverflow.com/questions/2590677/how-do-i-combine-hash-values-in-c0x
-  hash ^= (uint32_t)sampler->mode + 0x9e3779b9 + (hash<<6) + (hash>>2);
-  return hash;
-}
-
-int
-CompareSamplerInfos(const void* lhs, const void* rhs)
-{
-  return memcmp(lhs, rhs, sizeof(VkFilter) + sizeof(VkSamplerAddressMode));
-}
-
-uint32_t
-HashPipelineLayoutInfo(const void* data)
-{
-  const PipelineLayoutInfo* info = data;
-  uint32_t hashes[SHADER_REFLECT_MAX_SETS+SHADER_REFLECT_MAX_RANGES];
-  for (uint32_t i = 0; i < info->num_sets; i++) {
-    uint64_t handle = (uint64_t)info->set_layouts[i];
-    hashes[i] = ((handle >> 32) + 3) ^ (handle & (((uint64_t)1 << 32)-1));
-  }
-  for (uint32_t i = 0; i < info->num_ranges; i++) {
-    hashes[i + info->num_sets] = lida_HashCombine32((uint32_t*)&info->ranges[i],
-                                                    sizeof(VkPushConstantRange)/sizeof(uint32_t));
-  }
-  return lida_HashCombine32(hashes, info->num_sets+info->num_ranges);
-}
-
-int
-ComparePipelineLayoutInfos(const void* lhs, const void* rhs)
-{
-  return memcmp(lhs, rhs, sizeof(PipelineLayoutInfo));
+  return memcmp(l, r, sizeof(VkDescriptorSetLayoutBinding));
 }
 
 void

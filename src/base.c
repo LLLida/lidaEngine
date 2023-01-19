@@ -7,7 +7,7 @@
 #include <string.h>
 
 #define STB_SPRINTF_IMPLEMENTATION
-#include "stb_sprintf.h" 
+#include "stb_sprintf.h"
 
 
 /// Logging
@@ -220,14 +220,14 @@ lida_HT_Insert(lida_HashTable* ht, void* element)
     if (lida_HT_Reserve(ht, (ht->allocated == 0) ? 1 : (ht->allocated * 2)) != 0)
       return NULL;
   }
-  uint32_t hash = ht->type->hasher(element);
+  uint32_t hash = lida_HashMemory32(element, ht->type->elem_size);
   return HT_Insert_no_check(ht, element, hash);
 }
 
 void*
 lida_HT_Search(const lida_HashTable* ht, void* element)
 {
-  uint32_t hash = ht->type->hasher(element);
+  uint32_t hash = lida_HashMemory32(element, ht->type->elem_size);
   return lida_HT_SearchEx(ht, element, hash);
 }
 
@@ -240,7 +240,7 @@ lida_HT_SearchEx(const lida_HashTable* ht, void* element, uint32_t hash)
   for (uint32_t i = 0; i < ht->size; id = (id+1) % ht->allocated) {
     if (*HT_GET_MAGIC(ht, id) == HT_NODE_VALID) {
       if (*HT_GET_HASH(ht, id) == hash &&
-          ht->type->compare(HT_GET(ht, id), element) == 0)
+          memcmp(HT_GET(ht, id), element, ht->type->elem_size) == 0)
         return HT_GET(ht, id);
       i++;
     } else if (*HT_GET_MAGIC(ht, id) == HT_NODE_NULL) {
@@ -447,8 +447,83 @@ lida_HashCombine64(const uint64_t* hashes, uint32_t num_hashes)
   return hash;
 }
 
-void
-lida_qsort(void* data, uint32_t num_elements, lida_TypeInfo* type)
+uint32_t
+lida_HashMemory32(const void* key, uint32_t bytes)
 {
-  SDL_qsort(data, num_elements, type->elem_size, type->compare);
+  // based on MurmurHash2: https://sites.google.com/site/murmurhash/
+  const uint32_t seed = 1;
+  const uint32_t m = 0x5bd1e995;
+  const int r = 24;
+  uint32_t h = seed ^ bytes;
+  const uint32_t* data = key;
+  while (bytes >= 4) {
+    uint32_t k = *(data++);
+
+    k *= m;
+    k ^= k >> r;
+    k *= m;
+
+    h *= m;
+    h ^= k;
+
+    bytes -= 4;
+  }
+  // handle remaining bytes
+  const unsigned char* chars = (const unsigned char*)data;
+  switch (bytes) {
+  case 3: h ^= chars[2] << 16;
+    LIDA_ATTRIBUTE_FALLTHROUGH();
+  case 2: h ^= chars[1] << 8;
+    LIDA_ATTRIBUTE_FALLTHROUGH();
+  case 1: h ^= chars[0];
+    h *= m;
+  }
+  h ^= h >> 13;
+  h *= m;
+  h ^= h >> 15;
+  return h;
+}
+
+uint64_t
+lida_HashMemory64(const void* key, uint32_t bytes)
+{
+  // based on MurmurHash2
+  const uint32_t seed = 1;
+  const uint64_t m = 0xc6a4a7935bd1e995;
+  const int r = 47;
+  uint64_t h = seed ^ (bytes * m);
+  const uint64_t * data = (const uint64_t *)key;
+  const uint64_t * end = data + (bytes/8);
+  while(data != end) {
+    uint64_t k = *(data++);
+
+    k *= m;
+    k ^= k >> r;
+    k *= m;
+
+    h ^= k;
+    h *= m;
+  }
+  // handle remaining bytes
+  const unsigned char * chars = (const unsigned char*)data;
+  switch(bytes & 7) {
+    case 7: h ^= (uint64_t)chars[6] << 48;
+      LIDA_ATTRIBUTE_FALLTHROUGH();
+    case 6: h ^= (uint64_t)chars[5] << 40;
+      LIDA_ATTRIBUTE_FALLTHROUGH();
+    case 5: h ^= (uint64_t)chars[4] << 32;
+      LIDA_ATTRIBUTE_FALLTHROUGH();
+    case 4: h ^= (uint64_t)chars[3] << 24;
+      LIDA_ATTRIBUTE_FALLTHROUGH();
+    case 3: h ^= (uint64_t)chars[2] << 16;
+      LIDA_ATTRIBUTE_FALLTHROUGH();
+    case 2: h ^= (uint64_t)chars[1] << 8;
+      LIDA_ATTRIBUTE_FALLTHROUGH();
+    case 1: h ^= (uint64_t)chars[0];
+      h *= m;
+  };
+  h ^= h >> r;
+  h *= m;
+  h ^= h >> r;
+  return h;
 }
