@@ -15,6 +15,8 @@ add_shader(tst "triangle.vert")
 add_shader(tst "triangle.frag")
 add_shader(tst "rect.vert")
 add_shader(tst "rect.frag")
+add_shader(tst "voxel.vert")
+add_shader(tst "voxel.frag")
 
 include(CTest)
 add_subdirectory(test)

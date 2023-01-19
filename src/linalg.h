@@ -41,6 +41,17 @@ typedef struct {
 
 } lida_Mat4;
 
+typedef struct {
+  float x, y, z, w;
+} lida_Quat;
+
+// 32 bytes
+typedef struct {
+  lida_Quat rotation;
+  lida_Vec3 position;
+  float padding;
+} lida_Transform;
+
 enum {
   LIDA_CAMERA_PRESSED_FORWARD = (1<<0),
   LIDA_CAMERA_PRESSED_LEFT = (1<<1),
@@ -155,6 +166,8 @@ void lida_CameraUpdate(lida_Camera* camera, float dt, uint32_t window_width, uin
       0.0f, 0.0f, 0.0f, 1.0f                    \
       }
 #define LIDA_MAT4_ROW(mat, i) (lida_Vec4*)(&mat.m00 + (i) * 4)
+
+#define LIDA_QUAT_IDENTITY() (lida_Quat) { .x = 0.0f, .y = 0.0f, .z = 0.0f, .w = 1.0f }
 
 #ifdef __cplusplus
 }

@@ -117,6 +117,7 @@ typedef struct {
 
   const lida_HashTable* ht;
   uint32_t id;
+  uint32_t remaining;
 
 } lida_HT_Iterator;
 
@@ -176,7 +177,7 @@ typedef struct {
 #define LIDA_DA_DATA(array, type) (type*)((array)->ptr)
 #define LIDA_DA_CAPACITY(array) ((array)->allocated)
 #define LIDA_DA_SIZE(array) ((array)->size)
-#define LIDA_DA_GET(array, type, index) (type*)lida_ArrayGet((array), index)
+#define LIDA_DA_GET(array, type, index) (type*)lida_DynArrayGet((array), index)
 #define LIDA_DA_PUSH_BACK(array, type_name, ...) memcpy(lida_DynArrayPushBack(array), &(type_name) { __VA_ARGS__ }, (array)->type->elem_size)
 #define LIDA_DA_INSERT(array, i, type_name, ...) memcpy(lida_DynArrayInsert(array, i), &(type_name) { __VA_ARGS__ }, (array)->type->elem_size)
 
@@ -191,6 +192,8 @@ void* lida_DynArrayPushBack(lida_DynArray* array)
 int lida_DynArrayPopBack(lida_DynArray* array)
   LIDA_ATTRIBUTE_NONNULL(1);
 void* lida_DynArrayInsert(lida_DynArray* array, uint32_t index)
+  LIDA_ATTRIBUTE_NONNULL(1);
+void lida_DynArrayClear(lida_DynArray* array)
   LIDA_ATTRIBUTE_NONNULL(1);
 void lida_DynArrayDelete(lida_DynArray* array)
   LIDA_ATTRIBUTE_NONNULL(1);

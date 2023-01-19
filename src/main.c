@@ -6,16 +6,22 @@
 #include "base.h"
 #include "linalg.h"
 #include "render.h"
+#include "voxel.h"
 
 #include <unistd.h>
 
 static int checkOption(const char* opt);
+static VkPipeline createVoxelPipeline();
 static VkPipeline createTrianglePipeline();
 static VkPipeline createRectPipeline();
 
+// TODO: do smth with these
 VkPipelineLayout pipeline_layout;
 VkPipelineLayout pipeline_layout2;
+VkPipelineLayout pipeline_layout3;
+
 lida_Camera camera;
+lida_VoxelDrawer vox_drawer;
 
 int main(int argc, char** argv) {
   SDL_Init(SDL_INIT_VIDEO);
@@ -78,8 +84,11 @@ int main(int argc, char** argv) {
   LIDA_LOG_DEBUG("num images in swapchain: %u\n", lida_WindowGetNumImages());
 
 
+  lida_VoxelDrawerCreate(&vox_drawer, 128 * 1024, 1024);
+
   VkPipeline pipeline = createTrianglePipeline();
   VkPipeline rect_pipeline = createRectPipeline();
+  VkPipeline vox_pipeline = createVoxelPipeline();
 
   camera.z_near = 0.01f;
   camera.position = LIDA_VEC3_CREATE(0.0f, 0.0f, -2.0f);
@@ -94,6 +103,9 @@ int main(int argc, char** argv) {
 
   // hide the cursor
   SDL_SetRelativeMouseMode(1);
+
+  lida_VoxelGrid vox_grid = {0};
+  lida_VoxelGridLoadFromFile(&vox_grid, "../assets/3x3x3.vox");
 
   SDL_Event event;
   int running = 1;
@@ -175,7 +187,16 @@ int main(int argc, char** argv) {
     lida_SceneDataStruct* sc_data = lida_ForwardPassGetSceneData();
     memcpy(&sc_data->camera_projection, &camera.projection_matrix, sizeof(lida_Mat4));
     memcpy(&sc_data->camera_view, &camera.view_matrix, sizeof(lida_Mat4));
+    lida_Mat4Mul(&sc_data->camera_projection, &sc_data->camera_view, &sc_data->camera_projview);
 
+    lida_VoxelDrawerNewFrame(&vox_drawer);
+
+    lida_Transform transform = {
+      .rotation = LIDA_QUAT_IDENTITY(),
+      .position = LIDA_VEC3_CREATE(3.0f, 2.0f, 0.0f),
+    };
+    lida_VoxelDrawerPushMesh(&vox_drawer, &vox_grid, &transform);
+    
     VkCommandBuffer cmd = lida_WindowBeginCommands();
 
     lida_Vec4 colors[] = {
@@ -197,6 +218,12 @@ int main(int argc, char** argv) {
     colors[3] = LIDA_VEC4_CREATE(0.1f, 0.0f, 1.0f, 0.0f);
     vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(lida_Vec4)*3 + sizeof(lida_Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
+    // draw voxels
+    VkDescriptorSet ds_sets[2] = { lida_ForwardPassGetDS0(), vox_drawer.descriptor_set };
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout3, 0, LIDA_ARR_SIZE(ds_sets), ds_sets, 0, NULL);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vox_pipeline);
+    lida_VoxelDrawerDraw(&vox_drawer, cmd);
+    
     vkCmdEndRenderPass(cmd);
 
     lida_WindowBeginRendering();
@@ -205,17 +232,25 @@ int main(int argc, char** argv) {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, rect_pipeline);
     vkCmdDraw(cmd, 4, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
-
+    
     vkEndCommandBuffer(cmd);
+
+    lida_VoxelDrawerFlushMemory(&vox_drawer);
+    
     lida_WindowPresent();
   }
+
+  lida_VoxelGridFree(&vox_grid);
 
   LIDA_LOG_TRACE("Exited successfully");
 
   vkDeviceWaitIdle(lida_GetLogicalDevice());
 
+  lida_VoxelDrawerDestroy(&vox_drawer);
+
   vkDestroyPipeline(lida_GetLogicalDevice(), rect_pipeline, NULL);
   vkDestroyPipeline(lida_GetLogicalDevice(), pipeline, NULL);
+  vkDestroyPipeline(lida_GetLogicalDevice(), vox_pipeline, NULL);
 
   lida_ForwardPassDestroy();
   lida_WindowDestroy();
@@ -225,15 +260,47 @@ int main(int argc, char** argv) {
   return 0;
 }
 
-VkPipeline createTrianglePipeline() {
-
-  VkPipelineDepthStencilStateCreateInfo depthstencil_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-    .depthTestEnable = VK_TRUE,
-    .depthWriteEnable = VK_TRUE,
-    .depthCompareOp = VK_COMPARE_OP_GREATER,
-    .depthBoundsTestEnable = VK_FALSE,
+VkPipeline
+createVoxelPipeline()
+{
+  VkPipelineColorBlendAttachmentState colorblend_attachment = {
+    .blendEnable = VK_FALSE,
+    .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
   };
+  VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+
+  VkPipeline ret;
+  lida_PipelineDesc pipeline_desc = {
+    .vertex_shader = "shaders/voxel.vert.spv",
+    .fragment_shader = "shaders/voxel.frag.spv",
+    .vertex_binding_count = 1,
+    .vertex_bindings = &vox_drawer.vertex_binding,
+    .vertex_attribute_count = 2,
+    .vertex_attributes = vox_drawer.vertex_attributes,
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_FRONT_BIT,
+    .depthBiasEnable = VK_FALSE,
+    .msaa_samples = lida_ForwardPassGet_MSAA_Samples(),
+    .depth_test = VK_TRUE,
+    .depth_write = VK_TRUE,
+    .depth_compare_op = VK_COMPARE_OP_GREATER,
+    .blend_logic_enable = VK_FALSE,
+    .attachment_count = 1,
+    .attachments = &colorblend_attachment,
+    .dynamic_state_count = LIDA_ARR_SIZE(dynamic_states),
+    .dynamic_states = dynamic_states,
+    .render_pass = lida_ForwardPassGetRenderPass(),
+    .subpass = 0,
+    .marker = "forward/voxel-pipeline"
+  };
+  lida_CreateGraphicsPipelines(&ret, 1, &pipeline_desc, &pipeline_layout3);
+  return ret;
+}
+
+VkPipeline
+createTrianglePipeline()
+{
   VkPipelineColorBlendAttachmentState colorblend_attachment = {
     .blendEnable = VK_FALSE,
     .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,

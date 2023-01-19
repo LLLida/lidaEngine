@@ -266,6 +266,7 @@ lida_HT_Iterator_Begin(const lida_HashTable* ht, lida_HT_Iterator* it)
 {
   it->ht = ht;
   it->id = 0;
+  it->remaining = ht->size;
   while (it->id < ht->size &&
          *HT_GET_MAGIC(ht, it->id) != HT_NODE_VALID) {
     it->id++;
@@ -275,7 +276,7 @@ lida_HT_Iterator_Begin(const lida_HashTable* ht, lida_HT_Iterator* it)
 int
 lida_HT_Iterator_Empty(lida_HT_Iterator* it)
 {
-  return it->id >= it->ht->size;
+  return it->remaining == 0;
 }
 
 void
@@ -286,6 +287,7 @@ lida_HT_Iterator_Next(lida_HT_Iterator* it)
          *HT_GET_MAGIC(it->ht, it->id) != HT_NODE_VALID) {
     it->id++;
   }
+  it->remaining--;
 }
 
 void*
@@ -378,6 +380,12 @@ lida_DynArrayInsert(lida_DynArray* array, uint32_t index)
   memmove(DA_GET(array, index+1), DA_GET(array, index), DA_NUM_BYTES(array, array->size));
   array->size++;
   return DA_GET(array, index);
+}
+
+void
+lida_DynArrayClear(lida_DynArray* array)
+{
+  array->size = 0;
 }
 
 void

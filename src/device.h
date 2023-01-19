@@ -97,6 +97,8 @@ uint32_t lida_GetNumEnabledDeviceExtensions();
 const VkExtensionProperties* lida_GetAvailableDeviceExtensions();
 uint32_t lida_GetNumAvailableDeviceExtensions();
 
+const VkPhysicalDeviceProperties* lida_GetDeviceProperties();
+
 // currently we have 1 queue for whole application, we might consider adding compute queue
 uint32_t lida_GetGraphicsQueueFamily();
 

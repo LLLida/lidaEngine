@@ -1,5 +1,6 @@
 #pragma once
 
+#include "base.h"
 #include "linalg.h"
 #include "device.h"
 
@@ -25,6 +26,7 @@ typedef struct {
 
 typedef struct {
   uint64_t hash;
+  uint32_t uid;
   uint32_t num_vertices;
   float scale;
 } lida_VoxelMesh;
@@ -35,35 +37,50 @@ typedef struct {
   uint32_t firstVertex;
   uint32_t firstInstance;
   // this is for culling
-  /* vec3 normalVector; */
-  /* vec3 position; */
+  // vec3 normalVector;
+  // vec3 position;
 } lida_VoxelDrawCommand;
 
 typedef struct {
   lida_VideoMemory memory;
   VkBuffer vertex_buffer;
-  VkBuffer index_buffer;
+  // VkBuffer index_buffer;
   VkBuffer storage_buffer;
+  VkDescriptorSet descriptor_set;
   lida_VoxelVertex* pVertices;
-  // Transform* transforms;
+  lida_Transform* pTransforms;
+  uint32_t max_vertices;
+  uint32_t max_draws;
+  int frame_id;
   struct {
-    uint32_t num_indices;
-    uint32_t num_draws;
-    // lida_Array draws;
-    // lida_Array cache;
+    uint32_t num_vertices;
+    lida_DynArray draws;
+    lida_DynArray cache;
     uint32_t vertex_flush_offset;
   } frames[2];
+  VkMappedMemoryRange mapped_ranges[2];
+  lida_TypeInfo draw_command_type_info;
+  lida_TypeInfo mesh_info_type_info;
+  VkVertexInputBindingDescription vertex_binding;
+  VkVertexInputAttributeDescription vertex_attributes[2];
 } lida_VoxelDrawer;
 
 int lida_VoxelGridAllocate(lida_VoxelGrid* grid, uint32_t w, uint32_t h, uint32_t d);
 void lida_VoxelGridFree(lida_VoxelGrid* grid);
 #define lida_VoxelGridGet(grid, x, y, z) (grid)->data[(x) + (y)*(grid)->width + (z)*(grid)->width*(grid)->height]
 
-uint32_t lida_VoxelGridGenerateMeshNaive(lida_VoxelGrid* grid, float size, lida_VoxelVertex* vertices, int face);
-uint32_t lida_VoxelGridGenerateMeshGreedy(lida_VoxelGrid* grid, lida_VoxelVertex* vertices);
+uint32_t lida_VoxelGridGenerateMeshNaive(const lida_VoxelGrid* grid, float size, lida_VoxelVertex* vertices, int face);
+uint32_t lida_VoxelGridGenerateMeshGreedy(const lida_VoxelGrid* grid, lida_VoxelVertex* vertices);
 
 int lida_VoxelGridLoad(lida_VoxelGrid* grid, const uint8_t* buffer, uint32_t size);
 int lida_VoxelGridLoadFromFile(lida_VoxelGrid* grid, const char* filename);
+
+VkResult lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t max_draws);
+void lida_VoxelDrawerDestroy(lida_VoxelDrawer* drawer);
+void lida_VoxelDrawerNewFrame(lida_VoxelDrawer* drawer);
+void lida_VoxelDrawerFlushMemory(lida_VoxelDrawer* drawer);
+void lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, const lida_VoxelGrid* grid, const lida_Transform* transform);
+void lida_VoxelDrawerDraw(lida_VoxelDrawer* drawer, VkCommandBuffer cmd);
 
 #ifdef __cplusplus
 }

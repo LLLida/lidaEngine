@@ -304,6 +304,12 @@ lida_GetNumAvailableDeviceExtensions()
   return g_device->num_available_device_extensions;
 }
 
+const VkPhysicalDeviceProperties*
+lida_GetDeviceProperties()
+{
+  return &g_device->properties;
+}
+
 uint32_t
 lida_GetGraphicsQueueFamily()
 {
@@ -676,6 +682,7 @@ lida_BufferBindToMemory(lida_VideoMemory* memory, VkBuffer buffer,
       LIDA_LOG_WARN("memory is not mapped, can't access it's content from CPU");
     }
     if (mappedRange) {
+      mappedRange->sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
       mappedRange->memory = memory->handle;
       mappedRange->offset = memory->offset;
       // Vulkan spec: If size is not equal to VK_WHOLE_SIZE, size must either be a multiple of
