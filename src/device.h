@@ -30,6 +30,7 @@ typedef struct {
 typedef struct lida_ShaderReflect lida_ShaderReflect;
 
 typedef struct {
+
   const char* vertex_shader;
   const char* fragment_shader;
   uint32_t vertex_binding_count;
@@ -64,7 +65,20 @@ typedef struct {
   VkRenderPass render_pass;
   uint32_t subpass;
   const char* marker;
+
 } lida_PipelineDesc;
+
+typedef struct {
+
+  uint32_t binding;
+  VkDescriptorType type;
+  VkShaderStageFlags shader_stages;
+  union {
+    VkDescriptorBufferInfo buffer;
+    VkDescriptorImageInfo image;
+  } data;
+
+} lida_DescriptorBindingInfo;
 
 // Create device
 // if desc->enable_debug_layers then try to load validation layers and enable VK_EXT_DEBUG_MARKER extension
@@ -126,6 +140,8 @@ VkResult lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* binding
                                      VkDescriptorSet* sets, uint32_t num_sets, int dynamic, const char* marker);
 VkResult lida_FreeDescriptorSets(const VkDescriptorSet* sets, uint32_t num_sets);
 void lida_UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, uint32_t count);
+VkResult lida_AllocateAndUpdateDescriptorSet(const lida_DescriptorBindingInfo* bindings, uint32_t count,
+                                             VkDescriptorSet* set, int dynamic, const char* marker);
 
 // try to find a sampler in cache, if not found then create a new one
 VkSampler lida_GetSampler(VkFilter filter, VkSamplerAddressMode mode);
@@ -173,4 +189,31 @@ const VkPushConstantRange* lida_ShaderReflectGetRanges(const lida_ShaderReflect*
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef __cplusplus
+
+namespace lida {
+
+  // C++ until 20 hasn't designed initializers, we introduce these functions to simplify API
+  inline lida_DescriptorBindingInfo descriptor_binding_info(uint32_t binding, VkDescriptorType type, VkShaderStageFlags shader_stages, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range) {
+    lida_DescriptorBindingInfo ret;
+    ret.binding = binding;
+    ret.type = type;
+    ret.shader_stages = shader_stages;
+    ret.data.buffer = VkDescriptorBufferInfo { buffer, offset, range };
+    return ret;
+  }
+
+  inline lida_DescriptorBindingInfo descriptor_binding_info(uint32_t binding, VkDescriptorType type, VkShaderStageFlags shader_stages, VkSampler sampler, VkImageView image, VkImageLayout layout) {
+    lida_DescriptorBindingInfo ret;
+    ret.binding = binding;
+    ret.type = type;
+    ret.shader_stages = shader_stages;
+    ret.data.image = VkDescriptorImageInfo { sampler, image, layout };
+    return ret;
+  }
+
+}
+
 #endif

@@ -544,6 +544,54 @@ lida_UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, uint32_
   vkUpdateDescriptorSets(g_device->logical_device, count, pDescriptorWrites, 0, NULL);
 }
 
+VkResult
+lida_AllocateAndUpdateDescriptorSet(const lida_DescriptorBindingInfo* bindings, uint32_t count,
+                                    VkDescriptorSet* set, int dynamic, const char* marker)
+{
+  VkDescriptorSetLayoutBinding* layout_bindings = lida_TempAllocate(count * sizeof(VkDescriptorSetLayoutBinding));
+  VkWriteDescriptorSet* write_sets = lida_TempAllocate(count * sizeof(VkWriteDescriptorSet));
+  for (uint32_t i = 0; i < count; i++) {
+    layout_bindings[i] = (VkDescriptorSetLayoutBinding) {
+      .binding = bindings[i].binding,
+      .descriptorType = bindings[i].type,
+      .descriptorCount = 1,
+      .stageFlags = bindings->shader_stages,
+    };
+  }
+  VkResult err = lida_AllocateDescriptorSets(layout_bindings, count, set, 1, dynamic, marker);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to allocate descriptor set '%s' with error %s", marker,
+                   lida_VkResultToString(err));
+    return err;
+  }
+  for (uint32_t i = 0 ; i < count; i++) {
+    write_sets[i] = (VkWriteDescriptorSet) {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = *set,
+      .dstBinding = bindings[i].binding,
+      .descriptorCount = 1,
+      .descriptorType = bindings[i].type
+    };
+    switch (bindings[i].type) {
+    case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+    case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+    case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:
+      write_sets[i].pImageInfo = &bindings[i].data.image;
+      break;
+    case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+    case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+      write_sets[i].pBufferInfo = &bindings[i].data.buffer;
+      break;
+    default:
+      LIDA_LOG_WARN("%d descriptor type is not yet supported", bindings[i].type);
+      assert(0);
+    }
+  }
+  lida_UpdateDescriptorSets(write_sets, count);
+  lida_TempFree(layout_bindings);
+  return err;
+}
+
 VkSampler
 lida_GetSampler(VkFilter filter, VkSamplerAddressMode mode)
 {

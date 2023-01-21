@@ -31,7 +31,6 @@ lida_VoxelGridAllocate(lida_VoxelGrid* grid, uint32_t w, uint32_t h, uint32_t d)
   grid->width = w;
   grid->height = h;
   grid->depth = d;
-  // grid->hash = lida_HashString64(grid->data);
   return 0;
 }
 
@@ -42,6 +41,14 @@ lida_VoxelGridFree(lida_VoxelGrid* grid)
     lida_MallocFree(grid->data);
     grid->data = NULL;
   }
+}
+
+void
+lida_VoxelGridSet(lida_VoxelGrid* grid, uint32_t x, uint32_t y, uint32_t z, lida_Voxel vox)
+{
+  lida_VoxelGridGet(grid, x, y, z) = vox;
+  uint64_t hashes[2] = { grid->hash, (uint64_t)vox };
+  grid->hash = lida_HashCombine64(hashes, 2);
 }
 
 static const lida_Vec3 vox_positions[] = {
@@ -170,6 +177,7 @@ lida_VoxelGridLoad(lida_VoxelGrid* grid, const uint8_t* buffer, uint32_t size)
     }
   }
   ogt_vox_destroy_scene(scene);
+  grid->hash = lida_HashMemory64(grid->data, grid->width * grid->height * grid->depth);
   return 0;
 }
 
@@ -247,33 +255,11 @@ VkResult lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices,
   if (err != VK_SUCCESS) {
     LIDA_LOG_WARN("failed to bind storage buffer to memory with error %s", lida_VkResultToString(err));
   }
-  // allocate descriptor set
-  VkDescriptorSetLayoutBinding binding = {
-    .binding = 0,
-    .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-    .descriptorCount = 1,
-    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-  };
-  err = lida_AllocateDescriptorSets(&binding, 1, &drawer->descriptor_set, 1, 0, "voxel-storage-buffer");
-  if (err != VK_SUCCESS) {
-    LIDA_LOG_ERROR("failed to allocate descriptor set with error %s", lida_VkResultToString(err));
-    return err;
-  }
-  // update descriptor set
-  VkDescriptorBufferInfo buffer_info = {
-    .buffer = drawer->storage_buffer,
-    .offset = 0,
-    .range = VK_WHOLE_SIZE
-  };
-  VkWriteDescriptorSet write_set = {
-    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-    .dstSet = drawer->descriptor_set,
-    .dstBinding = 0,
-    .descriptorCount = 1,
-    .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-    .pBufferInfo = &buffer_info,
-  };
-  lida_UpdateDescriptorSets(&write_set, 1);
+  // allocate and update descriptor set
+  auto binding = lida::descriptor_binding_info(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                               VK_SHADER_STAGE_VERTEX_BIT,
+                                               drawer->storage_buffer, 0, VK_WHOLE_SIZE);
+  lida_AllocateAndUpdateDescriptorSet(&binding, 1, &drawer->descriptor_set, 0, "voxel-storage-buffer");
   // init data needed for pipeline creation
   drawer->vertex_binding = { 0, sizeof(lida_VoxelVertex), VK_VERTEX_INPUT_RATE_VERTEX };
   drawer->vertex_attributes[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 };
