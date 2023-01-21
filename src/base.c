@@ -283,7 +283,7 @@ void
 lida_HT_Iterator_Next(lida_HT_Iterator* it)
 {
   it->id++;
-  while (it->id < it->ht->size &&
+  while (it->id < it->ht->allocated &&
          *HT_GET_MAGIC(it->ht, it->id) != HT_NODE_VALID) {
     it->id++;
   }
