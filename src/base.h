@@ -241,6 +241,10 @@ namespace lida {
     return (T*)array->ptr + index;
   }
 
+  template<typename T> inline T* push_back(lida_DynArray* array) {
+    return (T*)lida_DynArrayPushBack(array);
+  }
+
 }
 
 #endif

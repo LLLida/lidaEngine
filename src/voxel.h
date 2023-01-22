@@ -32,21 +32,6 @@ typedef struct {
 
 typedef struct {
 
-  // this is for vkCmdDraw
-  uint32_t vertexCount;
-  uint32_t firstVertex;
-  uint32_t firstInstance;
-  // this is for caching
-  uint64_t hash;
-  uint32_t num_vertices;
-  float scale;
-  // this is for culling
-  // vec3 normalVector;
-  // vec3 position;
-
-} lida_VoxelDrawCommand;
-
-typedef struct {
   lida_VideoMemory memory;
   VkBuffer vertex_buffer;
   // VkBuffer index_buffer;
@@ -58,20 +43,21 @@ typedef struct {
   uint32_t max_draws;
   int frame_id;
   uint32_t vertex_offset;
-  struct {
-    uint32_t num_vertices;
-    lida_DynArray draws;
-  } frames[2];
+  lida_DynArray draws[2];
+  lida_DynArray meshes;
+  lida_DynArray hashes_cached;
+  lida_DynArray regions_cached;
+  lida_DynArray write_regions;
+  VkMappedMemoryRange mapped_ranges[2];
+  lida_TypeInfo draw_command_type_info;
+  lida_TypeInfo mesh_type_info;
+  lida_TypeInfo draw_id_type_info;
+  lida_TypeInfo region_type_info;
   // for creating pipelines
   // FIXME: I think we should make those global variables
   VkVertexInputBindingDescription vertex_binding;
   VkVertexInputAttributeDescription vertex_attributes[2];
-  // for internal use
-  lida_DynArray hashes_cached;
-  lida_DynArray regions_cached;
-  VkMappedMemoryRange mapped_ranges[2];
-  lida_TypeInfo draw_command_type_info;
-  lida_TypeInfo draw_id_type_info;
+
 } lida_VoxelDrawer;
 
 int lida_VoxelGridAllocate(lida_VoxelGrid* grid, uint32_t w, uint32_t h, uint32_t d);

@@ -1,5 +1,4 @@
 #include "voxel.h"
-#include "linalg.h"
 #include "memory.h"
 
 #include "SDL_rwops.h"
@@ -7,17 +6,45 @@
 #define OGT_VOX_IMPLEMENTATION
 #include "ogt_vox.h"
 
+// TODO: don't use this
+#include <algorithm> // for std::sort
+
 
+
+typedef struct {
+
+  // this is for vkCmdDraw
+  uint32_t vertexCount;
+  uint32_t firstVertex;
+  uint32_t firstInstance;
+  // this is for culling
+  // vec3 normalVector;
+  // vec3 position;
+
+} DrawCommand;
+
+typedef struct {
+
+  uint64_t hash;
+  uint32_t first_vertex;
+  uint32_t last_vertex;
+  uint32_t first_draw_id;
+
+} MeshInfo;
 
 typedef struct {
   uint32_t draw_id;
 } DrawID;
 
-static int CompareDrawCommands(const void* l, const void* r);
-static lida_VoxelDrawCommand* BinSearch(lida_VoxelDrawCommand* array, uint32_t count, uint64_t hash);
+typedef struct {
+  uint32_t offset;
+  uint32_t size;
+} MemRegion;
+
 static void DrawerUpdateCache(lida_VoxelDrawer* drawer);
 
 
+/// voxel grid
 
 int
 lida_VoxelGridAllocate(lida_VoxelGrid* grid, uint32_t w, uint32_t h, uint32_t d)
@@ -207,17 +234,25 @@ lida_VoxelGridLoadFromFile(lida_VoxelGrid* grid, const char* filename)
   return ret;
 }
 
-VkResult lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t max_draws)
+
+/// Voxel drawer
+
+VkResult
+lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t max_draws)
 {
   // empty-initialize containers
-  drawer->draw_command_type_info = LIDA_TYPE_INFO(lida_VoxelDrawCommand, lida_MallocAllocator(), 0);
+  drawer->draw_command_type_info = LIDA_TYPE_INFO(DrawCommand, lida_MallocAllocator(), 0);
+  drawer->mesh_type_info = LIDA_TYPE_INFO(MeshInfo, lida_MallocAllocator(), 0);
   drawer->draw_id_type_info = LIDA_TYPE_INFO(DrawID, lida_MallocAllocator(), 0);
+  drawer->region_type_info = LIDA_TYPE_INFO(MemRegion, lida_MallocAllocator(), 0);
   for (int i = 0; i < 2; i++) {
-    drawer->frames[i].draws = lida::dyn_array_empty(&drawer->draw_command_type_info);
-    lida_DynArrayReserve(&drawer->frames[i].draws, 32);
+    drawer->draws[i] = lida::dyn_array_empty(&drawer->draw_command_type_info);
+    lida_DynArrayReserve(&drawer->draws[i], 32);
   }
+  drawer->meshes = lida::dyn_array_empty(&drawer->mesh_type_info);
   drawer->hashes_cached = lida::dyn_array_empty(&drawer->draw_id_type_info);
   drawer->regions_cached = lida::dyn_array_empty(&drawer->draw_id_type_info);
+  drawer->write_regions = lida::dyn_array_empty(&drawer->region_type_info);
   // create buffers
   VkResult err = lida_BufferCreate(&drawer->vertex_buffer, max_vertices * sizeof(lida_VoxelVertex),
                                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/vertex-buffer");
@@ -295,26 +330,54 @@ void
 lida_VoxelDrawerNewFrame(lida_VoxelDrawer* drawer)
 {
   drawer->frame_id = 1 - drawer->frame_id;
+  // FIXME: we will change this
   drawer->vertex_offset = drawer->frame_id * drawer->max_vertices / 2;
-  drawer->frames[drawer->frame_id].num_vertices = 0;
-  lida_DynArrayClear(&drawer->frames[drawer->frame_id].draws);
-  // if (prev->size > 0) {
-  //   DrawerUpdateCache(drawer);
-  // }
+  lida_DynArrayClear(&drawer->draws[drawer->frame_id]);
+  DrawerUpdateCache(drawer);
+  lida_DynArrayResize(&drawer->write_regions, 1);
+  *lida::get<MemRegion>(&drawer->write_regions, 0) = { 0, 0 };
 }
 
 void
 lida_VoxelDrawerFlushMemory(lida_VoxelDrawer* drawer)
 {
+#if 0
   VkMappedMemoryRange mapped_ranges[2];
   memcpy(mapped_ranges, drawer->mapped_ranges, sizeof(mapped_ranges));
-  mapped_ranges[0].size = drawer->frames[drawer->frame_id].num_vertices * sizeof(lida_VoxelVertex);
-  mapped_ranges[1].size = drawer->frames[drawer->frame_id].draws.size / 6 * sizeof(lida_Transform);
+  mapped_ranges[0].offset = drawer->frame_id * drawer->max_vertices / 2 * sizeof(lida_VoxelVertex);
+  mapped_ranges[0].size = drawer->vertex_offset * sizeof(lida_VoxelVertex) - mapped_ranges[0].offset;
+  mapped_ranges[1].size = drawer->meshes.size * sizeof(lida_Transform);
   for (uint32_t i = 0; i < LIDA_ARR_SIZE(mapped_ranges); i++) {
     mapped_ranges[i].size = LIDA_ALIGN_TO(mapped_ranges[i].size, lida_GetDeviceProperties()->limits.nonCoherentAtomSize);
   }
   VkResult err = vkFlushMappedMemoryRanges(lida_GetLogicalDevice(),
                                            LIDA_ARR_SIZE(mapped_ranges), mapped_ranges);
+#else
+  uint32_t count = drawer->write_regions.size+1;
+  auto mapped_ranges = (VkMappedMemoryRange*)lida_TempAllocate(count);
+  // mapped memory ranges for updated vertices
+  for (uint32_t i = 0; i < drawer->write_regions.size; i++) {
+    mapped_ranges[i].sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+    mapped_ranges[i].pNext = NULL;
+    mapped_ranges[i].memory = drawer->memory.handle;
+    mapped_ranges[i].offset = lida::get<MemRegion>(&drawer->write_regions, i)->offset;
+    mapped_ranges[i].size = lida::get<MemRegion>(&drawer->write_regions, i)->size;
+  }
+  // mapped memory range for storage buffer(transforms)
+  mapped_ranges[drawer->write_regions.size].sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+  mapped_ranges[drawer->write_regions.size].pNext = NULL;
+  mapped_ranges[drawer->write_regions.size].memory = drawer->memory.handle;
+  mapped_ranges[drawer->write_regions.size].offset = drawer->mapped_ranges[1].offset;
+  mapped_ranges[drawer->write_regions.size].size = drawer->meshes.size * sizeof(lida_Transform);
+  VkDeviceSize alignment = lida_GetDeviceProperties()->limits.nonCoherentAtomSize;
+  for (uint32_t i = 0; i < count; i++) {
+    mapped_ranges[i].offset = LIDA_ALIGN_TO(mapped_ranges[i].offset, alignment);
+    mapped_ranges[i].size = LIDA_ALIGN_TO(mapped_ranges[i].size, alignment);
+  }
+  VkResult err = vkFlushMappedMemoryRanges(lida_GetLogicalDevice(),
+                                           count, mapped_ranges);
+  lida_TempFree(mapped_ranges);
+#endif
   if (err != VK_SUCCESS) {
     LIDA_LOG_WARN("failed to flush memory for voxels with error %s", lida_VkResultToString(err));
   }
@@ -323,18 +386,23 @@ lida_VoxelDrawerFlushMemory(lida_VoxelDrawer* drawer)
 void
 lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_VoxelGrid* grid, const lida_Transform* transform)
 {
-  uint32_t* num_vertices = &drawer->frames[drawer->frame_id].num_vertices;
-  // uint32_t old_num_vertices = *num_vertices;
-  uint32_t index = drawer->frames[drawer->frame_id].draws.size;
+  uint32_t index = drawer->meshes.size;
   for (int i = 0; i < 6; i++) {
-    auto command = (lida_VoxelDrawCommand*)lida_DynArrayPushBack(&drawer->frames[drawer->frame_id].draws);
+    auto command = lida::push_back<DrawCommand>(&drawer->draws[drawer->frame_id]);
     command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
-                                                           drawer->pVertices + drawer->vertex_offset + *num_vertices, i);
-    command->firstVertex = *num_vertices;
+                                                           drawer->pVertices + drawer->vertex_offset, i);
+    command->firstVertex = drawer->vertex_offset;
     command->firstInstance = (index << 3) | i;
-    *num_vertices += command->vertexCount;
+    drawer->vertex_offset += command->vertexCount;
   }
   memcpy(&drawer->pTransforms[index], transform, sizeof(lida_Transform));
+  auto mesh = lida::push_back<MeshInfo>(&drawer->meshes);
+  mesh->hash = grid->hash;
+  mesh->first_vertex = lida::get<DrawCommand>(&drawer->draws[drawer->frame_id], index)->firstVertex;
+  auto command = lida::get<DrawCommand>(&drawer->draws[drawer->frame_id], index+5);
+  mesh->last_vertex = command->firstVertex + command->vertexCount;
+  mesh->first_draw_id = index;
+  lida::get<MemRegion>(&drawer->write_regions, drawer->write_regions.size-1)->size += (mesh->last_vertex - mesh->first_vertex) * sizeof(lida_VoxelVertex);
 }
 
 void
@@ -342,59 +410,39 @@ lida_VoxelDrawerDraw(lida_VoxelDrawer* drawer, VkCommandBuffer cmd)
 {
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(cmd, 0, 1, &drawer->vertex_buffer, &offset);
-  lida_DynArray* draws = &drawer->frames[drawer->frame_id].draws;
+  lida_DynArray* draws = &drawer->draws[drawer->frame_id];
   for (uint32_t i = 0; i < draws->size; i++) {
-    lida_VoxelDrawCommand* command = LIDA_DA_GET(draws, lida_VoxelDrawCommand, i);
+    DrawCommand* command = LIDA_DA_GET(draws, DrawCommand, i);
     vkCmdDraw(cmd, command->vertexCount, 1, command->firstVertex, command->firstInstance);
   }
 }
 
 
 
-int
-CompareDrawCommands(const void* l, const void* r)
-{
-  auto lhs = (const lida_VoxelDrawCommand*)l;
-  auto rhs = (const lida_VoxelDrawCommand*)r;
-  return (lhs->hash > rhs->hash) - (lhs->hash < rhs->hash);
-}
-
-lida_VoxelDrawCommand*
-BinSearch(lida_VoxelDrawCommand* array, uint32_t count, uint64_t hash)
-{
-  uint32_t left = 0, right = count;
-  while (left != right) {
-    uint32_t m = (left + right) / 2;
-    lida_VoxelDrawCommand* mid = &array[m];
-    if (mid->hash == hash) {
-      return mid;
-    } else if (mid->hash < hash) {
-      right = m;
-    } else {
-      left = m;
-    }
-  }
-  return NULL;
-}
-
 void
 DrawerUpdateCache(lida_VoxelDrawer* drawer)
 {
   // https://stackoverflow.com/questions/1193477/fast-algorithm-to-quickly-find-the-range-a-number-belongs-to-in-a-set-of-ranges
-  lida_DynArray* prev = &drawer->frames[1-drawer->frame_id].draws;
-  lida_DynArrayResize(&drawer->hashes_cached, prev->size);
+  if (drawer->meshes.size == 0) {
+    return;
+  }
+  auto meshes = (MeshInfo*)drawer->meshes.ptr;
+  lida_DynArrayResize(&drawer->hashes_cached, drawer->meshes.size);
+  lida_DynArrayResize(&drawer->regions_cached, drawer->meshes.size);
   // udpate hashes_cached with insertion sort
   auto hashes = (DrawID*)drawer->hashes_cached.ptr;
-  hashes->draw_id = 0;
-  for (int i = 1; i < (int)prev->size; i++) {
-    int j = i-1;
-    auto r = lida::get<lida_VoxelDrawCommand>(prev,
-                                              hashes[i].draw_id);
-    while (j >= 0 && r->hash <= lida::get<lida_VoxelDrawCommand>(prev, j)->hash) {
-      hashes[j+1] = hashes[j];
-      j--;
-    }
-    hashes[j+1] = hashes[i];
+  auto regions = (DrawID*)drawer->regions_cached.ptr;
+  // TODO: use better algorithm like quick sort or heap sort
+  for (uint32_t  i = 0; i < drawer->meshes.size; i++) {
+    hashes[i].draw_id = i;
+    regions[i].draw_id = i;
   }
-  lida_DynArrayResize(&drawer->regions_cached, prev->size);
+  // I hope in future we will replace this garbage with a proper C code
+  std::sort(hashes, hashes + drawer->meshes.size, [meshes] (const DrawID& lhs, const DrawID& rhs) {
+    return meshes[lhs.draw_id].hash < meshes[rhs.draw_id].hash;
+  });
+  std::sort(regions, regions + drawer->meshes.size, [meshes] (const DrawID& lhs, const DrawID& rhs) {
+    return meshes[lhs.draw_id].first_vertex < meshes[rhs.draw_id].first_vertex;
+  });
+  lida_DynArrayClear(&drawer->meshes);
 }
