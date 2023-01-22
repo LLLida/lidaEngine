@@ -10,35 +10,40 @@ extern "C" {
 
 typedef uint8_t lida_Voxel;
 
+// stores voxels as plain 3D array
 typedef struct {
+
   lida_Voxel* data;
   uint32_t width;
   uint32_t height;
   uint32_t depth;
   uint64_t hash;
   uint32_t palette[256];
+
 } lida_VoxelGrid;
 
+// 16 bytes
 typedef struct {
+
   lida_Vec3 position;
   uint32_t color;
+
 } lida_VoxelVertex;
 
 typedef struct {
-  uint64_t hash;
-  uint32_t uid;
-  uint32_t num_vertices;
-  float scale;
-} lida_VoxelMesh;
 
-typedef struct {
   // this is for vkCmdDraw
   uint32_t vertexCount;
   uint32_t firstVertex;
   uint32_t firstInstance;
+  // this is for caching
+  uint64_t hash;
+  uint32_t num_vertices;
+  float scale;
   // this is for culling
   // vec3 normalVector;
   // vec3 position;
+
 } lida_VoxelDrawCommand;
 
 typedef struct {
@@ -52,17 +57,21 @@ typedef struct {
   uint32_t max_vertices;
   uint32_t max_draws;
   int frame_id;
+  uint32_t vertex_offset;
   struct {
     uint32_t num_vertices;
     lida_DynArray draws;
-    lida_DynArray cache;
-    uint32_t vertex_flush_offset;
   } frames[2];
-  VkMappedMemoryRange mapped_ranges[2];
-  lida_TypeInfo draw_command_type_info;
-  lida_TypeInfo mesh_info_type_info;
+  // for creating pipelines
+  // FIXME: I think we should make those global variables
   VkVertexInputBindingDescription vertex_binding;
   VkVertexInputAttributeDescription vertex_attributes[2];
+  // for internal use
+  lida_DynArray hashes_cached;
+  lida_DynArray regions_cached;
+  VkMappedMemoryRange mapped_ranges[2];
+  lida_TypeInfo draw_command_type_info;
+  lida_TypeInfo draw_id_type_info;
 } lida_VoxelDrawer;
 
 int lida_VoxelGridAllocate(lida_VoxelGrid* grid, uint32_t w, uint32_t h, uint32_t d);
@@ -82,7 +91,7 @@ VkResult lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices,
 void lida_VoxelDrawerDestroy(lida_VoxelDrawer* drawer);
 void lida_VoxelDrawerNewFrame(lida_VoxelDrawer* drawer);
 void lida_VoxelDrawerFlushMemory(lida_VoxelDrawer* drawer);
-void lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, const lida_VoxelGrid* grid, const lida_Transform* transform);
+void lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_VoxelGrid* grid, const lida_Transform* transform);
 void lida_VoxelDrawerDraw(lida_VoxelDrawer* drawer, VkCommandBuffer cmd);
 
 #ifdef __cplusplus

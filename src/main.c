@@ -104,8 +104,10 @@ int main(int argc, char** argv) {
   // hide the cursor
   SDL_SetRelativeMouseMode(1);
 
-  lida_VoxelGrid vox_grid = {0};
-  lida_VoxelGridLoadFromFile(&vox_grid, "../assets/3x3x3.vox");
+  lida_VoxelGrid vox_grids[3] = {0};
+  lida_VoxelGridLoadFromFile(&vox_grids[0], "../assets/3x3x3.vox");
+  lida_VoxelGridLoadFromFile(&vox_grids[1], "../assets/chr_naked1.vox");
+  lida_VoxelGridLoadFromFile(&vox_grids[2], "../assets/chr_naked4.vox");
 
   SDL_Event event;
   int running = 1;
@@ -195,8 +197,14 @@ int main(int argc, char** argv) {
       .rotation = LIDA_QUAT_IDENTITY(),
       .position = LIDA_VEC3_CREATE(3.0f, 2.0f, 0.0f),
     };
-    lida_VoxelDrawerPushMesh(&vox_drawer, &vox_grid, &transform);
+    lida_VoxelDrawerPushMesh(&vox_drawer, 0.5f, &vox_grids[0], &transform);
     
+    transform.position = LIDA_VEC3_CREATE(-1.0f, -1.0f, 3.0f);
+    lida_VoxelDrawerPushMesh(&vox_drawer, 0.1f, &vox_grids[1], &transform);
+
+    transform.position = LIDA_VEC3_CREATE(-1.1f, -1.0f, 7.0f);
+    lida_VoxelDrawerPushMesh(&vox_drawer, 0.075f, &vox_grids[2], &transform);
+
     VkCommandBuffer cmd = lida_WindowBeginCommands();
 
     lida_Vec4 colors[] = {
@@ -223,7 +231,7 @@ int main(int argc, char** argv) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout3, 0, LIDA_ARR_SIZE(ds_sets), ds_sets, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vox_pipeline);
     lida_VoxelDrawerDraw(&vox_drawer, cmd);
-    
+
     vkCmdEndRenderPass(cmd);
 
     lida_WindowBeginRendering();
@@ -232,15 +240,16 @@ int main(int argc, char** argv) {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, rect_pipeline);
     vkCmdDraw(cmd, 4, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
-    
+
     vkEndCommandBuffer(cmd);
 
     lida_VoxelDrawerFlushMemory(&vox_drawer);
-    
+
     lida_WindowPresent();
   }
 
-  lida_VoxelGridFree(&vox_grid);
+  for (int i = 0; i < LIDA_ARR_SIZE(vox_grids); i++)
+    lida_VoxelGridFree(&vox_grids[i]);
 
   LIDA_LOG_TRACE("Exited successfully");
 

@@ -7,6 +7,18 @@
 #define OGT_VOX_IMPLEMENTATION
 #include "ogt_vox.h"
 
+
+
+typedef struct {
+  uint32_t draw_id;
+} DrawID;
+
+static int CompareDrawCommands(const void* l, const void* r);
+static lida_VoxelDrawCommand* BinSearch(lida_VoxelDrawCommand* array, uint32_t count, uint64_t hash);
+static void DrawerUpdateCache(lida_VoxelDrawer* drawer);
+
+
+
 int
 lida_VoxelGridAllocate(lida_VoxelGrid* grid, uint32_t w, uint32_t h, uint32_t d)
 {
@@ -199,13 +211,13 @@ VkResult lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices,
 {
   // empty-initialize containers
   drawer->draw_command_type_info = LIDA_TYPE_INFO(lida_VoxelDrawCommand, lida_MallocAllocator(), 0);
-  drawer->mesh_info_type_info = LIDA_TYPE_INFO(lida_VoxelMesh, lida_MallocAllocator(), 0);
+  drawer->draw_id_type_info = LIDA_TYPE_INFO(DrawID, lida_MallocAllocator(), 0);
   for (int i = 0; i < 2; i++) {
     drawer->frames[i].draws = lida::dyn_array_empty(&drawer->draw_command_type_info);
-    drawer->frames[i].cache = lida::dyn_array_empty(&drawer->mesh_info_type_info);
     lida_DynArrayReserve(&drawer->frames[i].draws, 32);
-    lida_DynArrayReserve(&drawer->frames[i].cache, 32);
   }
+  drawer->hashes_cached = lida::dyn_array_empty(&drawer->draw_id_type_info);
+  drawer->regions_cached = lida::dyn_array_empty(&drawer->draw_id_type_info);
   // create buffers
   VkResult err = lida_BufferCreate(&drawer->vertex_buffer, max_vertices * sizeof(lida_VoxelVertex),
                                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/vertex-buffer");
@@ -283,9 +295,12 @@ void
 lida_VoxelDrawerNewFrame(lida_VoxelDrawer* drawer)
 {
   drawer->frame_id = 1 - drawer->frame_id;
+  drawer->vertex_offset = drawer->frame_id * drawer->max_vertices / 2;
   drawer->frames[drawer->frame_id].num_vertices = 0;
-  drawer->frames[drawer->frame_id].vertex_flush_offset = UINT32_MAX;
   lida_DynArrayClear(&drawer->frames[drawer->frame_id].draws);
+  // if (prev->size > 0) {
+  //   DrawerUpdateCache(drawer);
+  // }
 }
 
 void
@@ -306,15 +321,15 @@ lida_VoxelDrawerFlushMemory(lida_VoxelDrawer* drawer)
 }
 
 void
-lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, const lida_VoxelGrid* grid, const lida_Transform* transform)
+lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_VoxelGrid* grid, const lida_Transform* transform)
 {
   uint32_t* num_vertices = &drawer->frames[drawer->frame_id].num_vertices;
   // uint32_t old_num_vertices = *num_vertices;
   uint32_t index = drawer->frames[drawer->frame_id].draws.size;
   for (int i = 0; i < 6; i++) {
     auto command = (lida_VoxelDrawCommand*)lida_DynArrayPushBack(&drawer->frames[drawer->frame_id].draws);
-    command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, 1.0f,
-                                                           drawer->pVertices + *num_vertices, i);
+    command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
+                                                           drawer->pVertices + drawer->vertex_offset + *num_vertices, i);
     command->firstVertex = *num_vertices;
     command->firstInstance = (index << 3) | i;
     *num_vertices += command->vertexCount;
@@ -332,4 +347,54 @@ lida_VoxelDrawerDraw(lida_VoxelDrawer* drawer, VkCommandBuffer cmd)
     lida_VoxelDrawCommand* command = LIDA_DA_GET(draws, lida_VoxelDrawCommand, i);
     vkCmdDraw(cmd, command->vertexCount, 1, command->firstVertex, command->firstInstance);
   }
+}
+
+
+
+int
+CompareDrawCommands(const void* l, const void* r)
+{
+  auto lhs = (const lida_VoxelDrawCommand*)l;
+  auto rhs = (const lida_VoxelDrawCommand*)r;
+  return (lhs->hash > rhs->hash) - (lhs->hash < rhs->hash);
+}
+
+lida_VoxelDrawCommand*
+BinSearch(lida_VoxelDrawCommand* array, uint32_t count, uint64_t hash)
+{
+  uint32_t left = 0, right = count;
+  while (left != right) {
+    uint32_t m = (left + right) / 2;
+    lida_VoxelDrawCommand* mid = &array[m];
+    if (mid->hash == hash) {
+      return mid;
+    } else if (mid->hash < hash) {
+      right = m;
+    } else {
+      left = m;
+    }
+  }
+  return NULL;
+}
+
+void
+DrawerUpdateCache(lida_VoxelDrawer* drawer)
+{
+  // https://stackoverflow.com/questions/1193477/fast-algorithm-to-quickly-find-the-range-a-number-belongs-to-in-a-set-of-ranges
+  lida_DynArray* prev = &drawer->frames[1-drawer->frame_id].draws;
+  lida_DynArrayResize(&drawer->hashes_cached, prev->size);
+  // udpate hashes_cached with insertion sort
+  auto hashes = (DrawID*)drawer->hashes_cached.ptr;
+  hashes->draw_id = 0;
+  for (int i = 1; i < (int)prev->size; i++) {
+    int j = i-1;
+    auto r = lida::get<lida_VoxelDrawCommand>(prev,
+                                              hashes[i].draw_id);
+    while (j >= 0 && r->hash <= lida::get<lida_VoxelDrawCommand>(prev, j)->hash) {
+      hashes[j+1] = hashes[j];
+      j--;
+    }
+    hashes[j+1] = hashes[i];
+  }
+  lida_DynArrayResize(&drawer->regions_cached, prev->size);
 }

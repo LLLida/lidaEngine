@@ -237,6 +237,10 @@ namespace lida {
     return da;
   }
 
+  template<typename T, typename U> inline T* get(lida_DynArray* array, U index) {
+    return (T*)array->ptr + index;
+  }
+
 }
 
 #endif

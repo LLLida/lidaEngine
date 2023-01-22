@@ -386,7 +386,7 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
   if (err != VK_SUCCESS) {
     return err;
   }
-  LIDA_LOG_TRACE("allocated %'u bytes for attachments", (uint32_t)requirements.size);
+  LIDA_LOG_TRACE("allocated %u bytes for attachments", (uint32_t)requirements.size);
   return err;
 }
 
