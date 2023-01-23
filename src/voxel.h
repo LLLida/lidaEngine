@@ -43,6 +43,8 @@ typedef struct {
   uint32_t max_draws;
   int frame_id;
   uint32_t vertex_offset;
+  lida_VoxelVertex* vertex_temp_buffer;
+  uint32_t vertex_temp_buffer_size;
   struct {
     lida_DynArray draws;
     lida_DynArray meshes;

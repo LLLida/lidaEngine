@@ -38,6 +38,7 @@ typedef struct {
 
 static void DrawerUpdateCache(lida_VoxelDrawer* drawer);
 static DrawID* FindDrawByHash(lida_VoxelDrawer* drawer, uint64_t hash);
+static DrawID* FindNearestDraw(lida_VoxelDrawer* drawer, uint32_t offset);
 
 
 /// voxel grid
@@ -304,6 +305,9 @@ lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t
                                                VK_SHADER_STAGE_VERTEX_BIT,
                                                drawer->storage_buffer, 0, VK_WHOLE_SIZE);
   lida_AllocateAndUpdateDescriptorSet(&binding, 1, &drawer->descriptor_set, 0, "voxel-storage-buffer");
+  // allocate vertex temp buffer
+  drawer->vertex_temp_buffer_size = 20 * 1024;
+  drawer->vertex_temp_buffer = (lida_VoxelVertex*)lida_Malloc(drawer->vertex_temp_buffer_size * sizeof(lida_VoxelVertex));
   // init data needed for pipeline creation
   drawer->vertex_binding = { 0, sizeof(lida_VoxelVertex), VK_VERTEX_INPUT_RATE_VERTEX };
   drawer->vertex_attributes[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 };
@@ -319,6 +323,7 @@ lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t
 void
 lida_VoxelDrawerDestroy(lida_VoxelDrawer* drawer)
 {
+  lida_MallocFree(drawer->vertex_temp_buffer);
   vkDestroyBuffer(lida_GetLogicalDevice(), drawer->storage_buffer, NULL);
   vkDestroyBuffer(lida_GetLogicalDevice(), drawer->vertex_buffer, NULL);
   lida_VideoMemoryFree(&drawer->memory);
@@ -339,13 +344,13 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_Voxel
   uint32_t index = drawer->frames[drawer->frame_id].meshes.size;
   uint32_t transform_id = drawer->frame_id * drawer->max_draws / 2 + index;
   DrawID* draw_id = FindDrawByHash(drawer, grid->hash);
+  auto prev_frame = &drawer->frames[1-drawer->frame_id];
+  auto prev_meshes = (MeshInfo*)prev_frame->meshes.ptr;
   auto mesh = lida::push_back<MeshInfo>(&drawer->frames[drawer->frame_id].meshes);
   if (draw_id) {
     // if we found that a grid with exact same hash was rendered in previous frame,
     // then use previous frame's vertices in this frame.
     // This helps to not wasting time generating vertices every frame.
-    auto prev_frame = &drawer->frames[1-drawer->frame_id];
-    auto prev_meshes = (MeshInfo*)prev_frame->meshes.ptr;
     auto prev_draws = (DrawCommand*)prev_frame->draws.ptr;
     memcpy(mesh, &prev_meshes[draw_id->draw_id], sizeof(MeshInfo));
     for (int i = 0; i < 6; i++) {
@@ -358,12 +363,23 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_Voxel
   } else {
     // if hash not found then generate new vertices and draw data.
     mesh->first_vertex = drawer->vertex_offset;
+    DrawID* d = FindNearestDraw(drawer, drawer->vertex_offset);
     for (int i = 0; i < 6; i++) {
       auto command = lida::push_back<DrawCommand>(&drawer->frames[drawer->frame_id].draws);
-      // important note: currently we don't check if vertex_offset will be out of bounds
-      // also it might rewrite previous frame's vertex data.
-      command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
-                                                             drawer->pVertices + drawer->vertex_offset, i);
+      if (d) {
+        command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
+                                                               drawer->vertex_temp_buffer, i);
+        if (drawer->vertex_offset + command->vertexCount > prev_meshes[d->draw_id].first_vertex) {
+          drawer->vertex_offset = prev_meshes[d->draw_id].last_vertex;
+          d = FindNearestDraw(drawer, drawer->vertex_offset);
+        }
+        memcpy(drawer->pVertices + drawer->vertex_offset,
+               drawer->vertex_temp_buffer,
+               command->vertexCount * sizeof(lida_VoxelVertex));
+      } else {
+        command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
+                                                               drawer->pVertices + drawer->vertex_offset, i);
+      }
       command->firstVertex = drawer->vertex_offset;
       command->firstInstance = (transform_id << 3) | i;
       drawer->vertex_offset += command->vertexCount;
@@ -438,6 +454,33 @@ FindDrawByHash(lida_VoxelDrawer* drawer, uint64_t hash)
     }
     if (hash == prev_meshes[hashes[left].draw_id].hash) {
       return &hashes[left];
+    }
+  }
+  return NULL;
+}
+
+DrawID*
+FindNearestDraw(lida_VoxelDrawer* drawer, uint32_t offset)
+{
+  uint32_t left = 0, right = drawer->regions_cached.size;
+  if (right > left) {
+    DrawID* regions = (DrawID*)drawer->regions_cached.ptr;
+    auto prev_meshes = (MeshInfo*)drawer->frames[1-drawer->frame_id].meshes.ptr;
+    while (left != right) {
+      uint32_t mid = (left + right) / 2;
+      if (offset == prev_meshes[regions[mid].draw_id].first_vertex) {
+        return &regions[mid];
+      } else if (offset < prev_meshes[regions[mid].draw_id].first_vertex) {
+        right = mid;
+      } else {
+        left = mid;
+      }
+    }
+    if (offset <= prev_meshes[regions[left].draw_id].first_vertex) {
+      return &regions[left];
+    }
+    if (left < drawer->regions_cached.size-1) {
+      return &regions[left+1];
     }
   }
   return NULL;
