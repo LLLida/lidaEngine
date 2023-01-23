@@ -43,8 +43,10 @@ typedef struct {
   uint32_t max_draws;
   int frame_id;
   uint32_t vertex_offset;
-  lida_DynArray draws[2];
-  lida_DynArray meshes;
+  struct {
+    lida_DynArray draws;
+    lida_DynArray meshes;
+  } frames[2];
   lida_DynArray hashes_cached;
   lida_DynArray regions_cached;
   lida_DynArray write_regions;
