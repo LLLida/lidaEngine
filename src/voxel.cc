@@ -36,11 +36,6 @@ typedef struct {
   uint32_t draw_id;
 } DrawID;
 
-typedef struct {
-  uint32_t offset;
-  uint32_t size;
-} MemRegion;
-
 static void DrawerUpdateCache(lida_VoxelDrawer* drawer);
 static DrawID* FindDrawByHash(lida_VoxelDrawer* drawer, uint64_t hash);
 
@@ -246,7 +241,6 @@ lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t
   drawer->draw_command_type_info = LIDA_TYPE_INFO(DrawCommand, lida_MallocAllocator(), 0);
   drawer->mesh_type_info = LIDA_TYPE_INFO(MeshInfo, lida_MallocAllocator(), 0);
   drawer->draw_id_type_info = LIDA_TYPE_INFO(DrawID, lida_MallocAllocator(), 0);
-  drawer->region_type_info = LIDA_TYPE_INFO(MemRegion, lida_MallocAllocator(), 0);
   for (int i = 0; i < 2; i++) {
     drawer->frames[i].draws = lida::dyn_array_empty(&drawer->draw_command_type_info);
     drawer->frames[i].meshes = lida::dyn_array_empty(&drawer->mesh_type_info);
@@ -255,7 +249,6 @@ lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t
   }
   drawer->hashes_cached = lida::dyn_array_empty(&drawer->draw_id_type_info);
   drawer->regions_cached = lida::dyn_array_empty(&drawer->draw_id_type_info);
-  drawer->write_regions = lida::dyn_array_empty(&drawer->region_type_info);
   // create buffers
   VkResult err = lida_BufferCreate(&drawer->vertex_buffer, max_vertices * sizeof(lida_VoxelVertex),
                                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/vertex-buffer");
@@ -279,16 +272,17 @@ lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t
   VkMemoryRequirements requirements;
   lida_MergeMemoryRequirements(buffer_requirements, LIDA_ARR_SIZE(buffer_requirements), &requirements);
   // try to allocate device local memory accessible from CPU
+  VkMemoryPropertyFlags required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
   err = lida_VideoMemoryAllocate(&drawer->memory, requirements.size,
-                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_CACHED_BIT|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 required_flags|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                                  requirements.memoryTypeBits,
                                  "voxel-drawer/memory");
   if (err != VK_SUCCESS) {
     // if failed try to allocate any memory accessible from CPU
     err = lida_VideoMemoryAllocate(&drawer->memory, requirements.size,
-                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
-                                 requirements.memoryTypeBits,
-                                 "voxel-drawer/memory");
+                                   required_flags,
+                                   requirements.memoryTypeBits,
+                                   "voxel-drawer/memory");
     if (err != VK_SUCCESS) {
       LIDA_LOG_ERROR("failed to allocate video memory for voxels with error %s", lida_VkResultToString(err));
       return err;
@@ -296,12 +290,12 @@ lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t
   }
   // bind buffers to allocated memory
   err = lida_BufferBindToMemory(&drawer->memory, drawer->vertex_buffer,
-                                &buffer_requirements[0], (void**)&drawer->pVertices, &drawer->mapped_ranges[0]);
+                                &buffer_requirements[0], (void**)&drawer->pVertices, NULL);
   if (err != VK_SUCCESS) {
     LIDA_LOG_WARN("failed to bind vertex buffer to memory with error %s", lida_VkResultToString(err));
   }
   err = lida_BufferBindToMemory(&drawer->memory, drawer->storage_buffer,
-                                &buffer_requirements[1], (void**)&drawer->pTransforms, &drawer->mapped_ranges[1]);
+                                &buffer_requirements[1], (void**)&drawer->pTransforms, NULL);
   if (err != VK_SUCCESS) {
     LIDA_LOG_WARN("failed to bind storage buffer to memory with error %s", lida_VkResultToString(err));
   }
@@ -337,59 +331,13 @@ lida_VoxelDrawerNewFrame(lida_VoxelDrawer* drawer)
   lida_DynArrayClear(&drawer->frames[drawer->frame_id].draws);
   lida_DynArrayClear(&drawer->frames[drawer->frame_id].meshes);
   DrawerUpdateCache(drawer);
-  lida_DynArrayResize(&drawer->write_regions, 1);
-  *lida::get<MemRegion>(&drawer->write_regions, 0) = { 0, 0 };
-}
-
-void
-lida_VoxelDrawerFlushMemory(lida_VoxelDrawer* drawer)
-{
-#if 0
-  VkMappedMemoryRange mapped_ranges[2];
-  memcpy(mapped_ranges, drawer->mapped_ranges, sizeof(mapped_ranges));
-  mapped_ranges[0].offset = drawer->frame_id * drawer->max_vertices / 2 * sizeof(lida_VoxelVertex);
-  mapped_ranges[0].size = drawer->vertex_offset * sizeof(lida_VoxelVertex) - mapped_ranges[0].offset;
-  mapped_ranges[1].size = drawer->meshes.size * sizeof(lida_Transform);
-  for (uint32_t i = 0; i < LIDA_ARR_SIZE(mapped_ranges); i++) {
-    mapped_ranges[i].size = LIDA_ALIGN_TO(mapped_ranges[i].size, lida_GetDeviceProperties()->limits.nonCoherentAtomSize);
-  }
-  VkResult err = vkFlushMappedMemoryRanges(lida_GetLogicalDevice(),
-                                           LIDA_ARR_SIZE(mapped_ranges), mapped_ranges);
-#else
-  uint32_t count = drawer->write_regions.size+1;
-  auto mapped_ranges = (VkMappedMemoryRange*)lida_TempAllocate(count);
-  // mapped memory ranges for updated vertices
-  for (uint32_t i = 0; i < drawer->write_regions.size; i++) {
-    mapped_ranges[i].sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
-    mapped_ranges[i].pNext = NULL;
-    mapped_ranges[i].memory = drawer->memory.handle;
-    mapped_ranges[i].offset = lida::get<MemRegion>(&drawer->write_regions, i)->offset;
-    mapped_ranges[i].size = lida::get<MemRegion>(&drawer->write_regions, i)->size;
-  }
-  // mapped memory range for storage buffer(transforms)
-  mapped_ranges[drawer->write_regions.size].sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
-  mapped_ranges[drawer->write_regions.size].pNext = NULL;
-  mapped_ranges[drawer->write_regions.size].memory = drawer->memory.handle;
-  mapped_ranges[drawer->write_regions.size].offset = drawer->mapped_ranges[1].offset;
-  mapped_ranges[drawer->write_regions.size].size = drawer->frames[drawer->frame_id].meshes.size * sizeof(lida_Transform);
-  VkDeviceSize alignment = lida_GetDeviceProperties()->limits.nonCoherentAtomSize;
-  for (uint32_t i = 0; i < count; i++) {
-    mapped_ranges[i].offset = LIDA_ALIGN_TO(mapped_ranges[i].offset, alignment);
-    mapped_ranges[i].size = LIDA_ALIGN_TO(mapped_ranges[i].size, alignment);
-  }
-  VkResult err = vkFlushMappedMemoryRanges(lida_GetLogicalDevice(),
-                                           count, mapped_ranges);
-  lida_TempFree(mapped_ranges);
-#endif
-  if (err != VK_SUCCESS) {
-    LIDA_LOG_WARN("failed to flush memory for voxels with error %s", lida_VkResultToString(err));
-  }
 }
 
 void
 lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_VoxelGrid* grid, const lida_Transform* transform)
 {
   uint32_t index = drawer->frames[drawer->frame_id].meshes.size;
+  uint32_t transform_id = drawer->frame_id * drawer->max_draws / 2 + index;
   DrawID* draw_id = FindDrawByHash(drawer, grid->hash);
   auto mesh = lida::push_back<MeshInfo>(&drawer->frames[drawer->frame_id].meshes);
   if (draw_id) {
@@ -405,7 +353,7 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_Voxel
       auto src = &prev_draws[prev_meshes[draw_id->draw_id].first_draw_id + i];
       dst->firstVertex = src->firstVertex;
       dst->vertexCount = src->vertexCount;
-      dst->firstInstance = (index << 3) | i;
+      dst->firstInstance = (transform_id << 3) | i;
     }
   } else {
     // if hash not found then generate new vertices and draw data.
@@ -417,18 +365,15 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_Voxel
       command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
                                                              drawer->pVertices + drawer->vertex_offset, i);
       command->firstVertex = drawer->vertex_offset;
-      command->firstInstance = (index << 3) | i;
+      command->firstInstance = (transform_id << 3) | i;
       drawer->vertex_offset += command->vertexCount;
     }
     mesh->last_vertex = drawer->vertex_offset;
     mesh->hash = grid->hash;
-    // increase write region size: we updated some vertex data, need to tell Vulkan to update it
-    auto mem_region = lida::get<MemRegion>(&drawer->write_regions, drawer->write_regions.size-1);
-    mem_region->size += (mesh->last_vertex - mesh->first_vertex) * sizeof(lida_VoxelVertex);
   }
   mesh->first_draw_id = 6 * index;
   // add transform
-  memcpy(&drawer->pTransforms[index], transform, sizeof(lida_Transform));
+  memcpy(&drawer->pTransforms[transform_id], transform, sizeof(lida_Transform));
 }
 
 void

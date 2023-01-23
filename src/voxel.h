@@ -49,12 +49,9 @@ typedef struct {
   } frames[2];
   lida_DynArray hashes_cached;
   lida_DynArray regions_cached;
-  lida_DynArray write_regions;
-  VkMappedMemoryRange mapped_ranges[2];
   lida_TypeInfo draw_command_type_info;
   lida_TypeInfo mesh_type_info;
   lida_TypeInfo draw_id_type_info;
-  lida_TypeInfo region_type_info;
   // for creating pipelines
   // FIXME: I think we should make those global variables
   VkVertexInputBindingDescription vertex_binding;
@@ -78,7 +75,6 @@ int lida_VoxelGridLoadFromFile(lida_VoxelGrid* grid, const char* filename);
 VkResult lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t max_draws);
 void lida_VoxelDrawerDestroy(lida_VoxelDrawer* drawer);
 void lida_VoxelDrawerNewFrame(lida_VoxelDrawer* drawer);
-void lida_VoxelDrawerFlushMemory(lida_VoxelDrawer* drawer);
 void lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_VoxelGrid* grid, const lida_Transform* transform);
 void lida_VoxelDrawerDraw(lida_VoxelDrawer* drawer, VkCommandBuffer cmd);
 

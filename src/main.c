@@ -198,7 +198,7 @@ int main(int argc, char** argv) {
       .position = LIDA_VEC3_CREATE(3.0f, 2.0f, 0.0f),
     };
     lida_VoxelDrawerPushMesh(&vox_drawer, 0.5f, &vox_grids[0], &transform);
-    
+
     transform.position = LIDA_VEC3_CREATE(-1.0f, -1.0f, 3.0f);
     lida_VoxelDrawerPushMesh(&vox_drawer, 0.1f, &vox_grids[1], &transform);
 
@@ -242,8 +242,6 @@ int main(int argc, char** argv) {
     vkCmdEndRenderPass(cmd);
 
     vkEndCommandBuffer(cmd);
-
-    lida_VoxelDrawerFlushMemory(&vox_drawer);
 
     lida_WindowPresent();
   }
