@@ -142,6 +142,13 @@ static const lida_iVec3 vox_normals[6] = {
 };
 
 uint32_t
+lida_VoxelGridMaxGeneratedVertices(const lida_VoxelGrid* grid)
+{
+  // I think there's better formula, max definitely can be less
+  return 6 * grid->width * grid->height * grid->depth;
+}
+
+uint32_t
 lida_VoxelGridGenerateMeshNaive(const lida_VoxelGrid* grid, float scale, lida_VoxelVertex* vertices, int face)
 {
   lida_VoxelVertex* begin = vertices;
@@ -363,20 +370,26 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_Voxel
   } else {
     // if hash not found then generate new vertices and draw data.
     mesh->first_vertex = drawer->vertex_offset;
+    // upper_bound is first vertex position which will be untouched in worst case scenario
+    uint32_t upper_bound = drawer->vertex_offset + lida_VoxelGridMaxGeneratedVertices(grid);
     DrawID* d = FindNearestDraw(drawer, drawer->vertex_offset);
     for (int i = 0; i < 6; i++) {
       auto command = lida::push_back<DrawCommand>(&drawer->frames[drawer->frame_id].draws);
-      if (d) {
+      if (upper_bound > prev_meshes[d->draw_id].first_vertex) {
+        // if we're not sure if we can write voxels safely at this position
+        // then write to a temporary buffer and see if we can fit to current free region
         command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
                                                                drawer->vertex_temp_buffer, i);
-        if (drawer->vertex_offset + command->vertexCount > prev_meshes[d->draw_id].first_vertex) {
+        while (drawer->vertex_offset + command->vertexCount > prev_meshes[d->draw_id].first_vertex) {
           drawer->vertex_offset = prev_meshes[d->draw_id].last_vertex;
           d = FindNearestDraw(drawer, drawer->vertex_offset);
         }
+        // copy temporary buffer to newly found free region
         memcpy(drawer->pVertices + drawer->vertex_offset,
                drawer->vertex_temp_buffer,
                command->vertexCount * sizeof(lida_VoxelVertex));
       } else {
+        // if there's enough space we can write vertices directly to buffer
         command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
                                                                drawer->pVertices + drawer->vertex_offset, i);
       }
@@ -417,7 +430,7 @@ DrawerUpdateCache(lida_VoxelDrawer* drawer)
   uint32_t n = prev_meshes->size;
   auto meshes = (MeshInfo*)prev_meshes->ptr;
   lida_DynArrayResize(&drawer->hashes_cached, n);
-  lida_DynArrayResize(&drawer->regions_cached, n);
+  lida_DynArrayResize(&drawer->regions_cached, n+1);
   // udpate hashes_cached with insertion sort
   auto hashes = (DrawID*)drawer->hashes_cached.ptr;
   auto regions = (DrawID*)drawer->regions_cached.ptr;
@@ -433,16 +446,22 @@ DrawerUpdateCache(lida_VoxelDrawer* drawer)
   std::sort(regions, regions + n, [meshes] (const DrawID& lhs, const DrawID& rhs) {
     return meshes[lhs.draw_id].first_vertex < meshes[rhs.draw_id].first_vertex;
   });
+  // upper bound of buffer
+  regions[n].draw_id = n;
+  auto border = lida::push_back<MeshInfo>(prev_meshes);
+  border->first_vertex = drawer->max_vertices;
+  border->last_vertex = 0;
 }
 
 DrawID*
 FindDrawByHash(lida_VoxelDrawer* drawer, uint64_t hash)
 {
-  uint32_t left = 0, right = drawer->hashes_cached.size;
-  if (right > left) {
+  uint32_t n = drawer->hashes_cached.size;
+  if (n > 0) {
+    uint32_t left = 0, right = n;
     DrawID* hashes = (DrawID*)drawer->hashes_cached.ptr;
     auto prev_meshes = (MeshInfo*)drawer->frames[1-drawer->frame_id].meshes.ptr;
-    while (left != right) {
+    while (left < right) {
       uint32_t mid = (left + right) / 2;
       if (hash == prev_meshes[hashes[mid].draw_id].hash) {
         return &hashes[mid];
@@ -462,26 +481,20 @@ FindDrawByHash(lida_VoxelDrawer* drawer, uint64_t hash)
 DrawID*
 FindNearestDraw(lida_VoxelDrawer* drawer, uint32_t offset)
 {
-  uint32_t left = 0, right = drawer->regions_cached.size;
-  if (right > left) {
-    DrawID* regions = (DrawID*)drawer->regions_cached.ptr;
-    auto prev_meshes = (MeshInfo*)drawer->frames[1-drawer->frame_id].meshes.ptr;
-    while (left != right) {
-      uint32_t mid = (left + right) / 2;
-      if (offset == prev_meshes[regions[mid].draw_id].first_vertex) {
-        return &regions[mid];
-      } else if (offset < prev_meshes[regions[mid].draw_id].first_vertex) {
-        right = mid;
-      } else {
-        left = mid;
-      }
-    }
-    if (offset <= prev_meshes[regions[left].draw_id].first_vertex) {
-      return &regions[left];
-    }
-    if (left < drawer->regions_cached.size-1) {
-      return &regions[left+1];
+  // based on https://en.cppreference.com/w/cpp/algorithm/upper_bound
+  uint32_t n = drawer->regions_cached.size;
+  auto regions = (DrawID*)drawer->regions_cached.ptr;
+  auto ptr = regions;
+  auto prev_meshes = (MeshInfo*)drawer->frames[1-drawer->frame_id].meshes.ptr;
+  while (n > 0) {
+    uint32_t step = n / 2;
+    auto it = ptr + step;
+    if (offset >= prev_meshes[it->draw_id].first_vertex) {
+      ptr = it+1;
+      n -= step + 1;
+    } else {
+      n = step;
     }
   }
-  return NULL;
+  return ptr;
 }

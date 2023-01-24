@@ -129,6 +129,9 @@ int main(int argc, char** argv) {
         case SDLK_1:
           LIDA_LOG_INFO("FPS=%f", lida_WindowGetFPS());
           break;
+        case SDLK_2:
+          lida_VoxelGridSet(&vox_grids[0], 0, 0, 0, 17);
+          break;
 
           // camera movement
         case SDLK_w:
