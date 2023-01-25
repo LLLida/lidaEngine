@@ -192,11 +192,89 @@ lida_VoxelGridGenerateMeshNaive(const lida_VoxelGrid* grid, float scale, lida_Vo
 }
 
 uint32_t
-lida_VoxelGridGenerateMeshGreedy(const lida_VoxelGrid* grid, lida_VoxelVertex* vertices)
+lida_VoxelGridGenerateMeshGreedy(const lida_VoxelGrid* grid, float scale, lida_VoxelVertex* vertices, int face)
 {
-  (void)grid;
-  (void)vertices;
-  return 0;
+  lida_VoxelVertex* begin = vertices;
+  lida_Vec3 half_size = {
+    grid->width * scale * 0.5f,
+    grid->height * scale * 0.5f,
+    grid->depth * scale * 0.5f
+  };
+  const uint32_t dims[3] = { grid->width, grid->height, grid->depth };
+  const int d = face >> 1;
+  const int u = (d+1)%3, v = (d+2)%3;
+  char* merged_mask = (char*)lida_TempAllocate(dims[u]*dims[v]);
+  for (uint32_t layer = 0; layer < dims[d]; layer++) {
+    // zero out mask
+    memset(merged_mask, 0, dims[u]*dims[v]);
+    for (uint32_t j = 0; j < dims[v]; j++)
+      for (uint32_t i = 0; i < dims[u]; i++) {
+        if (merged_mask[i + j*dims[u]])
+          continue;
+        uint32_t pos[3];
+        pos[d] = layer;
+        pos[u] = i;
+        pos[v] = j;
+        lida_Voxel start_voxel = lida_VoxelGridGet(grid, pos[0], pos[1], pos[2]);
+        if (start_voxel) {
+          const uint32_t start_pos[3] = { pos[0], pos[1], pos[2] };
+          uint32_t min_i = dims[u];
+          // grow rect
+          while (pos[v] < dims[v]) {
+            pos[u] = i;
+            if (lida_VoxelGridGet(grid, pos[0], pos[1], pos[2]) != start_voxel)
+              break;
+            pos[u]++;
+            while (pos[u] < min_i &&
+                   lida_VoxelGridGet(grid, pos[0], pos[1], pos[2]) == start_voxel) {
+              pos[u]++;
+            }
+            min_i = std::min(min_i, pos[u]);
+            pos[v]++;
+          }
+          uint32_t offset[3] = { 0 };
+          offset[u] = min_i - start_pos[u]; // width of quad
+          offset[v] = pos[v] - start_pos[v]; // height of quad
+          uint32_t p[3] = { 0 };
+          for (p[v] = start_pos[v]; p[v] < start_pos[v] + offset[v]; p[v]++) {
+            for (p[u] = start_pos[u]; p[u] < start_pos[u] + offset[u]; p[u]++) {
+              lida_Voxel near_voxel;
+              if (p[0] + vox_normals[0].x < grid->width &&
+                  p[1] + vox_normals[1].y < grid->height &&
+                  p[2] + vox_normals[2].z < grid->depth) {
+                near_voxel = lida_VoxelGridGet(grid,
+                                               p[0] + vox_normals[0].x,
+                                               p[1] + vox_normals[1].y,
+                                               p[2] + vox_normals[2].z);
+              } else {
+                near_voxel = 0;
+              }
+              if (near_voxel == 0) goto process;
+            }
+          }
+          continue;
+        process:
+          // write vertices
+          for (uint32_t vert_index = 0; vert_index < 6; vert_index++) {
+            int vert_pos[3] = { (int)start_pos[0] + (int)offset[0] * (int)vox_positions[face*6 + vert_index].x,
+                                (int)start_pos[1] + (int)offset[1] * (int)vox_positions[face*6 + vert_index].y,
+                                (int)start_pos[2] + (int)offset[2] * (int)vox_positions[face*6 + vert_index].z };
+            vert_pos[d] += face & 1;
+            vertices[vert_index].position = lida_Vec3{(float)vert_pos[0], (float)vert_pos[1], (float)vert_pos[2]} * scale - half_size;
+            vertices[vert_index].color = grid->palette[start_voxel];
+          }
+          vertices += 6;
+          // mark merged voxels
+          for (uint32_t jj = j; jj < pos[v]; jj++)
+            for (uint32_t ii = i; ii < min_i; ii++) {
+              merged_mask[ii + jj * dims[u]] = 1;
+            }
+        }
+      }
+  }
+  lida_TempFree(merged_mask);
+  LIDA_LOG_DEBUG("wrote %u vertices", uint32_t(vertices - begin));
+  return vertices - begin;
 }
 
 int
@@ -378,7 +456,8 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_Voxel
       if (upper_bound > prev_meshes[d->draw_id].first_vertex) {
         // if we're not sure if we can write voxels safely at this position
         // then write to a temporary buffer and see if we can fit to current free region
-        command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
+        // command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
+        command->vertexCount = lida_VoxelGridGenerateMeshGreedy(grid, scale,
                                                                drawer->vertex_temp_buffer, i);
         while (drawer->vertex_offset + command->vertexCount > prev_meshes[d->draw_id].first_vertex) {
           drawer->vertex_offset = prev_meshes[d->draw_id].last_vertex;
@@ -390,7 +469,8 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_Voxel
                command->vertexCount * sizeof(lida_VoxelVertex));
       } else {
         // if there's enough space we can write vertices directly to buffer
-        command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
+        // command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
+        command->vertexCount = lida_VoxelGridGenerateMeshGreedy(grid, scale,
                                                                drawer->pVertices + drawer->vertex_offset, i);
       }
       command->firstVertex = drawer->vertex_offset;
@@ -424,9 +504,6 @@ DrawerUpdateCache(lida_VoxelDrawer* drawer)
 {
   // https://stackoverflow.com/questions/1193477/fast-algorithm-to-quickly-find-the-range-a-number-belongs-to-in-a-set-of-ranges
   auto prev_meshes = &drawer->frames[1-drawer->frame_id].meshes;
-  if (prev_meshes->size == 0) {
-    return;
-  }
   uint32_t n = prev_meshes->size;
   auto meshes = (MeshInfo*)prev_meshes->ptr;
   lida_DynArrayResize(&drawer->hashes_cached, n);

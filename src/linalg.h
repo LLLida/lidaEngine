@@ -100,6 +100,21 @@ typedef struct {
   int x, y, z, w;
 } lida_iVec4;
 
+// same as lida_Vec2 but fields are ints
+typedef struct {
+  unsigned int x, y;
+} lida_uVec2;
+
+// same as lida_Vec3 but fields are ints
+typedef struct {
+  unsigned int x, y, z;
+} lida_uVec3;
+
+// same as lida_Vec4 but fields are ints
+typedef struct {
+  unsigned int x, y, z, w;
+} lida_uVec4;
+
 float lida_rqsqrt(float number);
 
 void lida_Vec2Normalize(const lida_Vec2* in, lida_Vec2* out);
