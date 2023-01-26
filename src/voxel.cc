@@ -36,6 +36,7 @@ typedef struct {
   uint32_t draw_id;
 } DrawID;
 
+static lida_Voxel GridGetChecked(const lida_VoxelGrid* grid, uint32_t x, uint32_t y, uint32_t z);
 static void DrawerUpdateCache(lida_VoxelDrawer* drawer);
 static DrawID* FindDrawByHash(lida_VoxelDrawer* drawer, uint64_t hash);
 static DrawID* FindNearestDraw(lida_VoxelDrawer* drawer, uint32_t offset);
@@ -204,11 +205,14 @@ lida_VoxelGridGenerateMeshGreedy(const lida_VoxelGrid* grid, float scale, lida_V
   const int d = face >> 1;
   const int u = (d+1)%3, v = (d+2)%3;
   char* merged_mask = (char*)lida_TempAllocate(dims[u]*dims[v]);
+  // on each layer we try to merge voxels as much as possible
   for (uint32_t layer = 0; layer < dims[d]; layer++) {
     // zero out mask
     memset(merged_mask, 0, dims[u]*dims[v]);
     for (uint32_t j = 0; j < dims[v]; j++)
       for (uint32_t i = 0; i < dims[u]; i++) {
+        // if this voxel was already written then skip it.
+        // this skip helps us to keep algorithm complexity at O(w*h*d).
         if (merged_mask[i + j*dims[u]])
           continue;
         uint32_t pos[3];
@@ -216,60 +220,57 @@ lida_VoxelGridGenerateMeshGreedy(const lida_VoxelGrid* grid, float scale, lida_V
         pos[u] = i;
         pos[v] = j;
         lida_Voxel start_voxel = lida_VoxelGridGet(grid, pos[0], pos[1], pos[2]);
-        if (start_voxel) {
-          const uint32_t start_pos[3] = { pos[0], pos[1], pos[2] };
-          uint32_t min_i = dims[u];
-          // grow rect
-          while (pos[v] < dims[v]) {
-            pos[u] = i;
-            if (lida_VoxelGridGet(grid, pos[0], pos[1], pos[2]) != start_voxel)
-              break;
-            pos[u]++;
-            while (pos[u] < min_i &&
-                   lida_VoxelGridGet(grid, pos[0], pos[1], pos[2]) == start_voxel) {
-              pos[u]++;
-            }
-            min_i = std::min(min_i, pos[u]);
-            pos[v]++;
-          }
-          uint32_t offset[3] = { 0 };
-          offset[u] = min_i - start_pos[u]; // width of quad
-          offset[v] = pos[v] - start_pos[v]; // height of quad
-          uint32_t p[3] = { 0 };
-          for (p[v] = start_pos[v]; p[v] < start_pos[v] + offset[v]; p[v]++) {
-            for (p[u] = start_pos[u]; p[u] < start_pos[u] + offset[u]; p[u]++) {
-              lida_Voxel near_voxel;
-              if (p[0] + vox_normals[0].x < grid->width &&
-                  p[1] + vox_normals[1].y < grid->height &&
-                  p[2] + vox_normals[2].z < grid->depth) {
-                near_voxel = lida_VoxelGridGet(grid,
-                                               p[0] + vox_normals[0].x,
-                                               p[1] + vox_normals[1].y,
-                                               p[2] + vox_normals[2].z);
-              } else {
-                near_voxel = 0;
-              }
-              if (near_voxel == 0) goto process;
-            }
-          }
+        if (start_voxel == 0) {
+          // we don't generate vertices for air
           continue;
-        process:
-          // write vertices
-          for (uint32_t vert_index = 0; vert_index < 6; vert_index++) {
-            int vert_pos[3] = { (int)start_pos[0] + (int)offset[0] * (int)vox_positions[face*6 + vert_index].x,
-                                (int)start_pos[1] + (int)offset[1] * (int)vox_positions[face*6 + vert_index].y,
-                                (int)start_pos[2] + (int)offset[2] * (int)vox_positions[face*6 + vert_index].z };
-            vert_pos[d] += face & 1;
-            vertices[vert_index].position = lida_Vec3{(float)vert_pos[0], (float)vert_pos[1], (float)vert_pos[2]} * scale - half_size;
-            vertices[vert_index].color = grid->palette[start_voxel];
-          }
-          vertices += 6;
-          // mark merged voxels
-          for (uint32_t jj = j; jj < pos[v]; jj++)
-            for (uint32_t ii = i; ii < min_i; ii++) {
-              merged_mask[ii + jj * dims[u]] = 1;
-            }
         }
+        const uint32_t start_pos[3] = { pos[0], pos[1], pos[2] };
+        uint32_t min_i = dims[u];
+        // grow quad while all voxels in that quad are the same
+        while (pos[v] < dims[v]) {
+          pos[u] = i;
+          if (lida_VoxelGridGet(grid, pos[0], pos[1], pos[2]) != start_voxel)
+            break;
+          pos[u]++;
+          while (pos[u] < min_i &&
+                 lida_VoxelGridGet(grid, pos[0], pos[1], pos[2]) == start_voxel) {
+            pos[u]++;
+          }
+          min_i = std::min(min_i, pos[u]);
+          pos[v]++;
+        }
+        uint32_t offset[3] = { 0 };
+        offset[u] = min_i - start_pos[u]; // width of quad
+        offset[v] = pos[v] - start_pos[v]; // height of quad
+        int p[3] = { 0 };
+        // check if at least 1 voxel is visible. FIXME: I think when this approach generates the most perfect meshes,
+        // it generates ugly meshes: when camera is inside a mesh some unnecessary voxels are seen.
+        for (p[v] = start_pos[v], p[d] = layer; (uint32_t)p[v] < start_pos[v] + offset[v]; p[v]++) {
+          for (p[u] = start_pos[u]; (uint32_t)p[u] < start_pos[u] + offset[u]; p[u]++) {
+            lida_Voxel near_voxel = GridGetChecked(grid,
+                                                   p[0] + vox_normals[face].x,
+                                                   p[1] + vox_normals[face].y,
+                                                   p[2] + vox_normals[face].z);
+            if (near_voxel == 0) goto process;
+          }
+        }
+        continue;
+      process:
+        // write 6 vertices for this quad
+        for (uint32_t vert_index = 0; vert_index < 6; vert_index++) {
+          int vert_pos[3] = { (int)start_pos[0] + (int)offset[0] * (int)vox_positions[face*6 + vert_index].x,
+                              (int)start_pos[1] + (int)offset[1] * (int)vox_positions[face*6 + vert_index].y,
+                              (int)start_pos[2] + (int)offset[2] * (int)vox_positions[face*6 + vert_index].z };
+          vert_pos[d] += face & 1;
+          vertices[vert_index].position = lida_Vec3{(float)vert_pos[0], (float)vert_pos[1], (float)vert_pos[2]} * scale - half_size;
+          vertices[vert_index].color = grid->palette[start_voxel];
+        }
+        vertices += 6;
+        // mark merged voxels
+        for (uint32_t jj = j; jj < pos[v]; jj++)
+          for (uint32_t ii = i; ii < min_i; ii++) {
+            merged_mask[ii + jj * dims[u]] = 1;
+          }
       }
   }
   lida_TempFree(merged_mask);
@@ -498,6 +499,17 @@ lida_VoxelDrawerDraw(lida_VoxelDrawer* drawer, VkCommandBuffer cmd)
 }
 
 
+
+lida_Voxel
+GridGetChecked(const lida_VoxelGrid* grid, uint32_t x, uint32_t y, uint32_t z)
+{
+  if (x < grid->width &&
+      y < grid->height &&
+      z < grid->depth) {
+    return lida_VoxelGridGet(grid, x, y, z);
+  }
+  return 0;
+}
 
 void
 DrawerUpdateCache(lida_VoxelDrawer* drawer)
