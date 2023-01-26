@@ -27,6 +27,8 @@ int main(int argc, char** argv) {
   SDL_Init(SDL_INIT_VIDEO);
   lida_TempAllocatorCreate(32 * 1024);
 
+  lida_ProfilerBeginSession("results.json");
+
   {
     int enable_debug_layers = 1;
     VkSampleCountFlagBits msaa_samples = VK_SAMPLE_COUNT_4_BIT;
@@ -265,6 +267,9 @@ int main(int argc, char** argv) {
   lida_ForwardPassDestroy();
   lida_WindowDestroy();
   lida_DeviceDestroy(0);
+
+  lida_ProfilerEndSession();
+
   lida_TempAllocatorDestroy();
 
   return 0;

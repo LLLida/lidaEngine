@@ -119,6 +119,7 @@ static int ReflectSPIRV(const uint32_t* code, uint32_t size, lida_ShaderReflect*
 VkResult
 lida_DeviceCreate(const lida_DeviceDesc* desc)
 {
+  LIDA_PROFILE_FUNCTION();
   // load vulkan functions
   VkResult err = volkInitialize();
   if (err != VK_SUCCESS) {
@@ -186,6 +187,7 @@ lida_DeviceCreate(const lida_DeviceDesc* desc)
 void
 lida_DeviceDestroy(int fast)
 {
+  LIDA_PROFILE_FUNCTION();
   lida_HT_Iterator it;
 
   // clear pipeline layout cache
@@ -319,6 +321,7 @@ lida_GetGraphicsQueueFamily()
 VkResult
 lida_AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCommandBufferLevel level, const char* marker)
 {
+  LIDA_PROFILE_FUNCTION();
   VkCommandBufferAllocateInfo alloc_info = {
     .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
     .commandPool = g_device->command_pool,
@@ -344,12 +347,14 @@ lida_AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCommandBuff
 VkResult
 lida_QueueSubmit(VkSubmitInfo* submits, uint32_t count, VkFence fence)
 {
+  LIDA_PROFILE_FUNCTION();
   return vkQueueSubmit(g_device->graphics_queue, count, submits, fence);
 }
 
 VkResult
 lida_QueuePresent(VkPresentInfoKHR* present_info)
 {
+  LIDA_PROFILE_FUNCTION();
   // is it safe to use graphics queue? IDK, I think it should work on modern devices
   return vkQueuePresentKHR(g_device->graphics_queue, present_info);
 }
@@ -359,6 +364,7 @@ lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
                          VkMemoryPropertyFlags flags, uint32_t memory_type_bits,
                          const char* marker)
 {
+  LIDA_PROFILE_FUNCTION();
   uint32_t best_type = 0;
   for (uint32_t i = 0; i < g_device->memory_properties.memoryTypeCount; i++) {
     if ((g_device->memory_properties.memoryTypes[i].propertyFlags & flags) &&
@@ -400,6 +406,7 @@ lida_VideoMemoryAllocate(lida_VideoMemory* memory, VkDeviceSize size,
 void
 lida_VideoMemoryFree(lida_VideoMemory* memory)
 {
+  LIDA_PROFILE_FUNCTION();
   if (memory->mapped) {
     vkUnmapMemory(g_device->logical_device, memory->handle);
   }
@@ -432,6 +439,7 @@ lida_MergeMemoryRequirements(const VkMemoryRequirements* requirements, uint32_t 
 VkShaderModule
 lida_LoadShader(const char* path, const lida_ShaderReflect** reflect)
 {
+  LIDA_PROFILE_FUNCTION();
   // check if we already have loaded this shader
   ShaderInfo* info = lida_HT_Search(&g_device->shader_cache, &path);
   if (info) {
@@ -474,6 +482,7 @@ lida_LoadShader(const char* path, const lida_ShaderReflect** reflect)
 VkDescriptorSetLayout
 lida_GetDescriptorSetLayout(const VkDescriptorSetLayoutBinding* bindings, uint32_t num_bindings)
 {
+  LIDA_PROFILE_FUNCTION();
   DS_LayoutInfo key;
   key.num_bindings = num_bindings;
   assert(num_bindings <= LIDA_ARR_SIZE(key.bindings));
@@ -501,6 +510,7 @@ lida_AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, uint32
                             VkDescriptorSet* sets, uint32_t num_sets, int dynamic,
                             const char* marker)
 {
+  LIDA_PROFILE_FUNCTION();
   VkDescriptorSetLayout layout = lida_GetDescriptorSetLayout(bindings, num_bindings);
   VkDescriptorSetLayout* layouts = lida_TempAllocate(num_sets * sizeof(VkDescriptorSetLayout));
   for (uint32_t i = 0; i < num_sets; i++)
@@ -541,6 +551,7 @@ lida_FreeDescriptorSets(const VkDescriptorSet* sets, uint32_t num_sets)
 void
 lida_UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, uint32_t count)
 {
+  LIDA_PROFILE_FUNCTION();
   vkUpdateDescriptorSets(g_device->logical_device, count, pDescriptorWrites, 0, NULL);
 }
 
@@ -548,6 +559,7 @@ VkResult
 lida_AllocateAndUpdateDescriptorSet(const lida_DescriptorBindingInfo* bindings, uint32_t count,
                                     VkDescriptorSet* set, int dynamic, const char* marker)
 {
+  LIDA_PROFILE_FUNCTION();
   VkDescriptorSetLayoutBinding* layout_bindings = lida_TempAllocate(count * sizeof(VkDescriptorSetLayoutBinding));
   VkWriteDescriptorSet* write_sets = lida_TempAllocate(count * sizeof(VkWriteDescriptorSet));
   for (uint32_t i = 0; i < count; i++) {
@@ -595,6 +607,7 @@ lida_AllocateAndUpdateDescriptorSet(const lida_DescriptorBindingInfo* bindings, 
 VkSampler
 lida_GetSampler(VkFilter filter, VkSamplerAddressMode mode)
 {
+  LIDA_PROFILE_FUNCTION();
   SamplerInfo sampler;
   sampler.filter = filter;
   sampler.mode = mode;
@@ -629,6 +642,7 @@ lida_GetSampler(VkFilter filter, VkSamplerAddressMode mode)
 VkPipelineLayout
 lida_CreatePipelineLayout(const lida_ShaderReflect** shader_templates, uint32_t count)
 {
+  LIDA_PROFILE_FUNCTION();
   const lida_ShaderReflect* shader;
   PipelineLayoutInfo layout_info = { .num_sets = 0, .num_ranges = 0 };
   if (count > 0) {
@@ -675,6 +689,7 @@ lida_CreatePipelineLayout(const lida_ShaderReflect** shader_templates, uint32_t 
 VkResult
 lida_RenderPassCreate(VkRenderPass* render_pass, const VkRenderPassCreateInfo* render_pass_info, const char* marker)
 {
+  LIDA_PROFILE_FUNCTION();
   VkResult err = vkCreateRenderPass(g_device->logical_device, render_pass_info, NULL, render_pass);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create render pass '%s' with error %s",
@@ -692,6 +707,7 @@ lida_RenderPassCreate(VkRenderPass* render_pass, const VkRenderPassCreateInfo* r
 VkResult
 lida_BufferCreate(VkBuffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage, const char* marker)
 {
+  LIDA_PROFILE_FUNCTION();
   VkBufferCreateInfo buffer_info = {
     .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
     .size = size,
@@ -716,6 +732,7 @@ lida_BufferBindToMemory(lida_VideoMemory* memory, VkBuffer buffer,
                         const VkMemoryRequirements* requirements, void** mapped,
                         VkMappedMemoryRange* mappedRange)
 {
+  LIDA_PROFILE_FUNCTION();
   VkResult err = VideoMemoryProvide(memory, requirements);
   if (err != VK_SUCCESS) {
     return err;
@@ -760,6 +777,7 @@ lida_FindSupportedFormat(VkFormat* options, uint32_t count, VkImageTiling tiling
 VkResult
 lida_ImageCreate(VkImage* image, const VkImageCreateInfo* image_info, const char* marker)
 {
+  LIDA_PROFILE_FUNCTION();
   VkResult err = vkCreateImage(g_device->logical_device, image_info, NULL, image);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create image '%s' with error %s", marker, lida_VkResultToString(err));
@@ -776,6 +794,7 @@ lida_ImageCreate(VkImage* image, const VkImageCreateInfo* image_info, const char
 VkResult
 lida_ImageViewCreate(VkImageView* image_view, const VkImageViewCreateInfo* image_view_info, const char* marker)
 {
+  LIDA_PROFILE_FUNCTION();
   VkResult err = vkCreateImageView(g_device->logical_device, image_view_info, NULL, image_view);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create image view '%s' with error %s", marker, lida_VkResultToString(err));
@@ -792,6 +811,7 @@ lida_ImageViewCreate(VkImageView* image_view, const VkImageViewCreateInfo* image
 VkResult
 lida_ImageBindToMemory(lida_VideoMemory* memory, VkImage image, const VkMemoryRequirements* requirements)
 {
+  LIDA_PROFILE_FUNCTION();
   VkResult err = VideoMemoryProvide(memory, requirements);
   if (err != VK_SUCCESS) {
     return err;
@@ -808,6 +828,7 @@ lida_ImageBindToMemory(lida_VideoMemory* memory, VkImage image, const VkMemoryRe
 VkResult
 lida_FramebufferCreate(VkFramebuffer* framebuffer, const VkFramebufferCreateInfo* framebuffer_info, const char* marker)
 {
+  LIDA_PROFILE_FUNCTION();
   VkResult err = vkCreateFramebuffer(g_device->logical_device, framebuffer_info, NULL, framebuffer);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to create framebuffer '%s' with error %s",
@@ -850,6 +871,7 @@ lida_MaxSampleCount(VkSampleCountFlagBits max_samples)
 VkResult
 lida_CreateGraphicsPipelines(VkPipeline* pipelines, uint32_t count, const lida_PipelineDesc* descs, VkPipelineLayout* layouts)
 {
+  LIDA_PROFILE_FUNCTION();
   VkGraphicsPipelineCreateInfo* create_infos = lida_TempAllocate(count * sizeof(VkGraphicsPipelineCreateInfo));
   VkPipelineShaderStageCreateInfo* stages = lida_TempAllocate(2 * count * sizeof(VkPipelineShaderStageCreateInfo));
   VkShaderModule* modules = lida_TempAllocate(2 * count * sizeof(VkShaderModule));

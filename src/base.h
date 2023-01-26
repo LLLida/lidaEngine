@@ -53,7 +53,7 @@ typedef struct {
 typedef void(*lida_LogFunction)(const lida_LogEvent* event);
 
 // log a message with level=[LIDA_LOG_LEVEL...LIDA_NUM_LOG_LEVELS]
-void lida_Log(int level, const char* file, int line, const char* fmt, ...) LIDA_ATTRIBUTE_PRINTF(4);
+void lida_Log(int level, const char* file, int line, const char* fmt, ...) /*LIDA_ATTRIBUTE_PRINTF(4)*/; // we're using some stb_sprintf extensions from now, GCC yells at us if we have this attribute
 
 #define LIDA_LOG(level, ...) lida_Log(level, __FILE__, __LINE__, __VA_ARGS__)
 #define LIDA_LOG_TRACE(...)  LIDA_LOG(LIDA_LOG_LEVEL_TRACE, __VA_ARGS__)
@@ -217,9 +217,48 @@ uint64_t lida_HashCombine64(const uint64_t* hashes, uint32_t num_hashes);
 uint32_t lida_HashMemory32(const void* data, uint32_t bytes);
 uint64_t lida_HashMemory64(const void* data, uint32_t bytes);
 
+
+/// Profiling things
+
+#ifndef LIDA_PROFILE_ENABLE
+#  ifdef __GNUC__
+#    ifndef NDEBUG
+#      define LIDA_PROFILE_ENABLE 1
+#    else
+#      define LIDA_PROFILE_ENABLE 0
+#    endif
+#  else
+#    define LIDA_PROFILE_ENABLE 0
+#  endif
+#endif
+
+typedef struct {
+
+  const char* name;
+  uint64_t start;
+  uint64_t duration;
+  unsigned long thread_id;
+
+} lida_ProfileResult;
+
+void lida_ProfilerBeginSession(const char* results);
+void lida_ProfilerEndSession();
+void lida_ProfilerStartFunc(lida_ProfileResult* profile, const char* name);
+void lida_ProfilerEndFunc(lida_ProfileResult* profile);
+
+#if LIDA_PROFILE_ENABLE
+#define LIDA_PROFILE_FUNCTION() lida_ProfileResult profile___##__LINE__ __attribute__((cleanup(lida_ProfilerEndFunc))); \
+  lida_ProfilerStartFunc(&profile___##__LINE__, __func__);
+#else
+#define LIDA_PROFILE_FUNCTION()
+#endif
+
 #ifdef __cplusplus
 }
 #endif
+
+
+/// Some functions for C++
 
 #ifdef __cplusplus
 

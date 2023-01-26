@@ -45,6 +45,7 @@ static VkResult CreateFrames();
 int
 lida_WindowCreate(const lida_WindowDesc* desc)
 {
+  LIDA_PROFILE_FUNCTION();
   g_window = lida_TempAllocate(sizeof(lida_Window));
   memset(g_window, 0, sizeof(lida_Window));
   g_window->window = SDL_CreateWindow(desc->name, desc->x, desc->y, desc->w, desc->h,
@@ -73,6 +74,7 @@ lida_WindowCreate(const lida_WindowDesc* desc)
 void
 lida_WindowDestroy()
 {
+  LIDA_PROFILE_FUNCTION();
   VkDevice dev = lida_GetLogicalDevice();
   for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; i++) {
     vkDestroySemaphore(dev, g_window->frames[i].image_available, NULL);
@@ -149,6 +151,7 @@ lida_WindowGetFPS()
 VkCommandBuffer
 lida_WindowBeginCommands()
 {
+  LIDA_PROFILE_FUNCTION();
   Frame* frame = &g_window->frames[g_window->frame_counter % FRAMES_IN_FLIGHT];
   VkCommandBufferBeginInfo begin_info = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
   vkBeginCommandBuffer(frame->cmd, &begin_info);
@@ -158,6 +161,7 @@ lida_WindowBeginCommands()
 VkResult
 lida_WindowBeginRendering()
 {
+  LIDA_PROFILE_FUNCTION();
   Frame* frame = &g_window->frames[g_window->frame_counter % FRAMES_IN_FLIGHT];
   VkResult err = vkAcquireNextImageKHR(lida_GetLogicalDevice(),
                                        g_window->swapchain,
@@ -202,6 +206,7 @@ lida_WindowBeginRendering()
 VkResult
 lida_WindowPresent()
 {
+  LIDA_PROFILE_FUNCTION();
   VkDevice dev = lida_GetLogicalDevice();
   Frame* frame = &g_window->frames[g_window->frame_counter % FRAMES_IN_FLIGHT];
   VkResult err;

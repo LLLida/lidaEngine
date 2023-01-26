@@ -2,7 +2,10 @@
 
 #include <assert.h>
 #include <stdarg.h>
+#include <SDL_rwops.h>
 #include <SDL_stdinc.h>
+#include <SDL_thread.h>
+#include <SDL_timer.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -534,4 +537,71 @@ lida_HashMemory64(const void* key, uint32_t bytes)
   h *= m;
   h ^= h >> r;
   return h;
+}
+
+
+/// Profiling
+
+struct {
+
+  // SDL_mutex* mutex;
+  SDL_RWops* file;
+  uint64_t frequency;
+
+} g_profiler;
+
+void
+lida_ProfilerBeginSession(const char* results)
+{
+  g_profiler.file = SDL_RWFromFile(results, "wb");
+  if (!g_profiler.file) {
+    LIDA_LOG_ERROR("failed to create file for writing profile results with error %s", SDL_GetError());
+  }
+  const char* header = "{\"otherData\": {},\"traceEvents\":[{}";
+  SDL_RWwrite(g_profiler.file, header, 1, strlen(header));
+   // we need microseconds, not seconds
+  g_profiler.frequency = SDL_GetPerformanceFrequency() / 1000000;
+}
+
+void
+lida_ProfilerEndSession()
+{
+  const char* footer = "]}";
+  SDL_RWwrite(g_profiler.file, footer, strlen(footer), 1);
+  SDL_RWclose(g_profiler.file);
+}
+
+void
+lida_ProfilerStartFunc(lida_ProfileResult* profile, const char* name)
+{
+  profile->name = name;
+  profile->start = SDL_GetPerformanceCounter();
+  profile->thread_id = SDL_ThreadID();
+}
+
+void
+lida_ProfilerEndFunc(lida_ProfileResult* profile)
+{
+  profile->duration = SDL_GetPerformanceCounter() - profile->start;
+  if (g_profiler.file == NULL) {
+    return;
+  }
+  char buff[128];
+  size_t bytes = stbsp_snprintf(buff, sizeof(buff), ",\n{\"cat\":\"function\",\n");
+  SDL_RWwrite(g_profiler.file, buff, 1, bytes);
+
+  bytes = stbsp_snprintf(buff, sizeof(buff), "\"dur\" : %I64d,\n", profile->duration / g_profiler.frequency);
+  SDL_RWwrite(g_profiler.file, buff, 1, bytes);
+
+  bytes = stbsp_snprintf(buff, sizeof(buff), "\"name\" : \"%s\",\n", profile->name);
+  SDL_RWwrite(g_profiler.file, buff, 1, bytes);
+
+  bytes = stbsp_snprintf(buff, sizeof(buff), "\"ph\":\"X\", \"pid\":0,\n");
+  SDL_RWwrite(g_profiler.file, buff, 1, bytes);
+
+  bytes = stbsp_snprintf(buff, sizeof(buff), "\"tid\": %lu,", profile->thread_id);
+  SDL_RWwrite(g_profiler.file, buff, 1, bytes);
+
+  bytes = stbsp_snprintf(buff, sizeof(buff), "\"ts\": %I64d\n}", profile->start / g_profiler.frequency);
+  SDL_RWwrite(g_profiler.file, buff, 1, bytes);
 }
