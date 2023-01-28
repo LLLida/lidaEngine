@@ -48,14 +48,13 @@ main(int argc, char** argv)
   }
 
   uint32_t count = lida_ComponentCount(positions);
-  Position* ptr = lida_ComponentData(positions);
-  lida_ID* entities = lida_ComponentIDs(positions);
-  while (count--) {
+  Position* ptr;
+  lida_ID* entities;
+  LIDA_COMPONENT_FOREACH(positions, ptr, entities)
+  {
     Health* health = lida_ComponentGet(healths, *entities);
     LIDA_LOG_INFO("id=%u; pos={.x=%f, .y=%f}; hp={%d, %d}",
                   *entities, ptr->x, ptr->y, health->count, health->flags);
-    ptr++;
-    entities++;
   }
 
   lida_ECS_Destroy(ecs);

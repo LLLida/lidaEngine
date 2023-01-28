@@ -27,6 +27,11 @@ uint32_t lida_ComponentCount(lida_ComponentView* view);
 void* lida_ComponentData(lida_ComponentView* view);
 lida_ID* lida_ComponentIDs(lida_ComponentView* view);
 
+#define LIDA_COMPONENT_FOREACH(view, component, entity) uint32_t count__##__LINE__ = lida_ComponentCount(view); \
+  component = lida_ComponentData(view);                    \
+  entity = lida_ComponentIDs(view);\
+  for (; count--; component++, entity++)
+
 #ifdef __cplusplus
 }
 #endif
