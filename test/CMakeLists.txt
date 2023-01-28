@@ -1,7 +1,10 @@
 project(test)
 
-add_executable(core_test1 core_test1.c)
+function (make_test name)
+  add_executable(${name} ${name}.c)
+  target_link_libraries(${name} PRIVATE lidaEngine)
+  add_test(NAME ${name} COMMAND ${name})
+endfunction ()
 
-target_link_libraries(core_test1 PRIVATE lidaEngine)
-
-add_test(NAME core_test1 COMMAND core_test1)
+make_test(core_test1)
+make_test(ecs_test2)

@@ -553,9 +553,13 @@ struct {
 void
 lida_ProfilerBeginSession(const char* results)
 {
+  if (g_profiler.file) {
+    lida_ProfilerEndSession();
+  }
   g_profiler.file = SDL_RWFromFile(results, "wb");
   if (!g_profiler.file) {
     LIDA_LOG_ERROR("failed to create file for writing profile results with error %s", SDL_GetError());
+    return;
   }
   const char* header = "{\"otherData\": {},\"traceEvents\":[{}";
   SDL_RWwrite(g_profiler.file, header, 1, strlen(header));
@@ -569,6 +573,7 @@ lida_ProfilerEndSession()
   const char* footer = "]}";
   SDL_RWwrite(g_profiler.file, footer, strlen(footer), 1);
   SDL_RWclose(g_profiler.file);
+  g_profiler.file = NULL;
 }
 
 void

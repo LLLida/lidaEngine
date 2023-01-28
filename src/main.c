@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
   LIDA_LOG_DEBUG("num images in swapchain: %u\n", lida_WindowGetNumImages());
 
 
-  lida_VoxelDrawerCreate(&vox_drawer, 128 * 1024, 1024);
+  lida_VoxelDrawerCreate(&vox_drawer, 1024 * 1024, 1024);
 
   VkPipeline pipeline = createTrianglePipeline();
   VkPipeline rect_pipeline = createRectPipeline();

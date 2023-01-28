@@ -7,18 +7,25 @@ extern "C" {
 #endif
 
 typedef uint32_t lida_ID;
+typedef int(*lida_LessFunc)(const void* lhs, const void* rhs);
 
-typedef struct {
+typedef struct lida_ECS lida_ECS;
+typedef struct lida_ComponentView lida_ComponentView;
 
-  lida_DynArray entities;
-  lida_HashTable pools;
-  uint32_t num_dead;
-  uint32_t next_dead;
-
-} lida_ECS;
-
-int lida_ECS_Create(lida_ECS* ecs);
+lida_ECS* lida_ECS_Create(uint32_t init_num_types, uint32_t init_num_entities);
 void lida_ECS_Destroy(lida_ECS* ecs);
+lida_ID lida_CreateEntity(lida_ECS* ecs);
+void lida_DestroyEntity(lida_ECS* ecs, lida_ID entity);
+
+lida_ComponentView* lida_ECS_Components(lida_ECS* ecs, const lida_TypeInfo* type);
+void* lida_ComponentGet(lida_ComponentView* view, lida_ID entity);
+void* lida_ComponentAdd(lida_ComponentView* view, lida_ID entity);
+void lida_ComponentRemove(lida_ComponentView* view, lida_ID entity);
+void lida_ComponentSort(lida_ComponentView* view, lida_LessFunc less);
+void lida_ComponentClear(lida_ComponentView* view);
+uint32_t lida_ComponentCount(lida_ComponentView* view);
+void* lida_ComponentData(lida_ComponentView* view);
+lida_ID* lida_ComponentIDs(lida_ComponentView* view);
 
 #ifdef __cplusplus
 }
