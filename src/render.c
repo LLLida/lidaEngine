@@ -43,6 +43,7 @@ static VkResult FWD_AllocateDescriptorSets();
 VkResult
 lida_ForwardPassCreate(uint32_t width, uint32_t height, VkSampleCountFlagBits samples)
 {
+  LIDA_PROFILE_FUNCTION();
   g_fwd_pass = lida_TempAllocate(sizeof(lida_ForwardPass));
   g_fwd_pass->render_extent = (VkExtent2D) {width, height};
   FWD_ChooseFromats(samples);
@@ -76,6 +77,7 @@ lida_ForwardPassCreate(uint32_t width, uint32_t height, VkSampleCountFlagBits sa
 void
 lida_ForwardPassDestroy()
 {
+  LIDA_PROFILE_FUNCTION();
   VkDevice dev = lida_GetLogicalDevice();
 
   vkDestroyBuffer(dev, g_fwd_pass->uniform_buffer, NULL);
@@ -140,6 +142,7 @@ lida_ForwardPassSendData()
 void
 lida_ForwardPassBegin(VkCommandBuffer cmd, float clear_color[4])
 {
+  LIDA_PROFILE_FUNCTION();
   VkClearValue clearValues[2];
   // color attachment
   memcpy(clearValues[0].color.float32, clear_color, sizeof(float) * 4);

@@ -281,6 +281,7 @@ lida_VoxelGridGenerateMeshGreedy(const lida_VoxelGrid* grid, float scale, lida_V
 int
 lida_VoxelGridLoad(lida_VoxelGrid* grid, const uint8_t* buffer, uint32_t size)
 {
+  LIDA_PROFILE_FUNCTION();
   const ogt_vox_scene* scene = ogt_vox_read_scene(buffer, size);
   if (scene == NULL) {
     LIDA_LOG_WARN("failed to parse voxel model");
@@ -307,6 +308,7 @@ lida_VoxelGridLoad(lida_VoxelGrid* grid, const uint8_t* buffer, uint32_t size)
 int
 lida_VoxelGridLoadFromFile(lida_VoxelGrid* grid, const char* filename)
 {
+  LIDA_PROFILE_FUNCTION();
   size_t buff_size;
   uint8_t* buffer = (uint8_t*)SDL_LoadFile(filename, &buff_size);
   if (buffer == NULL) {
@@ -324,6 +326,7 @@ lida_VoxelGridLoadFromFile(lida_VoxelGrid* grid, const char* filename)
 VkResult
 lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t max_draws)
 {
+  LIDA_PROFILE_FUNCTION();
   // empty-initialize containers
   drawer->draw_command_type_info = LIDA_TYPE_INFO(DrawCommand, lida_MallocAllocator(), 0);
   drawer->mesh_type_info = LIDA_TYPE_INFO(MeshInfo, lida_MallocAllocator(), 0);
@@ -409,6 +412,7 @@ lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t
 void
 lida_VoxelDrawerDestroy(lida_VoxelDrawer* drawer)
 {
+  LIDA_PROFILE_FUNCTION();
   lida_MallocFree(drawer->vertex_temp_buffer);
   vkDestroyBuffer(lida_GetLogicalDevice(), drawer->storage_buffer, NULL);
   vkDestroyBuffer(lida_GetLogicalDevice(), drawer->vertex_buffer, NULL);
@@ -418,6 +422,7 @@ lida_VoxelDrawerDestroy(lida_VoxelDrawer* drawer)
 void
 lida_VoxelDrawerNewFrame(lida_VoxelDrawer* drawer)
 {
+  LIDA_PROFILE_FUNCTION();
   drawer->frame_id = 1 - drawer->frame_id;
   lida_DynArrayClear(&drawer->frames[drawer->frame_id].draws);
   lida_DynArrayClear(&drawer->frames[drawer->frame_id].meshes);
@@ -427,6 +432,7 @@ lida_VoxelDrawerNewFrame(lida_VoxelDrawer* drawer)
 void
 lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_VoxelGrid* grid, const lida_Transform* transform)
 {
+  LIDA_PROFILE_FUNCTION();
   uint32_t index = drawer->frames[drawer->frame_id].meshes.size;
   uint32_t transform_id = drawer->frame_id * drawer->max_draws / 2 + index;
   DrawID* draw_id = FindDrawByHash(drawer, grid->hash);
@@ -489,6 +495,7 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_Voxel
 void
 lida_VoxelDrawerDraw(lida_VoxelDrawer* drawer, VkCommandBuffer cmd)
 {
+  LIDA_PROFILE_FUNCTION();
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(cmd, 0, 1, &drawer->vertex_buffer, &offset);
   lida_DynArray* draws = &drawer->frames[drawer->frame_id].draws;
