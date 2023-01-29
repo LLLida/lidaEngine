@@ -11,6 +11,7 @@ typedef struct {
   uint32_t x, y;
   uint32_t w, h;
   VkPresentModeKHR preferred_present_mode;
+  int resizable;
 } lida_WindowDesc;
 
 typedef struct {
@@ -31,6 +32,7 @@ LIDA_WINDOW_CREATE( .name = "Hello world",
 #define LIDA_WINDOW_CREATE(...) lida_WindowCreate(&(lida_WindowDesc) { __VA_ARGS__ })
 
 void lida_WindowDestroy();
+void lida_WindowResize();
 
 VkSurfaceKHR lida_WindowGetSurface();
 VkSwapchainKHR lida_WindowGetSwapchain();

@@ -142,6 +142,7 @@ VkResult lida_FreeDescriptorSets(const VkDescriptorSet* sets, uint32_t num_sets)
 void lida_UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, uint32_t count);
 VkResult lida_AllocateAndUpdateDescriptorSet(const lida_DescriptorBindingInfo* bindings, uint32_t count,
                                              VkDescriptorSet* set, int dynamic, const char* marker);
+void lida_ResetDynamicSets();
 
 // try to find a sampler in cache, if not found then create a new one
 VkSampler lida_GetSampler(VkFilter filter, VkSamplerAddressMode mode);

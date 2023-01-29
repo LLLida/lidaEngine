@@ -604,6 +604,12 @@ lida_AllocateAndUpdateDescriptorSet(const lida_DescriptorBindingInfo* bindings, 
   return err;
 }
 
+void
+lida_ResetDynamicSets()
+{
+  vkResetDescriptorPool(g_device->logical_device, g_device->dynamic_ds_pool, 0);
+}
+
 VkSampler
 lida_GetSampler(VkFilter filter, VkSamplerAddressMode mode)
 {

@@ -171,6 +171,45 @@ lida_ForwardPassBegin(VkCommandBuffer cmd, float clear_color[4])
   vkCmdSetScissor(cmd, 0, 1, &render_area);
 }
 
+void
+lida_ForwardPassResize(uint32_t width, uint32_t height)
+{
+  LIDA_PROFILE_FUNCTION();
+  VkDevice dev = lida_GetLogicalDevice();
+  // destroy attachments
+  vkDestroyFramebuffer(dev, g_fwd_pass->framebuffer, NULL);
+  vkDestroyImageView(dev, g_fwd_pass->depth_image_view, NULL);
+  vkDestroyImageView(dev, g_fwd_pass->color_image_view, NULL);
+  if (g_fwd_pass->resolve_image_view)
+    vkDestroyImageView(dev, g_fwd_pass->resolve_image_view, NULL);
+  vkDestroyImage(dev, g_fwd_pass->depth_image, NULL);
+  vkDestroyImage(dev, g_fwd_pass->color_image, NULL);
+  if (g_fwd_pass->resolve_image)
+    vkDestroyImage(dev, g_fwd_pass->resolve_image, NULL);
+  // create attachments
+  g_fwd_pass->render_extent = (VkExtent2D) {width, height};
+  VkResult err = FWD_CreateAttachments(width, height);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to resize forward pass attachments");
+  }
+  // allocate descriptor set
+  VkDescriptorImageInfo image_info = {
+    .imageView = (g_fwd_pass->msaa_samples == VK_SAMPLE_COUNT_1_BIT) ? g_fwd_pass->color_image_view : g_fwd_pass->resolve_image_view,
+    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    .sampler = lida_GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE),
+  };
+  lida_DescriptorBindingInfo binding = {
+    .binding = 0,
+    .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .shader_stages = VK_SHADER_STAGE_FRAGMENT_BIT,
+    .data = { .image = image_info },
+  };
+  err = lida_AllocateAndUpdateDescriptorSet(&binding, 1, &g_fwd_pass->resulting_image_set, 1, "forward/resulting-image");
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to allocate descriptor set with error %s", lida_VkResultToString(err));
+  }
+}
+
 
 
 void FWD_ChooseFromats(VkSampleCountFlagBits samples)
@@ -327,6 +366,10 @@ FWD_CreateAttachments(uint32_t width, uint32_t height)
   }
   lida_MergeMemoryRequirements(image_requirements, 2 + (g_fwd_pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT), &requirements);
   if (requirements.size > g_fwd_pass->gpu_memory.size) {
+    if (g_fwd_pass->gpu_memory.handle) {
+      // free GPU memory
+      lida_VideoMemoryFree(&g_fwd_pass->gpu_memory);
+    }
     err = lida_VideoMemoryAllocate(&g_fwd_pass->gpu_memory, requirements.size,
                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, requirements.memoryTypeBits,
                                    "forward/attachment-memory");

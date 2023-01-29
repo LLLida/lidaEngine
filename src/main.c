@@ -34,7 +34,16 @@ int main(int argc, char** argv) {
     VkSampleCountFlagBits msaa_samples = VK_SAMPLE_COUNT_4_BIT;
     int window_w = 1080;
     int window_h = 720;
+#ifdef __linux__
+    // my tiling window manager immediately resizes the window at startup,
+    // I don't like that behavior. We have an option whether the window is
+    // resizable for debug purposes.
+    int resizable = 0;
+#else
+    int resizable = 1;
+#endif
     int opt;
+    // TODO: use argp and introduce resizable option
     while ((opt = getopt(argc, argv, "d:s:w:h:")) != -1) {
       switch (opt) {
       case 'd':
@@ -80,7 +89,8 @@ int main(int argc, char** argv) {
                        .y = SDL_WINDOWPOS_CENTERED,
                        .w = window_w,
                        .h = window_h,
-                       .preferred_present_mode = VK_PRESENT_MODE_MAILBOX_KHR);
+                       .preferred_present_mode = VK_PRESENT_MODE_MAILBOX_KHR,
+                       .resizable = resizable);
     lida_ForwardPassCreate(lida_WindowGetExtent().width, lida_WindowGetExtent().height, msaa_samples);
   }
   LIDA_LOG_DEBUG("num images in swapchain: %u\n", lida_WindowGetNumImages());
@@ -104,7 +114,8 @@ int main(int argc, char** argv) {
   uint32_t curr_time = prev_time;
 
   // hide the cursor
-  SDL_SetRelativeMouseMode(1);
+  int mouse_mode = 1;
+  SDL_SetRelativeMouseMode(mouse_mode);
 
   lida_VoxelGrid vox_grids[3] = {0};
   lida_VoxelGridLoadFromFile(&vox_grids[0], "../assets/3x3x3.vox");
@@ -133,6 +144,10 @@ int main(int argc, char** argv) {
           break;
         case SDLK_2:
           lida_VoxelGridSet(&vox_grids[0], 0, 0, 0, 17);
+          break;
+        case SDLK_3:
+          mouse_mode = 1-mouse_mode;
+          SDL_SetRelativeMouseMode(mouse_mode);
           break;
 
           // camera movement
@@ -181,7 +196,20 @@ int main(int argc, char** argv) {
         break;
 
       case SDL_MOUSEMOTION:
-        lida_CameraRotate(&camera, event.motion.yrel, event.motion.xrel, 0.0f);
+        if (mouse_mode) {
+          lida_CameraRotate(&camera, event.motion.yrel, event.motion.xrel, 0.0f);
+        }
+        break;
+
+      case SDL_WINDOWEVENT:
+        switch (event.window.event) {
+        case SDL_WINDOWEVENT_RESIZED:
+          vkDeviceWaitIdle(lida_GetLogicalDevice());
+          lida_WindowResize();
+          lida_ResetDynamicSets();
+          lida_ForwardPassResize(lida_WindowGetExtent().width, lida_WindowGetExtent().height);
+          break;
+        }
         break;
       }
     }

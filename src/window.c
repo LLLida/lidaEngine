@@ -48,8 +48,10 @@ lida_WindowCreate(const lida_WindowDesc* desc)
   LIDA_PROFILE_FUNCTION();
   g_window = lida_TempAllocate(sizeof(lida_Window));
   memset(g_window, 0, sizeof(lida_Window));
+  Uint32 win_flags = SDL_WINDOW_VULKAN;
+  if (desc->resizable) win_flags |= SDL_WINDOW_RESIZABLE;
   g_window->window = SDL_CreateWindow(desc->name, desc->x, desc->y, desc->w, desc->h,
-                                    SDL_WINDOW_VULKAN);
+                                      win_flags);
   if (!SDL_Vulkan_CreateSurface(g_window->window, lida_GetVulkanInstance(), &g_window->surface)) {
     LIDA_LOG_FATAL("failed to create vulkan surface with error %s", SDL_GetError());
     goto error;
@@ -92,6 +94,22 @@ lida_WindowDestroy()
   lida_TempFree(g_window->images);
   lida_TempFree(g_window);
   g_window = NULL;
+}
+
+void
+lida_WindowResize()
+{
+  VkDevice dev = lida_GetLogicalDevice();
+  for (uint32_t i = 0; i < g_window->num_images; i++) {
+    vkDestroyFramebuffer(dev, g_window->images[i].framebuffer, NULL);
+    vkDestroyImageView(dev, g_window->images[i].image_view, NULL);
+  }
+  VkResult err = CreateSwapchain(g_window->present_mode);
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to recreate swapchain with error %s", lida_VkResultToString(err));
+    return;
+  }
+  LIDA_LOG_TRACE("successfully resized window");
 }
 
 VkSurfaceKHR
@@ -252,9 +270,8 @@ lida_WindowPresent()
     .pResults = present_results,
   };
   err = lida_QueuePresent(&present_info);
-  if (err != VK_SUCCESS) {
+  if (err != VK_SUCCESS && err != VK_SUBOPTIMAL_KHR) {
     LIDA_LOG_ERROR("queue failed to present with error %s", lida_VkResultToString(err));
-    return err;
   }
   g_window->frame_counter++;
   g_window->current_image = UINT32_MAX;
