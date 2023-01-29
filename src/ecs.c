@@ -14,7 +14,6 @@ typedef struct {
   uint32_t capacity;
   uint32_t size;
   const lida_TypeInfo* type_info;
-  lida_ConstructorFunction on_create;
   lida_DestructorFunction on_destroy;
 
 } SparseSet;
@@ -50,9 +49,13 @@ lida_ECS_Create(uint32_t init_num_types, uint32_t init_num_entities)
 {
   lida_ECS* ecs = lida_Malloc(sizeof(lida_ECS));
   g_entity_type = LIDA_TYPE_INFO(lida_ID, lida_MallocAllocator(), 0);
+  ecs->num_dead = 0;
   ecs->num_pools = init_num_types;
   ecs->entities = LIDA_DA_EMPTY(&g_entity_type);
   ecs->pools = lida_Malloc(ecs->num_pools * sizeof(SparseSet));
+  for (uint32_t i = 0; i < ecs->num_pools; i++) {
+    ecs->pools[i].type_info = NULL;
+  }
   lida_DynArrayReserve(&ecs->entities, init_num_entities);
   return ecs;
 }
@@ -117,15 +120,21 @@ lida_ComponentGet(lida_ComponentView* view, lida_ID entity)
 }
 
 void*
-lida_ComponentAdd(lida_ComponentView* view, lida_ID entity)
+lida_ComponentAdd(lida_ECS* ecs, lida_ComponentView* view, lida_ID entity)
 {
-  return SparseSetInsert((SparseSet*)view, entity);
+  void* ret = SparseSetInsert((SparseSet*)view, entity);
+  if (ret) {
+    ++*LIDA_DA_GET(&ecs->entities, uint32_t, entity);
+  }
+  return ret;
 }
 
 void
-lida_ComponentRemove(lida_ComponentView* view, lida_ID entity)
+lida_ComponentRemove(lida_ECS* ecs, lida_ComponentView* view, lida_ID entity)
 {
-  SparseSetErase((SparseSet*)view, entity);
+  if (SparseSetErase((SparseSet*)view, entity) == 0) {
+    --*LIDA_DA_GET(&ecs->entities, uint32_t, entity);
+  }
 }
 
 void
@@ -138,6 +147,13 @@ void
 lida_ComponentClear(lida_ComponentView* view)
 {
   SparseSetClear((SparseSet*)view);
+}
+
+void
+lida_ComponentSetDestructor(lida_ComponentView* view, lida_DestructorFunction on_destroy)
+{
+  SparseSet* set = (SparseSet*)view;
+  set->on_destroy = on_destroy;
 }
 
 uint32_t
@@ -240,9 +256,6 @@ SparseSetInsert(SparseSet* set, lida_ID entity)
     SparseSetReserve(set, (set->capacity+1) * 3 / 2);
   }
   void* component = (char*)set->packed + set->size * set->type_info->elem_size;
-  if (set->on_create) {
-    set->on_create(component);
-  }
   set->dense[set->size] = entity;
   set->sparse[entity] = set->size;
   set->size++;

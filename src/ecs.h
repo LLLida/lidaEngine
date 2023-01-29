@@ -19,10 +19,11 @@ void lida_DestroyEntity(lida_ECS* ecs, lida_ID entity);
 
 lida_ComponentView* lida_ECS_Components(lida_ECS* ecs, const lida_TypeInfo* type);
 void* lida_ComponentGet(lida_ComponentView* view, lida_ID entity);
-void* lida_ComponentAdd(lida_ComponentView* view, lida_ID entity);
-void lida_ComponentRemove(lida_ComponentView* view, lida_ID entity);
+void* lida_ComponentAdd(lida_ECS* ecs, lida_ComponentView* view, lida_ID entity);
+void lida_ComponentRemove(lida_ECS* ecs, lida_ComponentView* view, lida_ID entity);
 void lida_ComponentSort(lida_ComponentView* view, lida_LessFunc less);
 void lida_ComponentClear(lida_ComponentView* view);
+void lida_ComponentSetDestructor(lida_ComponentView* view, lida_DestructorFunction on_destroy);
 uint32_t lida_ComponentCount(lida_ComponentView* view);
 void* lida_ComponentData(lida_ComponentView* view);
 lida_ID* lida_ComponentIDs(lida_ComponentView* view);
@@ -30,7 +31,7 @@ lida_ID* lida_ComponentIDs(lida_ComponentView* view);
 #define LIDA_COMPONENT_FOREACH(view, component, entity) uint32_t count__##__LINE__ = lida_ComponentCount(view); \
   component = lida_ComponentData(view);                    \
   entity = lida_ComponentIDs(view);\
-  for (; count--; component++, entity++)
+  for (; count__##__LINE__--; component++, entity++)
 
 #ifdef __cplusplus
 }

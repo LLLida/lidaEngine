@@ -7,6 +7,7 @@
 #include "linalg.h"
 #include "render.h"
 #include "voxel.h"
+#include "ecs.h"
 
 #include <unistd.h>
 
@@ -19,6 +20,10 @@ static VkPipeline createRectPipeline();
 VkPipelineLayout pipeline_layout;
 VkPipelineLayout pipeline_layout2;
 VkPipelineLayout pipeline_layout3;
+
+lida_ECS* ecs;
+lida_TypeInfo vox_grid_type_info;
+lida_TypeInfo transform_type_info;
 
 lida_Camera camera;
 lida_VoxelDrawer vox_drawer;
@@ -95,6 +100,9 @@ int main(int argc, char** argv) {
   }
   LIDA_LOG_DEBUG("num images in swapchain: %u\n", lida_WindowGetNumImages());
 
+  ecs = lida_ECS_Create(8, 32);
+  vox_grid_type_info = LIDA_TYPE_INFO(lida_VoxelGrid, lida_MallocAllocator(), 0);
+  transform_type_info = LIDA_TYPE_INFO(lida_Transform, lida_MallocAllocator(), 0);
 
   lida_VoxelDrawerCreate(&vox_drawer, 1024 * 1024, 1024);
 
@@ -117,10 +125,38 @@ int main(int argc, char** argv) {
   int mouse_mode = 1;
   SDL_SetRelativeMouseMode(mouse_mode);
 
-  lida_VoxelGrid vox_grids[3] = {0};
-  lida_VoxelGridLoadFromFile(&vox_grids[0], "../assets/3x3x3.vox");
-  lida_VoxelGridLoadFromFile(&vox_grids[1], "../assets/chr_naked1.vox");
-  lida_VoxelGridLoadFromFile(&vox_grids[2], "../assets/chr_naked4.vox");
+  lida_ComponentView* vox_grids = lida_ECS_Components(ecs, &vox_grid_type_info);
+  lida_ComponentView* transforms = lida_ECS_Components(ecs, &transform_type_info);
+  lida_ComponentSetDestructor(vox_grids, &lida_VoxelGridFreeWrapper);
+
+  // 3x3x3 box
+  lida_ID entity1 = lida_CreateEntity(ecs);
+  {
+    lida_VoxelGrid* grid = lida_ComponentAdd(ecs, vox_grids, entity1);
+    lida_VoxelGridLoadFromFile(grid, "../assets/3x3x3.vox");
+    lida_Transform* transform = lida_ComponentAdd(ecs, transforms, entity1);
+    transform->rotation = LIDA_QUAT_IDENTITY();
+    transform->position = LIDA_VEC3_CREATE(3.0f, 2.0f, 0.0f);
+  }
+
+  // some model
+  {
+    lida_ID entity = lida_CreateEntity(ecs);
+    lida_VoxelGrid* grid = lida_ComponentAdd(ecs, vox_grids, entity);
+    lida_VoxelGridLoadFromFile(grid, "../assets/chr_naked1.vox");
+    lida_Transform* transform = lida_ComponentAdd(ecs, transforms, entity);
+    transform->rotation = LIDA_QUAT_IDENTITY();
+    transform->position = LIDA_VEC3_CREATE(-1.0f, -1.0f, 3.0f);
+  }
+  // other model
+  {
+    lida_ID entity = lida_CreateEntity(ecs);
+    lida_VoxelGrid* grid = lida_ComponentAdd(ecs, vox_grids, entity);
+    lida_VoxelGridLoadFromFile(grid, "../assets/chr_naked4.vox");
+    lida_Transform* transform = lida_ComponentAdd(ecs, transforms, entity);
+    transform->rotation = LIDA_QUAT_IDENTITY();
+    transform->position = LIDA_VEC3_CREATE(-1.1f, -1.6f, 7.0f);
+  }
 
   SDL_Event event;
   int running = 1;
@@ -143,7 +179,7 @@ int main(int argc, char** argv) {
           LIDA_LOG_INFO("FPS=%f", lida_WindowGetFPS());
           break;
         case SDLK_2:
-          lida_VoxelGridSet(&vox_grids[0], 0, 0, 0, 17);
+          lida_VoxelGridSet(lida_ComponentGet(vox_grids, entity1), 0, 0, 0, 17);
           break;
         case SDLK_3:
           mouse_mode = 1-mouse_mode;
@@ -226,17 +262,13 @@ int main(int argc, char** argv) {
 
     lida_VoxelDrawerNewFrame(&vox_drawer);
 
-    lida_Transform transform = {
-      .rotation = LIDA_QUAT_IDENTITY(),
-      .position = LIDA_VEC3_CREATE(3.0f, 2.0f, 0.0f),
-    };
-    lida_VoxelDrawerPushMesh(&vox_drawer, 0.5f, &vox_grids[0], &transform);
-
-    transform.position = LIDA_VEC3_CREATE(-1.0f, -1.0f, 3.0f);
-    lida_VoxelDrawerPushMesh(&vox_drawer, 0.1f, &vox_grids[1], &transform);
-
-    transform.position = LIDA_VEC3_CREATE(-1.1f, -1.0f, 7.0f);
-    lida_VoxelDrawerPushMesh(&vox_drawer, 0.075f, &vox_grids[2], &transform);
+    // send voxel grids to draw
+    lida_VoxelGrid* grid;
+    lida_ID* entity;
+    LIDA_COMPONENT_FOREACH(vox_grids, grid, entity) {
+      lida_Transform* transform = lida_ComponentGet(transforms, *entity);
+      lida_VoxelDrawerPushMesh(&vox_drawer, 0.1f, grid, transform);
+    }
 
     VkCommandBuffer cmd = lida_WindowBeginCommands();
 
@@ -279,14 +311,13 @@ int main(int argc, char** argv) {
     lida_WindowPresent();
   }
 
-  for (int i = 0; i < LIDA_ARR_SIZE(vox_grids); i++)
-    lida_VoxelGridFree(&vox_grids[i]);
-
   LIDA_LOG_TRACE("Exited successfully");
 
   vkDeviceWaitIdle(lida_GetLogicalDevice());
 
   lida_VoxelDrawerDestroy(&vox_drawer);
+
+  lida_ECS_Destroy(ecs);
 
   vkDestroyPipeline(lida_GetLogicalDevice(), rect_pipeline, NULL);
   vkDestroyPipeline(lida_GetLogicalDevice(), pipeline, NULL);

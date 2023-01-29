@@ -26,10 +26,10 @@ main(int argc, char** argv)
   {
     lida_ID entity1 = lida_CreateEntity(ecs);
     LIDA_LOG_INFO("created entity1=%u", entity1);
-    Position* position1 = lida_ComponentAdd(positions, entity1);
+    Position* position1 = lida_ComponentAdd(ecs, positions, entity1);
     position1->x = 1.0f;
     position1->y = -2.0f;
-    Health* health1 = lida_ComponentAdd(healths, entity1);
+    Health* health1 = lida_ComponentAdd(ecs, healths, entity1);
     health1->count = 10;
     health1->flags = 0;
     LIDA_LOG_TRACE("added components to it");
@@ -38,10 +38,10 @@ main(int argc, char** argv)
   {
     lida_ID entity = lida_CreateEntity(ecs);
     LIDA_LOG_INFO("created entity2=%u", entity);
-    Position* position = lida_ComponentAdd(positions, entity);
+    Position* position = lida_ComponentAdd(ecs, positions, entity);
     position->x = 10.0f;
     position->y = -2.0f;
-    Health* health = lida_ComponentAdd(healths, entity);
+    Health* health = lida_ComponentAdd(ecs, healths, entity);
     health->count = 9;
     health->flags = 1;
     LIDA_LOG_TRACE("added components to it");

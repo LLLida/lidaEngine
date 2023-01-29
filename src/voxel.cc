@@ -47,6 +47,13 @@ static DrawID* FindNearestDraw(lida_VoxelDrawer* drawer, uint32_t offset);
 int
 lida_VoxelGridAllocate(lida_VoxelGrid* grid, uint32_t w, uint32_t h, uint32_t d)
 {
+  grid->data = NULL;
+  return lida_VoxelGridReallocate(grid, w, h, d);
+}
+
+int
+lida_VoxelGridReallocate(lida_VoxelGrid* grid, uint32_t w, uint32_t h, uint32_t d)
+{
   lida_Voxel* old_data = grid->data;
   grid->data = (lida_Voxel*)lida_Malloc(w*h*d);
   if (grid->data == NULL) {
@@ -78,6 +85,11 @@ lida_VoxelGridFree(lida_VoxelGrid* grid)
     lida_MallocFree(grid->data);
     grid->data = NULL;
   }
+}
+
+void lida_VoxelGridFreeWrapper(void* grid)
+{
+  lida_VoxelGridFree((lida_VoxelGrid*)grid);
 }
 
 void

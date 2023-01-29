@@ -62,7 +62,9 @@ typedef struct {
 } lida_VoxelDrawer;
 
 int lida_VoxelGridAllocate(lida_VoxelGrid* grid, uint32_t w, uint32_t h, uint32_t d);
+int lida_VoxelGridReallocate(lida_VoxelGrid* grid, uint32_t w, uint32_t h, uint32_t d);
 void lida_VoxelGridFree(lida_VoxelGrid* grid);
+void lida_VoxelGridFreeWrapper(void* grid);
 // note: setting a voxel value with this macro is unsafe, hash won't be correct,
 // consider using lida_VoxelGridSet
 #define lida_VoxelGridGet(grid, x, y, z) (grid)->data[(x) + (y)*(grid)->width + (z)*(grid)->width*(grid)->height]
