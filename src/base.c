@@ -406,6 +406,20 @@ lida_DynArrayDelete(lida_DynArray* array)
 uint32_t
 lida_NearestPow2(uint32_t v)
 {
+#ifdef __GNUC__
+# define USE_CLZ __has_builtin(__builtin_clz)
+#else
+# define USE_CLZ
+#endif
+
+#if USE_CLZ
+
+  // http://locklessinc.com/articles/next_pow2/
+  if (v <= 2) return v;
+  return (1ULL << 32) >> __builtin_clz(v - 1);
+
+#else
+
   // https://stackoverflow.com/questions/466204/rounding-up-to-next-power-of-2
   v--;
   v |= v >> 1;
@@ -415,6 +429,8 @@ lida_NearestPow2(uint32_t v)
   v |= v >> 16;
   v++;
   return v;
+
+#endif
 }
 
 #define HASH_P 31
