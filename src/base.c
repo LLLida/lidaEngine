@@ -403,6 +403,20 @@ lida_DynArrayDelete(lida_DynArray* array)
 
 /// Some useful algorithms
 
+uint32_t
+lida_NearestPow2(uint32_t v)
+{
+  // https://stackoverflow.com/questions/466204/rounding-up-to-next-power-of-2
+  v--;
+  v |= v >> 1;
+  v |= v >> 2;
+  v |= v >> 4;
+  v |= v >> 8;
+  v |= v >> 16;
+  v++;
+  return v;
+}
+
 #define HASH_P 31
 #define HASH_M 1000009
 

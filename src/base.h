@@ -206,6 +206,7 @@ void lida_DynArrayDelete(lida_DynArray* array)
 #define LIDA_ALIGN_MASK(number, mask) (((number)+(mask))&~(mask))
 #define LIDA_ALIGN_TO(number, alignment) LIDA_ALIGN_MASK(number, (alignment)-1)
 
+uint32_t lida_NearestPow2(uint32_t num);
 // compute 32-bit hash for string
 uint32_t lida_HashString32(const char* str);
 // compute 64-bit hash for string

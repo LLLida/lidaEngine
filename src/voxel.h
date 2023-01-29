@@ -51,9 +51,6 @@ typedef struct {
   } frames[2];
   lida_DynArray hashes_cached;
   lida_DynArray regions_cached;
-  lida_TypeInfo draw_command_type_info;
-  lida_TypeInfo mesh_type_info;
-  lida_TypeInfo draw_id_type_info;
   // for creating pipelines
   // FIXME: I think we should make those global variables
   VkVertexInputBindingDescription vertex_binding;

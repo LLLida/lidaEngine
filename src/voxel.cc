@@ -36,9 +36,20 @@ typedef struct {
   uint32_t draw_id;
 } DrawID;
 
+typedef struct {
+  uint32_t draw_id;
+  // counter for robin-hood hashing
+  uint32_t psl;
+} DrawHash;
+
+lida_TypeInfo g_draw_command_type_info;
+lida_TypeInfo g_mesh_type_info;
+lida_TypeInfo g_draw_id_type_info;
+lida_TypeInfo g_draw_hash_type_info;
+
 static lida_Voxel GridGetChecked(const lida_VoxelGrid* grid, uint32_t x, uint32_t y, uint32_t z);
 static void DrawerUpdateCache(lida_VoxelDrawer* drawer);
-static DrawID* FindDrawByHash(lida_VoxelDrawer* drawer, uint64_t hash);
+static const uint32_t* FindDrawByHash(lida_VoxelDrawer* drawer, uint64_t hash);
 static DrawID* FindNearestDraw(lida_VoxelDrawer* drawer, uint32_t offset);
 
 
@@ -340,17 +351,18 @@ lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t
 {
   LIDA_PROFILE_FUNCTION();
   // empty-initialize containers
-  drawer->draw_command_type_info = LIDA_TYPE_INFO(DrawCommand, lida_MallocAllocator(), 0);
-  drawer->mesh_type_info = LIDA_TYPE_INFO(MeshInfo, lida_MallocAllocator(), 0);
-  drawer->draw_id_type_info = LIDA_TYPE_INFO(DrawID, lida_MallocAllocator(), 0);
+  g_draw_command_type_info = LIDA_TYPE_INFO(DrawCommand, lida_MallocAllocator(), 0);
+  g_mesh_type_info = LIDA_TYPE_INFO(MeshInfo, lida_MallocAllocator(), 0);
+  g_draw_id_type_info = LIDA_TYPE_INFO(DrawID, lida_MallocAllocator(), 0);
+  g_draw_hash_type_info = LIDA_TYPE_INFO(DrawHash, lida_MallocAllocator(), 0);
   for (int i = 0; i < 2; i++) {
-    drawer->frames[i].draws = lida::dyn_array_empty(&drawer->draw_command_type_info);
-    drawer->frames[i].meshes = lida::dyn_array_empty(&drawer->mesh_type_info);
+    drawer->frames[i].draws = lida::dyn_array_empty(&g_draw_command_type_info);
+    drawer->frames[i].meshes = lida::dyn_array_empty(&g_mesh_type_info);
     lida_DynArrayReserve(&drawer->frames[i].meshes, 32);
     lida_DynArrayReserve(&drawer->frames[i].draws, drawer->frames[i].meshes.size * 6);
   }
-  drawer->hashes_cached = lida::dyn_array_empty(&drawer->draw_id_type_info);
-  drawer->regions_cached = lida::dyn_array_empty(&drawer->draw_id_type_info);
+  drawer->hashes_cached = lida::dyn_array_empty(&g_draw_hash_type_info);
+  drawer->regions_cached = lida::dyn_array_empty(&g_draw_id_type_info);
   // create buffers
   VkResult err = lida_BufferCreate(&drawer->vertex_buffer, max_vertices * sizeof(lida_VoxelVertex),
                                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/vertex-buffer");
@@ -447,7 +459,7 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_Voxel
   LIDA_PROFILE_FUNCTION();
   uint32_t index = drawer->frames[drawer->frame_id].meshes.size;
   uint32_t transform_id = drawer->frame_id * drawer->max_draws / 2 + index;
-  DrawID* draw_id = FindDrawByHash(drawer, grid->hash);
+  const uint32_t* draw_id = FindDrawByHash(drawer, grid->hash);
   auto prev_frame = &drawer->frames[1-drawer->frame_id];
   auto prev_meshes = (MeshInfo*)prev_frame->meshes.ptr;
   auto mesh = lida::push_back<MeshInfo>(&drawer->frames[drawer->frame_id].meshes);
@@ -456,10 +468,10 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_Voxel
     // then use previous frame's vertices in this frame.
     // This helps to not wasting time generating vertices every frame.
     auto prev_draws = (DrawCommand*)prev_frame->draws.ptr;
-    memcpy(mesh, &prev_meshes[draw_id->draw_id], sizeof(MeshInfo));
+    memcpy(mesh, &prev_meshes[*draw_id], sizeof(MeshInfo));
     for (int i = 0; i < 6; i++) {
       auto dst = lida::push_back<DrawCommand>(&drawer->frames[drawer->frame_id].draws);
-      auto src = &prev_draws[prev_meshes[draw_id->draw_id].first_draw_id + i];
+      auto src = &prev_draws[prev_meshes[*draw_id].first_draw_id + i];
       dst->firstVertex = src->firstVertex;
       dst->vertexCount = src->vertexCount;
       dst->firstInstance = (transform_id << 3) | i;
@@ -537,20 +549,38 @@ DrawerUpdateCache(lida_VoxelDrawer* drawer)
   auto prev_meshes = &drawer->frames[1-drawer->frame_id].meshes;
   uint32_t n = prev_meshes->size;
   auto meshes = (MeshInfo*)prev_meshes->ptr;
-  lida_DynArrayResize(&drawer->hashes_cached, n);
+  const auto n2 = lida_NearestPow2(n);
+  lida_DynArrayResize(&drawer->hashes_cached, n2);
   lida_DynArrayResize(&drawer->regions_cached, n+1);
   // udpate hashes_cached with insertion sort
-  auto hashes = (DrawID*)drawer->hashes_cached.ptr;
+  auto hashes = (DrawHash*)drawer->hashes_cached.ptr;
   auto regions = (DrawID*)drawer->regions_cached.ptr;
   // TODO: use better algorithm like quick sort or heap sort
   for (uint32_t  i = 0; i < n; i++) {
-    hashes[i].draw_id = i;
     regions[i].draw_id = i;
   }
+  for (uint32_t i = 0; i < n2; i++) {
+    hashes[i].draw_id = UINT32_MAX;
+  }
+  // build hash table of draws from previous frame using robin-hood hashing
+  // https://programming.guide/robin-hood-hashing.html
+  for (uint32_t i = 0; i < n; i++) {
+    MeshInfo* mesh = &meshes[i];
+    // because n2 is a power of 2, we can do '&' instead of expensive '%'
+    uint32_t id = mesh->hash & (n2-1);
+    DrawHash obj;
+    obj.draw_id = i;
+    obj.psl = 0;
+    while (hashes[id].draw_id != UINT32_MAX) {
+      if (obj.psl > hashes[id].psl) {
+        std::swap(obj, hashes[id]);
+      }
+      obj.psl++;
+      id = (id+1) & (n2-1);
+    }
+    hashes[id] = obj;
+  }
   // I hope in future we will replace this garbage with a proper C code
-  std::sort(hashes, hashes + n, [meshes] (const DrawID& lhs, const DrawID& rhs) {
-    return meshes[lhs.draw_id].hash < meshes[rhs.draw_id].hash;
-  });
   std::sort(regions, regions + n, [meshes] (const DrawID& lhs, const DrawID& rhs) {
     return meshes[lhs.draw_id].first_vertex < meshes[rhs.draw_id].first_vertex;
   });
@@ -561,26 +591,30 @@ DrawerUpdateCache(lida_VoxelDrawer* drawer)
   border->last_vertex = 0;
 }
 
-DrawID*
+const uint32_t*
 FindDrawByHash(lida_VoxelDrawer* drawer, uint64_t hash)
 {
   uint32_t n = drawer->hashes_cached.size;
   if (n > 0) {
-    uint32_t left = 0, right = n;
-    DrawID* hashes = (DrawID*)drawer->hashes_cached.ptr;
+    // n is always power of two
+    DrawHash* hashes = (DrawHash*)drawer->hashes_cached.ptr;
     auto prev_meshes = (MeshInfo*)drawer->frames[1-drawer->frame_id].meshes.ptr;
-    while (left < right) {
-      uint32_t mid = (left + right) / 2;
-      if (hash == prev_meshes[hashes[mid].draw_id].hash) {
-        return &hashes[mid];
-      } else if (hash < prev_meshes[hashes[mid].draw_id].hash) {
-        right = mid;
-      } else {
-        left = mid;
+    uint32_t id = hash & (n-1);
+    uint32_t psl = 0;
+    while (true) {
+      if (hashes[id].draw_id == UINT32_MAX) {
+        // empty slot found => return NULL
+        return NULL;
       }
-    }
-    if (hash == prev_meshes[hashes[left].draw_id].hash) {
-      return &hashes[left];
+      if (prev_meshes[hashes[id].draw_id].hash == hash) {
+        // we found hash => return
+        return &hashes[id].draw_id;
+      }
+      if (psl > hashes[id].psl) {
+        return NULL;
+      }
+      id = (id+1) & (n-1);
+      psl++;
     }
   }
   return NULL;
