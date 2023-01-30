@@ -137,6 +137,7 @@ int main(int argc, char** argv) {
     lida_Transform* transform = lida_ComponentAdd(ecs, transforms, entity1);
     transform->rotation = LIDA_QUAT_IDENTITY();
     transform->position = LIDA_VEC3_CREATE(3.0f, 2.0f, 0.0f);
+    transform->scale = 0.85f;
   }
 
   // some model
@@ -147,6 +148,7 @@ int main(int argc, char** argv) {
     lida_Transform* transform = lida_ComponentAdd(ecs, transforms, entity);
     transform->rotation = LIDA_QUAT_IDENTITY();
     transform->position = LIDA_VEC3_CREATE(-1.0f, -1.0f, 3.0f);
+    transform->scale = 0.1f;
   }
   // other model
   {
@@ -156,6 +158,7 @@ int main(int argc, char** argv) {
     lida_Transform* transform = lida_ComponentAdd(ecs, transforms, entity);
     transform->rotation = LIDA_QUAT_IDENTITY();
     transform->position = LIDA_VEC3_CREATE(-1.1f, -1.6f, 7.0f);
+    transform->scale = 0.098f;
   }
 
   SDL_Event event;
@@ -267,7 +270,7 @@ int main(int argc, char** argv) {
     lida_ID* entity;
     LIDA_COMPONENT_FOREACH(vox_grids, grid, entity) {
       lida_Transform* transform = lida_ComponentGet(transforms, *entity);
-      lida_VoxelDrawerPushMesh(&vox_drawer, 0.1f, grid, transform);
+      lida_VoxelDrawerPushMesh(&vox_drawer, grid, transform);
     }
 
     VkCommandBuffer cmd = lida_WindowBeginCommands();

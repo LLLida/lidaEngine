@@ -174,13 +174,13 @@ lida_VoxelGridMaxGeneratedVertices(const lida_VoxelGrid* grid)
 }
 
 uint32_t
-lida_VoxelGridGenerateMeshNaive(const lida_VoxelGrid* grid, float scale, lida_VoxelVertex* vertices, int face)
+lida_VoxelGridGenerateMeshNaive(const lida_VoxelGrid* grid, lida_VoxelVertex* vertices, int face)
 {
   lida_VoxelVertex* begin = vertices;
   lida_Vec3 half_size = {
-    grid->width * scale * 0.5f,
-    grid->height * scale * 0.5f,
-    grid->depth * scale * 0.5f
+    grid->width *  0.5f,
+    grid->height * 0.5f,
+    grid->depth * 0.5f
   };
   int offsetX = vox_normals[face].x;
   int offsetY = vox_normals[face].y;
@@ -203,10 +203,10 @@ lida_VoxelGridGenerateMeshNaive(const lida_VoxelGrid* grid, float scale, lida_Vo
             voxel &&
             // check if near voxel is air
             near_voxel == 0) {
-          lida_Vec3 pos = lida_Vec3{(float)x, (float)y, (float)z} * scale - half_size;
+          lida_Vec3 pos = lida_Vec3{(float)x, (float)y, (float)z} - half_size;
           // TODO: use index buffers
           for (uint32_t i = 0; i < 6; i++) {
-            vertices[i].position = pos + vox_positions[face*6 + i] * scale;
+            vertices[i].position = pos + vox_positions[face*6 + i];
             vertices[i].color = grid->palette[voxel];
           }
           vertices += 6;
@@ -217,13 +217,13 @@ lida_VoxelGridGenerateMeshNaive(const lida_VoxelGrid* grid, float scale, lida_Vo
 }
 
 uint32_t
-lida_VoxelGridGenerateMeshGreedy(const lida_VoxelGrid* grid, float scale, lida_VoxelVertex* vertices, int face)
+lida_VoxelGridGenerateMeshGreedy(const lida_VoxelGrid* grid, lida_VoxelVertex* vertices, int face)
 {
   lida_VoxelVertex* begin = vertices;
   lida_Vec3 half_size = {
-    grid->width * scale * 0.5f,
-    grid->height * scale * 0.5f,
-    grid->depth * scale * 0.5f
+    grid->width * 0.5f,
+    grid->height * 0.5f,
+    grid->depth * 0.5f
   };
   const uint32_t dims[3] = { grid->width, grid->height, grid->depth };
   const int d = face >> 1;
@@ -286,7 +286,7 @@ lida_VoxelGridGenerateMeshGreedy(const lida_VoxelGrid* grid, float scale, lida_V
                               (int)start_pos[1] + (int)offset[1] * (int)vox_positions[face*6 + vert_index].y,
                               (int)start_pos[2] + (int)offset[2] * (int)vox_positions[face*6 + vert_index].z };
           vert_pos[d] += face & 1;
-          vertices[vert_index].position = lida_Vec3{(float)vert_pos[0], (float)vert_pos[1], (float)vert_pos[2]} * scale - half_size;
+          vertices[vert_index].position = lida_Vec3{(float)vert_pos[0], (float)vert_pos[1], (float)vert_pos[2]} - half_size;
           vertices[vert_index].color = grid->palette[start_voxel];
         }
         vertices += 6;
@@ -455,7 +455,7 @@ lida_VoxelDrawerNewFrame(lida_VoxelDrawer* drawer)
 }
 
 void
-lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_VoxelGrid* grid, const lida_Transform* transform)
+lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, const lida_VoxelGrid* grid, const lida_Transform* transform)
 {
   LIDA_PROFILE_FUNCTION();
   uint32_t index = drawer->frames[drawer->frame_id].meshes.size;
@@ -489,8 +489,7 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_Voxel
         // if we're not sure if we can write voxels safely at this position
         // then write to a temporary buffer and see if we can fit to current free region
         // command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
-        command->vertexCount = lida_VoxelGridGenerateMeshGreedy(grid, scale,
-                                                               drawer->vertex_temp_buffer, i);
+        command->vertexCount = lida_VoxelGridGenerateMeshGreedy(grid, drawer->vertex_temp_buffer, i);
         while (drawer->vertex_offset + command->vertexCount > prev_meshes[d->draw_id].first_vertex) {
           drawer->vertex_offset = prev_meshes[d->draw_id].last_vertex;
           d = FindNearestDraw(drawer, drawer->vertex_offset);
@@ -502,8 +501,8 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_Voxel
       } else {
         // if there's enough space we can write vertices directly to buffer
         // command->vertexCount = lida_VoxelGridGenerateMeshNaive(grid, scale,
-        command->vertexCount = lida_VoxelGridGenerateMeshGreedy(grid, scale,
-                                                               drawer->pVertices + drawer->vertex_offset, i);
+        command->vertexCount =
+          lida_VoxelGridGenerateMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i);
       }
       command->firstVertex = drawer->vertex_offset;
       command->firstInstance = (transform_id << 3) | i;

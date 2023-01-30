@@ -49,7 +49,7 @@ typedef struct {
 typedef struct {
   lida_Quat rotation;
   lida_Vec3 position;
-  float padding;
+  float scale;
 } lida_Transform;
 
 enum {

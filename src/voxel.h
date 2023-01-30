@@ -70,10 +70,10 @@ void lida_VoxelGridSet(lida_VoxelGrid* grid, uint32_t x, uint32_t y, uint32_t z,
 uint32_t lida_VoxelGridMaxGeneratedVertices(const lida_VoxelGrid* grid);
 // this works fast and doesn't allocate any memory,
 // but generates poor meshes with a lot unnecessary vertices.
-uint32_t lida_VoxelGridGenerateMeshNaive(const lida_VoxelGrid* grid, float size, lida_VoxelVertex* vertices, int face);
+uint32_t lida_VoxelGridGenerateMeshNaive(const lida_VoxelGrid* grid, lida_VoxelVertex* vertices, int face);
 // this works relatively slow and does allocate some memory temporarily.
 // generated meshes are slow and GPU is happy with them.
-uint32_t lida_VoxelGridGenerateMeshGreedy(const lida_VoxelGrid* grid, float scale, lida_VoxelVertex* vertices, int face);
+uint32_t lida_VoxelGridGenerateMeshGreedy(const lida_VoxelGrid* grid, lida_VoxelVertex* vertices, int face);
 
 // parse voxel grid from buffer with voxels encoded in '.vox' Magica voxel format.
 int lida_VoxelGridLoad(lida_VoxelGrid* grid, const uint8_t* buffer, uint32_t size);
@@ -85,7 +85,7 @@ void lida_VoxelDrawerDestroy(lida_VoxelDrawer* drawer);
 // prepare voxel drawer for recording draw commands and writing vertices.
 void lida_VoxelDrawerNewFrame(lida_VoxelDrawer* drawer);
 //
-void lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, float scale, const lida_VoxelGrid* grid, const lida_Transform* transform);
+void lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, const lida_VoxelGrid* grid, const lida_Transform* transform);
 // draw all voxels recorded with 'lida_VoxelDrawerPushMesh' in current frame.
 void lida_VoxelDrawerDraw(lida_VoxelDrawer* drawer, VkCommandBuffer cmd);
 
