@@ -409,7 +409,7 @@ lida_NearestPow2(uint32_t v)
 #ifdef __GNUC__
 # define USE_CLZ __has_builtin(__builtin_clz)
 #else
-# define USE_CLZ
+# define USE_CLZ 0
 #endif
 
 #if USE_CLZ

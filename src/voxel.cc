@@ -168,8 +168,9 @@ static const lida_iVec3 vox_normals[6] = {
 uint32_t
 lida_VoxelGridMaxGeneratedVertices(const lida_VoxelGrid* grid)
 {
-  // I think there's better formula, max definitely can be less
-  return 6 * grid->width * grid->height * grid->depth;
+  // I made some conclusions and I certain that at most half voxels are written in worst case.
+  // However, we need a mathematical proof.
+  return 3 * grid->width * grid->height * grid->depth;
 }
 
 uint32_t
