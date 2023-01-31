@@ -17,6 +17,7 @@ typedef struct {
   uint32_t vertexCount;
   uint32_t firstVertex;
   uint32_t firstInstance;
+  uint32_t instanceCount;
   // this is for culling
   // vec3 normalVector;
   // vec3 position;
@@ -372,8 +373,8 @@ lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t
                    lida_VkResultToString(err));
     return err;
   }
-  err = lida_BufferCreate(&drawer->storage_buffer, max_draws * sizeof(lida_Transform),
-                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "voxel-drawer/storage-buffer");
+  err = lida_BufferCreate(&drawer->transform_buffer, max_draws * sizeof(lida_Transform),
+                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/storage-buffer");
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("faled to create storage buffer for storing voxel transforms with error %s",
                    lida_VkResultToString(err));
@@ -383,7 +384,7 @@ lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t
   vkGetBufferMemoryRequirements(lida_GetLogicalDevice(),
                                 drawer->vertex_buffer, &buffer_requirements[0]);
   vkGetBufferMemoryRequirements(lida_GetLogicalDevice(),
-                                drawer->storage_buffer, &buffer_requirements[1]);
+                                drawer->transform_buffer, &buffer_requirements[1]);
   VkMemoryRequirements requirements;
   lida_MergeMemoryRequirements(buffer_requirements, LIDA_ARR_SIZE(buffer_requirements), &requirements);
   // try to allocate device local memory accessible from CPU
@@ -409,23 +410,14 @@ lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t
   if (err != VK_SUCCESS) {
     LIDA_LOG_WARN("failed to bind vertex buffer to memory with error %s", lida_VkResultToString(err));
   }
-  err = lida_BufferBindToMemory(&drawer->memory, drawer->storage_buffer,
+  err = lida_BufferBindToMemory(&drawer->memory, drawer->transform_buffer,
                                 &buffer_requirements[1], (void**)&drawer->pTransforms, NULL);
   if (err != VK_SUCCESS) {
     LIDA_LOG_WARN("failed to bind storage buffer to memory with error %s", lida_VkResultToString(err));
   }
-  // allocate and update descriptor set
-  auto binding = lida::descriptor_binding_info(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                               VK_SHADER_STAGE_VERTEX_BIT,
-                                               drawer->storage_buffer, 0, VK_WHOLE_SIZE);
-  lida_AllocateAndUpdateDescriptorSet(&binding, 1, &drawer->descriptor_set, 0, "voxel-storage-buffer");
   // allocate vertex temp buffer
   drawer->vertex_temp_buffer_size = 20 * 1024;
   drawer->vertex_temp_buffer = (lida_VoxelVertex*)lida_Malloc(drawer->vertex_temp_buffer_size * sizeof(lida_VoxelVertex));
-  // init data needed for pipeline creation
-  drawer->vertex_binding = { 0, sizeof(lida_VoxelVertex), VK_VERTEX_INPUT_RATE_VERTEX };
-  drawer->vertex_attributes[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 };
-  drawer->vertex_attributes[1] = { 1, 0, VK_FORMAT_R32_UINT, sizeof(lida_Vec3) };
   //
   drawer->max_draws = max_draws;
   drawer->max_vertices = max_vertices;
@@ -439,7 +431,7 @@ lida_VoxelDrawerDestroy(lida_VoxelDrawer* drawer)
 {
   LIDA_PROFILE_FUNCTION();
   lida_MallocFree(drawer->vertex_temp_buffer);
-  vkDestroyBuffer(lida_GetLogicalDevice(), drawer->storage_buffer, NULL);
+  vkDestroyBuffer(lida_GetLogicalDevice(), drawer->transform_buffer, NULL);
   vkDestroyBuffer(lida_GetLogicalDevice(), drawer->vertex_buffer, NULL);
   lida_VideoMemoryFree(&drawer->memory);
 }
@@ -449,6 +441,8 @@ lida_VoxelDrawerNewFrame(lida_VoxelDrawer* drawer)
 {
   LIDA_PROFILE_FUNCTION();
   drawer->frame_id = 1 - drawer->frame_id;
+  if (drawer->frame_id == 0)
+    drawer->transform_offset = 0;
   lida_DynArrayClear(&drawer->frames[drawer->frame_id].draws);
   lida_DynArrayClear(&drawer->frames[drawer->frame_id].meshes);
   DrawerUpdateCache(drawer);
@@ -459,7 +453,20 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, const lida_VoxelGrid* grid, c
 {
   LIDA_PROFILE_FUNCTION();
   uint32_t index = drawer->frames[drawer->frame_id].meshes.size;
-  uint32_t transform_id = drawer->frame_id * drawer->max_draws / 2 + index;
+  // add transform
+  memcpy(&drawer->pTransforms[drawer->transform_offset], transform, sizeof(lida_Transform));
+  if (index > 0) {
+    // try to use instancing
+    auto prev_mesh = lida::get<MeshInfo>(&drawer->frames[drawer->frame_id].meshes, index-1);
+    if (prev_mesh->hash == grid->hash) {
+      auto draws = (DrawCommand*)drawer->frames[drawer->frame_id].draws.ptr;
+      for (uint32_t i = 0; i < 6; i++) {
+        draws[prev_mesh->first_draw_id+i].instanceCount++;
+      }
+      drawer->transform_offset++;
+      return;
+    }
+  }
   const uint32_t* draw_id = FindDrawByHash(drawer, grid->hash);
   auto prev_frame = &drawer->frames[1-drawer->frame_id];
   auto prev_meshes = (MeshInfo*)prev_frame->meshes.ptr;
@@ -475,7 +482,8 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, const lida_VoxelGrid* grid, c
       auto src = &prev_draws[prev_meshes[*draw_id].first_draw_id + i];
       dst->firstVertex = src->firstVertex;
       dst->vertexCount = src->vertexCount;
-      dst->firstInstance = (transform_id << 3) | i;
+      dst->firstInstance = drawer->transform_offset;
+      dst->instanceCount = 1;
     }
   } else {
     // if hash not found then generate new vertices and draw data.
@@ -505,28 +513,53 @@ lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, const lida_VoxelGrid* grid, c
           lida_VoxelGridGenerateMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i);
       }
       command->firstVertex = drawer->vertex_offset;
-      command->firstInstance = (transform_id << 3) | i;
+      command->firstInstance = drawer->transform_offset;
+      command->instanceCount = 1;
       drawer->vertex_offset += command->vertexCount;
     }
     mesh->last_vertex = drawer->vertex_offset;
     mesh->hash = grid->hash;
   }
   mesh->first_draw_id = 6 * index;
-  // add transform
-  memcpy(&drawer->pTransforms[transform_id], transform, sizeof(lida_Transform));
+  drawer->transform_offset++;
 }
 
 void
 lida_VoxelDrawerDraw(lida_VoxelDrawer* drawer, VkCommandBuffer cmd)
 {
   LIDA_PROFILE_FUNCTION();
-  VkDeviceSize offset = 0;
-  vkCmdBindVertexBuffers(cmd, 0, 1, &drawer->vertex_buffer, &offset);
+  VkDeviceSize offsets[] = { 0, 0 };
+  VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer };
+  vkCmdBindVertexBuffers(cmd, 0, LIDA_ARR_SIZE(buffers), buffers, offsets);
   lida_DynArray* draws = &drawer->frames[drawer->frame_id].draws;
-  for (uint32_t i = 0; i < draws->size; i++) {
-    DrawCommand* command = LIDA_DA_GET(draws, DrawCommand, i);
-    vkCmdDraw(cmd, command->vertexCount, 1, command->firstVertex, command->firstInstance);
+  for (uint32_t i = 0; i < draws->size; i += 6) {
+    // loop can unrolled
+    for (uint32_t j = 0; j < 6; j++) {
+      DrawCommand* command = LIDA_DA_GET(draws, DrawCommand, i + j);
+      vkCmdDraw(cmd,
+                command->vertexCount, command->instanceCount,
+                command->firstVertex, command->firstInstance);
+    }
   }
+}
+
+void
+lida_PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint32_t* num_attributes,
+                           const VkVertexInputBindingDescription** bindings, uint32_t* num_bindings)
+{
+  static VkVertexInputBindingDescription g_bindings[2];
+  static VkVertexInputAttributeDescription g_attributes[5];
+  g_bindings[0] = { 0, sizeof(lida_VoxelVertex), VK_VERTEX_INPUT_RATE_VERTEX };
+  g_bindings[1] = { 1, sizeof(lida_Transform), VK_VERTEX_INPUT_RATE_INSTANCE };
+  g_attributes[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(lida_VoxelVertex, position) };
+  g_attributes[1] = { 1, 0, VK_FORMAT_R32_UINT, offsetof(lida_VoxelVertex, color) };
+  g_attributes[2] = { 2, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(lida_Transform, rotation) };
+  g_attributes[3] = { 3, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(lida_Transform, position) };
+  g_attributes[4] = { 4, 1, VK_FORMAT_R32_SFLOAT, offsetof(lida_Transform, scale) };
+  *attributes = g_attributes;
+  *bindings = g_bindings;
+  *num_attributes = LIDA_ARR_SIZE(g_attributes);
+  *num_bindings = LIDA_ARR_SIZE(g_bindings);
 }
 
 

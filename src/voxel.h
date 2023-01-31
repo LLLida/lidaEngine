@@ -34,15 +34,15 @@ typedef struct {
 
   lida_VideoMemory memory;
   VkBuffer vertex_buffer;
+  VkBuffer transform_buffer;
   // VkBuffer index_buffer;
-  VkBuffer storage_buffer;
-  VkDescriptorSet descriptor_set;
   lida_VoxelVertex* pVertices;
   lida_Transform* pTransforms;
   uint32_t max_vertices;
   uint32_t max_draws;
   int frame_id;
   uint32_t vertex_offset;
+  uint32_t transform_offset;
   lida_VoxelVertex* vertex_temp_buffer;
   uint32_t vertex_temp_buffer_size;
   struct {
@@ -51,10 +51,6 @@ typedef struct {
   } frames[2];
   lida_DynArray hashes_cached;
   lida_DynArray regions_cached;
-  // for creating pipelines
-  // FIXME: I think we should make those global variables
-  VkVertexInputBindingDescription vertex_binding;
-  VkVertexInputAttributeDescription vertex_attributes[2];
 
 } lida_VoxelDrawer;
 
@@ -88,6 +84,9 @@ void lida_VoxelDrawerNewFrame(lida_VoxelDrawer* drawer);
 void lida_VoxelDrawerPushMesh(lida_VoxelDrawer* drawer, const lida_VoxelGrid* grid, const lida_Transform* transform);
 // draw all voxels recorded with 'lida_VoxelDrawerPushMesh' in current frame.
 void lida_VoxelDrawerDraw(lida_VoxelDrawer* drawer, VkCommandBuffer cmd);
+
+void lida_PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint32_t* num_attributes,
+                                const VkVertexInputBindingDescription** bindings, uint32_t* num_bindings);
 
 #ifdef __cplusplus
 }

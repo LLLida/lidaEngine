@@ -1,9 +1,18 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 
+#include "common.h"
+
+// vertex
 layout (location = 0) in vec3 inPosition;
 layout (location = 1) in uint inColor;
 
+// transform
+layout (location = 2) in quat inRotation;
+layout (location = 3) in vec3 inTranslation;
+layout (location = 4) in float inScale;
+
+// out
 layout (location = 0) out vec3 outPosition;
 layout (location = 1) out vec3 outNormal;
 layout (location = 2) out vec4 outColor;
@@ -26,15 +35,14 @@ const vec3 normals[] = {
   vec3(0.0, 0.0, 1.0),
 };
 
-#include "common.h"
-
 out gl_PerVertex {
   vec4 gl_Position;
 };
 
 void main() {
-  vec3 pos = doTransform(inPosition);
-  outNormal = rotateNormal(normals[gl_InstanceIndex & 7]);
+  vec3 pos = doTransform(inPosition, inRotation, inTranslation, inScale);
+  // TODO: find a way to specify normal index
+  outNormal = normalize(rotate(normals[0], inRotation));
   outColor = decompress(inColor);
   vec4 viewSpacePos = g.camera_view * vec4(pos, 1.0);
   outPosition = viewSpacePos.xyz;

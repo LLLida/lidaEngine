@@ -140,6 +140,17 @@ int main(int argc, char** argv) {
     transform->scale = 0.85f;
   }
 
+  // another 3x3x3 box
+  lida_ID entity2 = lida_CreateEntity(ecs);
+  {
+    lida_VoxelGrid* grid = lida_ComponentAdd(ecs, vox_grids, entity2);
+    lida_VoxelGridLoadFromFile(grid, "../assets/3x3x3.vox");
+    lida_Transform* transform = lida_ComponentAdd(ecs, transforms, entity2);
+    transform->rotation = LIDA_QUAT_IDENTITY();
+    transform->position = LIDA_VEC3_CREATE(-3.0f, 2.0f, 0.1f);
+    transform->scale = 0.64f;
+  }
+
   // some model
   {
     lida_ID entity = lida_CreateEntity(ecs);
@@ -295,7 +306,7 @@ int main(int argc, char** argv) {
     vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(lida_Vec4)*3 + sizeof(lida_Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     // draw voxels
-    VkDescriptorSet ds_sets[2] = { lida_ForwardPassGetDS0(), vox_drawer.descriptor_set };
+    VkDescriptorSet ds_sets[1] = { lida_ForwardPassGetDS0() };
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout3, 0, LIDA_ARR_SIZE(ds_sets), ds_sets, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vox_pipeline);
     lida_VoxelDrawerDraw(&vox_drawer, cmd);
@@ -350,10 +361,6 @@ createVoxelPipeline()
   lida_PipelineDesc pipeline_desc = {
     .vertex_shader = "shaders/voxel.vert.spv",
     .fragment_shader = "shaders/voxel.frag.spv",
-    .vertex_binding_count = 1,
-    .vertex_bindings = &vox_drawer.vertex_binding,
-    .vertex_attribute_count = 2,
-    .vertex_attributes = vox_drawer.vertex_attributes,
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_FRONT_BIT,
@@ -371,6 +378,8 @@ createVoxelPipeline()
     .subpass = 0,
     .marker = "forward/voxel-pipeline"
   };
+  lida_PipelineVoxelVertices(&pipeline_desc.vertex_attributes, &pipeline_desc.vertex_attribute_count,
+                             &pipeline_desc.vertex_bindings, &pipeline_desc.vertex_binding_count);
   lida_CreateGraphicsPipelines(&ret, 1, &pipeline_desc, &pipeline_layout3);
   return ret;
 }

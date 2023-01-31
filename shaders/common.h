@@ -16,10 +16,6 @@ layout (set = 0, binding = 0) uniform SceneInfo {
   mat4 camera_invproj;
 } g;
 
-layout (std140, set = 1, binding = 0) readonly buffer TransformBuffer {
-  Transform transforms[];
-};
-
 // multiply two quaternions
 // note: quatMul(q1, q2) != quatMul(q2, q1) - quaternion multiplication is not commutative
 quat quatMul(quat q1, quat q2) {
@@ -37,19 +33,6 @@ vec3 rotate(vec3 v, quat q) {
 
 vec3 doTransform(vec3 pos, quat rotation, vec3 translation, float scale) {
   return rotate(pos * scale, rotation) + translation;
-}
-
-// do transform to pos, picking transform from storage buffer
-// note: index is gl_InstanceIndex >> 3
-vec3 doTransform(vec3 pos) {
-  Transform transform = transforms[gl_InstanceIndex >> 3];
-  return doTransform(pos, transform.rotation, transform.position, transform.scale);
-}
-
-
-vec3 rotateNormal(vec3 normal) {
-  Transform transform = transforms[gl_InstanceIndex >> 3];
-  return normalize(rotate(normal, transform.rotation));
 }
 
 #endif
