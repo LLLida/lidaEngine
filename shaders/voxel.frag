@@ -7,8 +7,12 @@ layout (location = 2) in vec4 inColor;
 
 layout (location = 0) out vec4 outColor;
 
+#include "common.h"
+
 void main() {
-  // validation layers complain if we don't use these variables in fragment shader
-  outColor = vec4(inPosition + inNormal, 1.0);
-  outColor = vec4(inColor.xyz, 1.0);
+  // validation layers complain if we don't use inPosition in fragment shader
+  outColor = vec4(inPosition, 1.0);
+  vec3 light = g.sun_ambient * inColor.xyz;
+  light += max(dot(inNormal, g.sun_dir), 0.0);
+  outColor = vec4(light, 1.0);
 }

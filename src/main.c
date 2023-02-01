@@ -273,6 +273,9 @@ int main(int argc, char** argv) {
     memcpy(&sc_data->camera_projection, &camera.projection_matrix, sizeof(lida_Mat4));
     memcpy(&sc_data->camera_view, &camera.view_matrix, sizeof(lida_Mat4));
     lida_Mat4Mul(&sc_data->camera_projection, &sc_data->camera_view, &sc_data->camera_projview);
+    sc_data->sun_dir = LIDA_VEC3_CREATE(0.03f, 0.9f, -0.1f);
+    sc_data->sun_ambient = 0.1f;
+    lida_Vec3Normalize(&sc_data->sun_dir, &sc_data->sun_dir);
 
     lida_VoxelDrawerNewFrame(&vox_drawer);
 
@@ -309,7 +312,11 @@ int main(int argc, char** argv) {
     VkDescriptorSet ds_sets[1] = { lida_ForwardPassGetDS0() };
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout3, 0, LIDA_ARR_SIZE(ds_sets), ds_sets, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vox_pipeline);
-    lida_VoxelDrawerDraw(&vox_drawer, cmd);
+    // lida_VoxelDrawerDraw(&vox_drawer, cmd);
+    for (uint32_t i = 0; i < 6; i++) {
+      vkCmdPushConstants(cmd, pipeline_layout3, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
+      lida_VoxelDrawerDrawWithNormals(&vox_drawer, cmd, i);
+    }
 
     vkCmdEndRenderPass(cmd);
 

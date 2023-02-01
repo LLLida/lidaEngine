@@ -14,6 +14,9 @@ layout (set = 0, binding = 0) uniform SceneInfo {
   mat4 camera_projection;
   mat4 camera_view;
   mat4 camera_invproj;
+  mat4 light_space_matrix;
+  vec3 sun_dir;
+  float sun_ambient;
 } g;
 
 // multiply two quaternions
@@ -34,5 +37,7 @@ vec3 rotate(vec3 v, quat q) {
 vec3 doTransform(vec3 pos, quat rotation, vec3 translation, float scale) {
   return rotate(pos * scale, rotation) + translation;
 }
+
+#define PUSH_CONSTANT layout(push_constant) uniform
 
 #endif

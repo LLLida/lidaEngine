@@ -11,14 +11,7 @@ const vec2 positions[3] = vec2[](vec2(0.0, -0.5),
 
 layout (location = 0) out vec3 outColor;
 
-layout (binding = 0) uniform SceneInfo {
-  // mat4 projection;
-  // mat4 view;
-  mat4 projview;
-  mat4 projection;
-  mat4 view;
-  mat4 invproj;
-} camera;
+#include "common.h"
 
 layout (push_constant) uniform Color {
   vec3 red;
@@ -29,7 +22,7 @@ layout (push_constant) uniform Color {
 
 void main() {
   // gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-  gl_Position =  camera.projection * camera.view * vec4(colors.pos + vec3(positions[gl_VertexIndex], 0.0), 1.0);
+  gl_Position =  g.camera_projview * vec4(colors.pos + vec3(positions[gl_VertexIndex], 0.0), 1.0);
   // outColor = colors[gl_VertexIndex];
   if (gl_VertexIndex == 0) {
     outColor = colors.red;

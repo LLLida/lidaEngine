@@ -473,7 +473,7 @@ VkResult FWD_AllocateDescriptorSets()
     .binding = 0,
     .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
     .descriptorCount = 1,
-    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,
   };
   VkResult err = lida_AllocateDescriptorSets(bindings, 1, &g_fwd_pass->scene_data_set, 1, 0, "forward/scene-data");
   if (err == VK_SUCCESS) {

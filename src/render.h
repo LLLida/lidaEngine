@@ -12,6 +12,9 @@ typedef struct {
   lida_Mat4 camera_projection;
   lida_Mat4 camera_view;
   lida_Mat4 camera_invproj;
+  lida_Mat4 light_space;
+  lida_Vec3 sun_dir;
+  float sun_ambient;
 } lida_SceneDataStruct;
 
 VkResult lida_ForwardPassCreate(uint32_t width, uint32_t height, VkSampleCountFlagBits samples);

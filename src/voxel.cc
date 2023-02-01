@@ -533,13 +533,31 @@ lida_VoxelDrawerDraw(lida_VoxelDrawer* drawer, VkCommandBuffer cmd)
   vkCmdBindVertexBuffers(cmd, 0, LIDA_ARR_SIZE(buffers), buffers, offsets);
   lida_DynArray* draws = &drawer->frames[drawer->frame_id].draws;
   for (uint32_t i = 0; i < draws->size; i += 6) {
-    // loop can unrolled
+    DrawCommand* command = LIDA_DA_GET(draws, DrawCommand, i);
+    // merge draw calls
+    uint32_t vertex_count = 0;
     for (uint32_t j = 0; j < 6; j++) {
-      DrawCommand* command = LIDA_DA_GET(draws, DrawCommand, i + j);
-      vkCmdDraw(cmd,
-                command->vertexCount, command->instanceCount,
-                command->firstVertex, command->firstInstance);
+      vertex_count += command[j].vertexCount;
     }
+    vkCmdDraw(cmd,
+              vertex_count, command->instanceCount,
+              command->firstVertex, command->firstInstance);
+  }
+}
+
+void
+lida_VoxelDrawerDrawWithNormals(lida_VoxelDrawer* drawer, VkCommandBuffer cmd, uint32_t normal_id)
+{
+  LIDA_PROFILE_FUNCTION();
+  VkDeviceSize offsets[] = { 0, 0 };
+  VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer };
+  vkCmdBindVertexBuffers(cmd, 0, LIDA_ARR_SIZE(buffers), buffers, offsets);
+  lida_DynArray* draws = &drawer->frames[drawer->frame_id].draws;
+  for (uint32_t i = normal_id; i < draws->size; i += 6) {
+    DrawCommand* command = LIDA_DA_GET(draws, DrawCommand, i);
+    vkCmdDraw(cmd,
+              command->vertexCount, command->instanceCount,
+              command->firstVertex, command->firstInstance);
   }
 }
 
