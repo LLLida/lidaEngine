@@ -12,7 +12,10 @@ layout (location = 0) out vec4 outColor;
 void main() {
   // validation layers complain if we don't use inPosition in fragment shader
   outColor = vec4(inPosition, 1.0);
-  vec3 light = g.sun_ambient * inColor.xyz;
-  light += max(dot(inNormal, g.sun_dir), 0.0);
+  
+  float diffuse = max(dot(inNormal, g.sun_dir), 0.0);
+
+  vec3 light = (g.sun_ambient + diffuse) * inColor.xyz;
+  
   outColor = vec4(light, 1.0);
 }

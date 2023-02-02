@@ -40,7 +40,7 @@ lida_Vec3Normalize(const lida_Vec3* in, lida_Vec3* out)
 #if USE_RQSQRT
   float inv_len = lida_rqsqrt(LIDA_VEC3_LENGTH(*in));
 #else
-  float inv_len = 1.0f / sqrt(LIDA_VEC3_LENGTH(*in));
+  float inv_len = 1.0f / LIDA_VEC3_LENGTH(*in);
 #endif
   out->x = in->x * inv_len;
   out->y = in->y * inv_len;
