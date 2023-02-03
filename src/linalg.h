@@ -137,7 +137,9 @@ void lida_OrthographicMatrix(float left, float right,
                              float z_near, float z_far,
                              lida_Mat4* out);
 void lida_PerspectiveMatrix(float fov_y, float aspect_ratio, float z_near,
-                           lida_Mat4* out);
+                            lida_Mat4* out);
+void lida_LookAtMatrix(const lida_Vec3* eye, const lida_Vec3* target, const lida_Vec3* up,
+                       lida_Mat4* out);
 
 void lida_CameraUpdateProjection(lida_Camera* camera);
 void lida_CameraUpdateView(lida_Camera* camera);

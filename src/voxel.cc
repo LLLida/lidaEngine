@@ -374,7 +374,7 @@ lida_VoxelDrawerCreate(lida_VoxelDrawer* drawer, uint32_t max_vertices, uint32_t
     return err;
   }
   err = lida_BufferCreate(&drawer->transform_buffer, max_draws * sizeof(lida_Transform),
-                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/storage-buffer");
+                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/transform-buffer");
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("faled to create storage buffer for storing voxel transforms with error %s",
                    lida_VkResultToString(err));
@@ -563,20 +563,24 @@ lida_VoxelDrawerDrawWithNormals(lida_VoxelDrawer* drawer, VkCommandBuffer cmd, u
 
 void
 lida_PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint32_t* num_attributes,
-                           const VkVertexInputBindingDescription** bindings, uint32_t* num_bindings)
+                           const VkVertexInputBindingDescription** bindings, uint32_t* num_bindings,
+                           int using_colors)
 {
   static VkVertexInputBindingDescription g_bindings[2];
   static VkVertexInputAttributeDescription g_attributes[5];
   g_bindings[0] = { 0, sizeof(lida_VoxelVertex), VK_VERTEX_INPUT_RATE_VERTEX };
   g_bindings[1] = { 1, sizeof(lida_Transform), VK_VERTEX_INPUT_RATE_INSTANCE };
+  using_colors &= 1;
   g_attributes[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(lida_VoxelVertex, position) };
-  g_attributes[1] = { 1, 0, VK_FORMAT_R32_UINT, offsetof(lida_VoxelVertex, color) };
-  g_attributes[2] = { 2, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(lida_Transform, rotation) };
-  g_attributes[3] = { 3, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(lida_Transform, position) };
-  g_attributes[4] = { 4, 1, VK_FORMAT_R32_SFLOAT, offsetof(lida_Transform, scale) };
+  if (using_colors) {
+    g_attributes[1] = { 1, 0, VK_FORMAT_R32_UINT, offsetof(lida_VoxelVertex, color) };
+  }
+  g_attributes[1 + using_colors] = { 1 + (uint32_t)using_colors, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(lida_Transform, rotation) };
+  g_attributes[2 + using_colors] = { 2 + (uint32_t)using_colors, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(lida_Transform, position) };
+  g_attributes[3 + using_colors] = { 3 + (uint32_t)using_colors, 1, VK_FORMAT_R32_SFLOAT, offsetof(lida_Transform, scale) };
   *attributes = g_attributes;
   *bindings = g_bindings;
-  *num_attributes = LIDA_ARR_SIZE(g_attributes);
+  *num_attributes = LIDA_ARR_SIZE(g_attributes) - 1 + (using_colors & 1);
   *num_bindings = LIDA_ARR_SIZE(g_bindings);
 }
 

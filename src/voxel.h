@@ -87,7 +87,8 @@ void lida_VoxelDrawerDraw(lida_VoxelDrawer* drawer, VkCommandBuffer cmd);
 void lida_VoxelDrawerDrawWithNormals(lida_VoxelDrawer* drawer, VkCommandBuffer cmd, uint32_t normal_id);
 
 void lida_PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint32_t* num_attributes,
-                                const VkVertexInputBindingDescription** bindings, uint32_t* num_bindings);
+                                const VkVertexInputBindingDescription** bindings, uint32_t* num_bindings,
+                                int using_colors);
 
 #ifdef __cplusplus
 }

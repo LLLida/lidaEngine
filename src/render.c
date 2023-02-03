@@ -32,11 +32,29 @@ typedef struct {
 
 lida_ForwardPass* g_fwd_pass;
 
+typedef struct {
+
+  lida_VideoMemory memory;
+  VkImage image;
+  VkImageView image_view;
+  VkFramebuffer framebuffer;
+  VkRenderPass render_pass;
+  VkExtent2D extent;
+  VkDescriptorSet scene_data_set;
+  VkDescriptorSet shadow_set;
+
+} lida_ShadowPass;
+
+lida_ShadowPass* g_shadow_pass;
+
 static void FWD_ChooseFromats(VkSampleCountFlagBits samples);
 static VkResult FWD_CreateRenderPass();
 static VkResult FWD_CreateAttachments(uint32_t width, uint32_t height);
 static VkResult FWD_CreateBuffers();
 static VkResult FWD_AllocateDescriptorSets();
+static VkResult SH_CreateRenderPass();
+static VkResult SH_CreateAttachments();
+static VkResult SH_AllocateDescriptorSets();
 
 
 
@@ -204,10 +222,109 @@ lida_ForwardPassResize(uint32_t width, uint32_t height)
     .shader_stages = VK_SHADER_STAGE_FRAGMENT_BIT,
     .data = { .image = image_info },
   };
-  err = lida_AllocateAndUpdateDescriptorSet(&binding, 1, &g_fwd_pass->resulting_image_set, 1, "forward/resulting-image");
+  err = lida_AllocateAndUpdateDescriptorSet(&binding, 1, &g_fwd_pass->resulting_image_set, 1,
+                                            "forward/resulting-image");
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to allocate descriptor set with error %s", lida_VkResultToString(err));
   }
+}
+
+VkResult
+lida_ShadowPassCreate(uint32_t width, uint32_t height)
+{
+  LIDA_PROFILE_FUNCTION();
+  g_shadow_pass = lida_TempAllocate(sizeof(lida_ShadowPass));
+  g_shadow_pass->extent = (VkExtent2D) { width, height };
+  VkResult err = SH_CreateRenderPass();
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create shadow pass with error %s", lida_VkResultToString(err));
+    goto err;
+  }
+  err = SH_CreateAttachments();
+  if (err != VK_SUCCESS) {
+    goto err;
+  }
+  err = SH_AllocateDescriptorSets();
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to allocate descriptor set for shadow map with error %s",
+                   lida_VkResultToString(err));
+    goto err;
+  }
+  return VK_SUCCESS;
+ err:
+  lida_TempFree(g_shadow_pass);
+  return err;
+}
+
+void
+lida_ShadowPassDestroy()
+{
+  LIDA_PROFILE_FUNCTION();
+  VkDevice dev = lida_GetLogicalDevice();
+
+  vkDestroyFramebuffer(dev, g_shadow_pass->framebuffer, NULL);
+  vkDestroyImageView(dev, g_shadow_pass->image_view, NULL);
+  vkDestroyImage(dev, g_shadow_pass->image, NULL);
+  vkDestroyRenderPass(dev, g_shadow_pass->render_pass, NULL);
+
+  lida_VideoMemoryFree(&g_shadow_pass->memory);
+
+  lida_TempFree(g_shadow_pass);
+}
+
+VkRenderPass
+lida_ShadowPassGetRenderPass()
+{
+  return g_shadow_pass->render_pass;
+}
+
+VkDescriptorSet
+lida_ShadowPassGetDS0()
+{
+  return g_shadow_pass->scene_data_set;
+}
+
+VkDescriptorSet
+lida_ShadowPassGetDS1()
+{
+  return g_shadow_pass->shadow_set;
+}
+
+void
+lida_ShadowPassBegin(VkCommandBuffer cmd)
+{
+  VkClearValue clearValue;
+  clearValue.depthStencil.depth = 0.0f;
+  clearValue.depthStencil.stencil = 0;
+  VkRect2D render_area = { .offset = { 0, 0 },
+                           .extent = g_shadow_pass->extent };
+  VkRenderPassBeginInfo begin_info = {
+    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+    .renderPass = g_shadow_pass->render_pass,
+    .framebuffer = g_shadow_pass->framebuffer,
+    .pClearValues = &clearValue,
+    .clearValueCount = 1,
+    .renderArea = render_area
+  };
+  vkCmdBeginRenderPass(cmd, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+}
+
+void lida_ShadowPassViewport(VkViewport** p_viewport, VkRect2D** p_scissor)
+{
+  static VkViewport viewport;
+  static VkRect2D rect;
+  viewport.x = 0.0f;
+  viewport.y = 0.0f;
+  viewport.width = (float)g_shadow_pass->extent.width;
+  viewport.height = (float)g_shadow_pass->extent.height;
+  viewport.minDepth = 0.0f;
+  viewport.maxDepth = 1.0f;
+  rect.offset.x = 0;
+  rect.offset.y = 0;
+  rect.extent.width = g_shadow_pass->extent.width;
+  rect.extent.height = g_shadow_pass->extent.height;
+  *p_viewport = &viewport;
+  *p_scissor = &rect;
 }
 
 
@@ -461,7 +578,7 @@ VkResult FWD_CreateBuffers()
     LIDA_LOG_ERROR("failed to bind uniform buffer to memory with error %s", lida_VkResultToString(err));
     return err;
   }
-  LIDA_LOG_TRACE("allocated %u bytes for attachments", (uint32_t)requirements.size);
+  LIDA_LOG_TRACE("allocated %u bytes for uniform buffer", (uint32_t)requirements.size);
   return err;
 }
 
@@ -512,6 +629,169 @@ VkResult FWD_AllocateDescriptorSets()
   write_sets[1] = (VkWriteDescriptorSet) {
     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
     .dstSet = g_fwd_pass->resulting_image_set,
+    .dstBinding = 0,
+    .descriptorCount = 1,
+    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .pImageInfo = &image_info
+  };
+  lida_UpdateDescriptorSets(write_sets, 2);
+  return err;
+}
+
+VkResult
+SH_CreateRenderPass()
+{
+  VkAttachmentDescription attachment = {
+    .format = g_fwd_pass->depth_format,
+    .samples = VK_SAMPLE_COUNT_1_BIT,
+    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+  };
+  VkAttachmentReference depth_reference = { 0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+  VkSubpassDescription subpass = {
+    .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+    .pDepthStencilAttachment = &depth_reference,
+  };
+  VkSubpassDependency dependencies[2];
+  dependencies[0] = (VkSubpassDependency) {
+    0, VK_SUBPASS_EXTERNAL,
+    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+    0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+    VK_DEPENDENCY_BY_REGION_BIT
+  };
+  dependencies[1] = (VkSubpassDependency) {
+    0, VK_SUBPASS_EXTERNAL,
+    VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+    VK_DEPENDENCY_BY_REGION_BIT
+  };
+  VkRenderPassCreateInfo render_pass_info = {
+    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+    .attachmentCount = 1,
+    .pAttachments = &attachment,
+    .subpassCount = 1,
+    .pSubpasses = &subpass,
+    .dependencyCount = LIDA_ARR_SIZE(dependencies),
+    .pDependencies = dependencies,
+  };
+  return lida_RenderPassCreate(&g_shadow_pass->render_pass, &render_pass_info, "shadow/render-pass");
+}
+
+VkResult
+SH_CreateAttachments()
+{
+  VkImageCreateInfo image_info = {
+    .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+    .imageType = VK_IMAGE_TYPE_2D,
+    .format = g_fwd_pass->depth_format,
+    .extent = (VkExtent3D) { g_shadow_pass->extent.width, g_shadow_pass->extent.height, 1 },
+    .mipLevels = 1,
+    .arrayLayers = 1,
+    .samples = VK_SAMPLE_COUNT_1_BIT,
+    .tiling = VK_IMAGE_TILING_OPTIMAL,
+    .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
+    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+  };
+  VkResult err = lida_ImageCreate(&g_shadow_pass->image, &image_info, "shadow/image");
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create image for shadow attachment with error %s",
+                   lida_VkResultToString(err));
+    return err;
+  }
+  VkMemoryRequirements requirements;
+  vkGetImageMemoryRequirements(lida_GetLogicalDevice(), g_shadow_pass->image, &requirements);
+  err = lida_VideoMemoryAllocate(&g_shadow_pass->memory, requirements.size,
+                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, requirements.memoryTypeBits,
+                                 "shadow/attachment-memory");
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to allocate memory for shadow attachment with error %s",
+                   lida_VkResultToString(err));
+    return err;
+  }
+  // bind image to memory
+  lida_ImageBindToMemory(&g_shadow_pass->memory, g_shadow_pass->image, &requirements);
+  VkImageViewCreateInfo image_view_info = {
+    .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+    .image = g_shadow_pass->image,
+    .viewType = VK_IMAGE_VIEW_TYPE_2D,
+    .format = g_fwd_pass->depth_format,
+    .subresourceRange = (VkImageSubresourceRange) { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 },
+  };
+  err = lida_ImageViewCreate(&g_shadow_pass->image_view, &image_view_info, "shadow/image-view");
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create image view for shadow attachment with error %s)",
+                   lida_VkResultToString(err));
+    return err;
+  }
+  VkFramebufferCreateInfo framebuffer_info = {
+    .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+    .renderPass = g_shadow_pass->render_pass,
+    .attachmentCount = 1,
+    .pAttachments = &g_shadow_pass->image_view,
+    .width = g_shadow_pass->extent.width,
+    .height = g_shadow_pass->extent.height,
+    .layers = 1,
+  };
+  err = lida_FramebufferCreate(&g_shadow_pass->framebuffer, &framebuffer_info, "shadow/framebuffer");
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to create framebuffer for shadow pass with error %s",
+                   lida_VkResultToString(err));
+    return err;
+  }
+  LIDA_LOG_TRACE("allocated %u bytes for shadow map", (uint32_t)requirements.size);
+  return err;
+}
+
+VkResult
+SH_AllocateDescriptorSets()
+{
+  // allocate descriptor sets
+  VkDescriptorSetLayoutBinding bindings[4];
+  bindings[0] = (VkDescriptorSetLayoutBinding) {
+    .binding = 0,
+    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    .descriptorCount = 1,
+    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+  };
+  VkResult err = lida_AllocateDescriptorSets(bindings, 1, &g_shadow_pass->scene_data_set, 1, 0, "shadow/scene-data");
+  if (err == VK_SUCCESS) {
+    bindings[0] = (VkDescriptorSetLayoutBinding) {
+      .binding = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+    };
+    err = lida_AllocateDescriptorSets(bindings, 1, &g_shadow_pass->shadow_set, 1, 1, "shadow-map-set");
+  }
+  if (err != VK_SUCCESS) {
+    LIDA_LOG_ERROR("failed to allocate descriptor sets with error %s", lida_VkResultToString(err));
+    return err;
+  }
+  // update descriptor sets
+  VkWriteDescriptorSet write_sets[2];
+  VkDescriptorBufferInfo buffer_info = {
+    .buffer = g_fwd_pass->uniform_buffer,
+    .offset = 0,
+    .range = sizeof(lida_SceneDataStruct)
+  };
+  write_sets[0] = (VkWriteDescriptorSet) {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .dstSet = g_shadow_pass->scene_data_set,
+    .dstBinding = 0,
+    .descriptorCount = 1,
+    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    .pBufferInfo = &buffer_info,
+  };
+  VkDescriptorImageInfo image_info = {
+    .imageView = g_shadow_pass->image_view,
+    .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+    .sampler = lida_GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+  };
+  write_sets[1] = (VkWriteDescriptorSet) {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .dstSet = g_shadow_pass->shadow_set,
     .dstBinding = 0,
     .descriptorCount = 1,
     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,

@@ -29,6 +29,14 @@ void lida_ForwardPassSendData();
 void lida_ForwardPassBegin(VkCommandBuffer cmd, float clear_color[4]);
 void lida_ForwardPassResize(uint32_t width, uint32_t height);
 
+VkResult lida_ShadowPassCreate(uint32_t width, uint32_t height);
+void lida_ShadowPassDestroy();
+VkRenderPass lida_ShadowPassGetRenderPass();
+VkDescriptorSet lida_ShadowPassGetDS0();
+VkDescriptorSet lida_ShadowPassGetDS1();
+void lida_ShadowPassBegin(VkCommandBuffer cmd);
+void lida_ShadowPassViewport(VkViewport** viewport, VkRect2D** scissor);
+
 #ifdef __cplusplus
 }
 #endif

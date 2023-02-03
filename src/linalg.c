@@ -269,15 +269,30 @@ lida_RotationMatrixEulerAngles(lida_Mat4* out, const lida_Vec3* euler_angles)
 
 void
 lida_OrthographicMatrix(float left, float right, float bottom, float top,
-                             float z_near, float z_far, lida_Mat4* out)
+                        float z_near, float z_far, lida_Mat4* out)
 {
-  memset(out, 0, sizeof(float) * 16);
+  for (size_t i = 0; i < 16; i++)
+    ((float*)out)[i] = 0.0f;
+  // *out = (lida_Mat4) {
+  //   2.0f / (right - left), 0.0f, 0.0f, 0.0f,
+  //   0.0f, 2.0f / (top - bottom), 0.0f, 0.0f,
+  //   0.0f, 0.0f, -1.0f / (z_far - z_near), 0.0f,
+  // };
+#if 1
   out->m00 = 2.0f / (right - left);
   out->m11 = 2.0f / (top - bottom);
   out->m22 = -1.0f / (z_far - z_near);
   out->m30 = -(right + left) / (right - left);
   out->m31 = -(top + bottom) / (top - bottom);
   out->m32 = -z_near / (z_far - z_near);
+#else
+  out->m00 = 2.0f / (right - left);
+  out->m11 = 2.0f / (top - bottom);
+  out->m22 = -1.0f / (z_far - z_near);
+  out->m00 = -(right + left) / (right - left);
+  out->m13 = -(top + bottom) / (top - bottom);
+  out->m23 = -z_near / (z_far - z_near);
+#endif
 }
 
 void
@@ -292,6 +307,29 @@ lida_PerspectiveMatrix(float fov_y, float aspect_ratio, float z_near,
   out->m11 = -f;
   out->m32 = -1.0f;
   out->m23 = z_near;
+}
+
+void
+lida_LookAtMatrix(const lida_Vec3* eye, const lida_Vec3* target, const lida_Vec3* up,
+                  lida_Mat4* out)
+{
+  // calculate look-at matrix
+  // https://medium.com/@carmencincotti/lets-look-at-magic-lookat-matrices-c77e53ebdf78
+  lida_Vec3 dir = LIDA_VEC3_SUB(*target, *eye);
+  lida_Vec3Normalize(&dir, &dir);
+  lida_Vec3 s = LIDA_VEC_CROSS(dir, *up);
+  lida_Vec3 u = LIDA_VEC_CROSS(s, dir);
+  lida_Vec3 t = {
+    LIDA_VEC3_DOT(*eye, s),
+    LIDA_VEC3_DOT(*eye, u),
+    LIDA_VEC3_DOT(*eye, dir)
+  };
+  *out = (lida_Mat4) {
+    s.x,  u.x,  dir.x, 0.0f,
+    s.y,  u.y,  dir.y, 0.0f,
+    s.z,  u.z,  dir.z, 0.0f,
+    -t.x, -t.y, -t.z,  1.0f
+  };
 }
 
 void

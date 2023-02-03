@@ -660,7 +660,7 @@ lida_CreatePipelineLayout(const lida_ShaderReflect** shader_templates, uint32_t 
     layout_info.num_sets = shader->set_count;
     for (uint32_t i = 0; i < shader->set_count; i++) {
       layout_info.set_layouts[i] = lida_GetDescriptorSetLayout(lida_ShaderReflectGetBindings(shader, i),
-                                                   lida_ShaderReflectGetNumBindings(shader, i));
+                                                               lida_ShaderReflectGetNumBindings(shader, i));
     }
     layout_info.num_ranges = shader->range_count;
     for (uint32_t i = 0; i < shader->range_count; i++) {
@@ -892,20 +892,24 @@ lida_CreateGraphicsPipelines(VkPipeline* pipelines, uint32_t count, const lida_P
   VkPipelineDynamicStateCreateInfo* dynamic_states = lida_TempAllocate(count * sizeof(VkPipelineDynamicStateCreateInfo));
   for (uint32_t i = 0; i < count; i++) {
     modules[2*i] = lida_LoadShader(descs[i].vertex_shader, &reflects[2*i]);
-    modules[2*i+1] = lida_LoadShader(descs[i].fragment_shader, &reflects[2*i+1]);
     stages[2*i] = (VkPipelineShaderStageCreateInfo) {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
       .stage = VK_SHADER_STAGE_VERTEX_BIT,
       .module = modules[2*i],
       .pName = "main"
     };
-    stages[2*i+1] = (VkPipelineShaderStageCreateInfo) {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-      .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-      .module = modules[2*i+1],
-      .pName = "main"
-    };
-    layouts[i] = lida_CreatePipelineLayout(&reflects[2*i], 2);
+    if (descs[i].fragment_shader) {
+      // pipeline may have not a fragment shader
+      modules[2*i+1] = lida_LoadShader(descs[i].fragment_shader, &reflects[2*i+1]);
+      stages[2*i+1] = (VkPipelineShaderStageCreateInfo) {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = modules[2*i+1],
+        .pName = "main"
+      };
+    }
+    layouts[i] = lida_CreatePipelineLayout(&reflects[2*i],
+                                           (descs[i].fragment_shader) ? 2 : 1);
     vertex_input_states[i] = (VkPipelineVertexInputStateCreateInfo) {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
       .vertexBindingDescriptionCount = descs[i].vertex_binding_count,
@@ -969,7 +973,7 @@ lida_CreateGraphicsPipelines(VkPipeline* pipelines, uint32_t count, const lida_P
     };
     create_infos[i] = (VkGraphicsPipelineCreateInfo) {
       .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-      .stageCount = 2,
+      .stageCount = (descs[i].fragment_shader) ? 2 : 1,
       .pStages = &stages[i*2],
       .pVertexInputState = &vertex_input_states[i],
       .pInputAssemblyState = &input_assembly_states[i],
