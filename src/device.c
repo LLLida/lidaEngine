@@ -1,7 +1,7 @@
 #include "device.h"
 #include "base.h"
 #include "memory.h"
-#include "spirv.h"
+#include "lib/spirv.h"
 
 #include <assert.h>
 #include <SDL_rwops.h>

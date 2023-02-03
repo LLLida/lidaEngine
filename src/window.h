@@ -1,6 +1,6 @@
 #include "SDL_video.h"
 #include "stdint.h"
-#include "volk.h"
+#include "lib/volk.h"
 
 #ifdef __cplusplus
 extern "C" {

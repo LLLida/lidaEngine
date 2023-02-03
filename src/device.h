@@ -1,6 +1,6 @@
 #pragma once
 
-#include "volk.h"
+#include "lib/volk.h"
 
 #ifdef __cplusplus
 extern "C" {

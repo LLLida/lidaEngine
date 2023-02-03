@@ -4,7 +4,7 @@
 #include "SDL_rwops.h"
 
 #define OGT_VOX_IMPLEMENTATION
-#include "ogt_vox.h"
+#include "lib/ogt_vox.h"
 
 // TODO: don't use this
 #include <algorithm> // for std::sort

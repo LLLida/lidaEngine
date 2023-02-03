@@ -10,7 +10,7 @@
 #include <string.h>
 
 #define STB_SPRINTF_IMPLEMENTATION
-#include "stb_sprintf.h"
+#include "lib/stb_sprintf.h"
 
 
 /// Logging
