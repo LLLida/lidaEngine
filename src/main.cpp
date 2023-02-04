@@ -2,13 +2,18 @@
 
 #include "init.h"
 #include "device.h"
-#include "memory.h"
 #include "window.h"
 #include "base.h"
 #include "linalg.h"
 #include "render.h"
 #include "voxel.h"
 #include "ecs.h"
+#include "lib/imgui.h"
+#include "lib/imgui_impl_sdl.h"
+#include "lib/imgui_impl_vulkan.h"
+
+#include <ft2build.h>
+#include FT_FREETYPE_H
 
 static VkPipeline createVoxelPipeline();
 static VkPipeline createTrianglePipeline();
@@ -28,9 +33,40 @@ lida_TypeInfo transform_type_info;
 lida_Camera camera;
 lida_VoxelDrawer vox_drawer;
 
+FT_Library freetype_library;
+
 int main(int argc, char** argv) {
   lida_EngineInit(argc, argv);
   LIDA_LOG_DEBUG("num images in swapchain: %u\n", lida_WindowGetNumImages());
+
+  // initialize free type
+  int error = FT_Init_FreeType(&freetype_library);
+  if (error) {
+    return error;
+  }
+
+  // initialize ImGui
+  auto im_context = ImGui::CreateContext();
+  ImGui::SetCurrentContext(im_context);
+  ImGui_ImplVulkan_InitInfo init_info = {
+    .Instance = lida_GetVulkanInstance(),
+    .PhysicalDevice = lida_GetPhysicalDevice(),
+    .Device = lida_GetLogicalDevice(),
+    .QueueFamily = lida_GetGraphicsQueueFamily(),
+    .Queue = lida_GetGraphicsQueue(),
+    .PipelineCache = VK_NULL_HANDLE,
+    .DescriptorPool = lida_GetDescriptorPool(),
+    .Subpass = 0,
+    .MinImageCount = 2,
+    .ImageCount = lida_WindowGetNumImages(),
+    .MSAASamples = VK_SAMPLE_COUNT_1_BIT,
+    .Allocator = NULL
+  };
+  ImGui_ImplSDL2_InitForVulkan(lida_WindowGet_SDL_Handle());
+  ImGui_ImplVulkan_Init(&init_info, lida_WindowGetRenderPass());
+  auto io = &ImGui::GetIO();
+  io->ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+  io->Fonts->AddFontDefault();
 
   ecs = lida_ECS_Create(8, 32);
   vox_grid_type_info = LIDA_TYPE_INFO(lida_VoxelGrid, lida_MallocAllocator(), 0);
@@ -68,7 +104,6 @@ int main(int argc, char** argv) {
     auto grid = vox_grids.add(ecs, entity1);
     lida_VoxelGridLoadFromFile(grid, "../assets/3x3x3.vox");
     auto transform = transforms.add(ecs, entity1);
-    LIDA_LOG_DEBUG("%p", transform);
     transform->rotation = LIDA_QUAT_IDENTITY();
     transform->position = {3.0f, 2.0f, 0.0f};
     transform->scale = 0.85f;
@@ -80,7 +115,6 @@ int main(int argc, char** argv) {
     auto grid = vox_grids.add(ecs, entity2);
     lida_VoxelGridLoadFromFile(grid, "../assets/3x3x3.vox");
     auto transform = transforms.add(ecs, entity2);
-    LIDA_LOG_DEBUG("%p", transform);
     transform->rotation = LIDA_QUAT_IDENTITY();
     transform->position = {-3.0f, 2.0f, 0.1f};
     transform->scale = 0.64f;
@@ -92,7 +126,6 @@ int main(int argc, char** argv) {
     auto grid = vox_grids.add(ecs, entity);
     lida_VoxelGridLoadFromFile(grid, "../assets/chr_naked1.vox");
     auto transform = transforms.add(ecs, entity);
-    LIDA_LOG_DEBUG("%p", transform);
     transform->rotation = LIDA_QUAT_IDENTITY();
     transform->position = {-1.0f, -1.0f, 3.0f};
     transform->scale = 0.1f;
@@ -103,7 +136,6 @@ int main(int argc, char** argv) {
     auto grid = vox_grids.add(ecs, entity);
     lida_VoxelGridLoadFromFile(grid, "../assets/chr_naked4.vox");
     auto transform = transforms.add(ecs, entity);
-    LIDA_LOG_DEBUG("%p", transform);
     transform->rotation = LIDA_QUAT_IDENTITY();
     transform->position = {-1.1f, -1.6f, 7.0f};
     transform->scale = 0.098f;
@@ -235,7 +267,24 @@ int main(int argc, char** argv) {
       lida_VoxelDrawerPushMesh(&vox_drawer, grid, transform);
     }
 
+    if (lida_WindowGetFrameNo() > 0) {
+      // new imgui frame
+      ImGui_ImplVulkan_NewFrame();
+      ImGui_ImplSDL2_NewFrame();
+      ImGui::NewFrame();
+      // show demo window
+      ImGui::ShowDemoWindow();
+
+      ImGui::Render();
+    }
+
     VkCommandBuffer cmd = lida_WindowBeginCommands();
+
+    if (lida_WindowGetFrameNo() == 0) {
+      ImGui_ImplVulkan_CreateFontsTexture(cmd);
+    } else if (lida_WindowGetFrameNo() == 2) {
+      ImGui_ImplVulkan_DestroyFontUploadObjects();
+    }
 
     lida_ShadowPassBegin(cmd);
     VkDescriptorSet ds_set = lida_ShadowPassGetDS0();
@@ -281,6 +330,12 @@ int main(int argc, char** argv) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout2, 0, 1, &ds_set, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, rect_pipeline);
     vkCmdDraw(cmd, 4, 1, 0, 0);
+
+    if (lida_WindowGetFrameNo() > 0) {
+      auto draw_data = ImGui::GetDrawData();
+      ImGui_ImplVulkan_RenderDrawData(draw_data, cmd);
+    }
+
     vkCmdEndRenderPass(cmd);
 
     vkEndCommandBuffer(cmd);
@@ -300,6 +355,10 @@ int main(int argc, char** argv) {
   vkDestroyPipeline(lida_GetLogicalDevice(), rect_pipeline, NULL);
   vkDestroyPipeline(lida_GetLogicalDevice(), pipeline, NULL);
   vkDestroyPipeline(lida_GetLogicalDevice(), vox_pipeline, NULL);
+
+  ImGui_ImplVulkan_Shutdown();
+  ImGui_ImplSDL2_Shutdown();
+  ImGui::DestroyContext();
 
   lida_EngineFree();
 

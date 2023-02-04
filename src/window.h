@@ -34,6 +34,7 @@ LIDA_WINDOW_CREATE( .name = "Hello world",
 void lida_WindowDestroy();
 void lida_WindowResize();
 
+SDL_Window* lida_WindowGet_SDL_Handle();
 VkSurfaceKHR lida_WindowGetSurface();
 VkSwapchainKHR lida_WindowGetSwapchain();
 uint32_t lida_WindowGetNumImages();
@@ -43,6 +44,7 @@ VkRenderPass lida_WindowGetRenderPass();
 VkSurfaceFormatKHR lida_WindowGetFormat();
 VkPresentModeKHR lida_WindowGetPresentMode();
 float lida_WindowGetFPS();
+uint64_t lida_WindowGetFrameNo();
 
 // wait for an available command buffer and begin it
 // this function will take the most of the time if not used properly as it waits

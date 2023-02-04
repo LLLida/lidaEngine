@@ -90,7 +90,7 @@ lida_WindowDestroy()
   vkDestroyRenderPass(dev, g_window->render_pass, NULL);
   vkDestroySwapchainKHR(dev, g_window->swapchain, NULL);
   vkDestroySurfaceKHR(lida_GetVulkanInstance(), g_window->surface, NULL);
-  
+
   lida_MallocFree(g_window->images);
   lida_TempFree(g_window);
   g_window = NULL;
@@ -111,6 +111,12 @@ lida_WindowResize()
     return;
   }
   LIDA_LOG_TRACE("successfully resized window");
+}
+
+SDL_Window*
+lida_WindowGet_SDL_Handle()
+{
+  return g_window->window;
 }
 
 VkSurfaceKHR
@@ -165,6 +171,12 @@ float
 lida_WindowGetFPS()
 {
   return g_window->frames_per_second;
+}
+
+uint64_t
+lida_WindowGetFrameNo()
+{
+  return g_window->frame_counter;
 }
 
 VkCommandBuffer

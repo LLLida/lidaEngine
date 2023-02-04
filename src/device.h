@@ -115,6 +115,7 @@ const VkPhysicalDeviceProperties* lida_GetDeviceProperties();
 
 // currently we have 1 queue for whole application, we might consider adding compute queue
 uint32_t lida_GetGraphicsQueueFamily();
+VkQueue lida_GetGraphicsQueue();
 
 VkResult lida_AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCommandBufferLevel level, const char* marker);
 VkResult lida_QueueSubmit(VkSubmitInfo* submits, uint32_t count, VkFence fence);
@@ -143,6 +144,7 @@ void lida_UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, ui
 VkResult lida_AllocateAndUpdateDescriptorSet(const lida_DescriptorBindingInfo* bindings, uint32_t count,
                                              VkDescriptorSet* set, int dynamic, const char* marker);
 void lida_ResetDynamicSets();
+VkDescriptorPool lida_GetDescriptorPool();
 
 // try to find a sampler in cache, if not found then create a new one
 VkSampler lida_GetSampler(VkFilter filter, VkSamplerAddressMode mode);

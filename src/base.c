@@ -9,7 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define STB_SPRINTF_IMPLEMENTATION
+// imgui seems to define this
+// #define STB_SPRINTF_IMPLEMENTATION
 #include "lib/stb_sprintf.h"
 
 

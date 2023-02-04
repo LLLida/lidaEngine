@@ -318,6 +318,12 @@ lida_GetGraphicsQueueFamily()
   return g_device->graphics_queue_family;
 }
 
+VkQueue
+lida_GetGraphicsQueue()
+{
+  return g_device->graphics_queue;
+}
+
 VkResult
 lida_AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCommandBufferLevel level, const char* marker)
 {
@@ -609,6 +615,12 @@ void
 lida_ResetDynamicSets()
 {
   vkResetDescriptorPool(g_device->logical_device, g_device->dynamic_ds_pool, 0);
+}
+
+VkDescriptorPool
+lida_GetDescriptorPool()
+{
+  return g_device->static_ds_pool;
 }
 
 VkSampler
