@@ -2,9 +2,10 @@ cmake_minimum_required(VERSION 3.1)
 project(lidaEngine)
 
 add_library(lidaEngine STATIC
-  device.c memory.c window.c base.c linalg.c ecs.c render.c voxel.cc volk.c)
-target_link_libraries(lidaEngine PUBLIC SDL2::SDL2)
-target_include_directories(lidaEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+  device.c memory.c window.c base.c linalg.c ecs.c render.c voxel.cc init.c
+  lib/volk.c lib/imgui.cpp lib/imgui_demo.cpp lib/imgui_draw.cpp lib/imgui_freetype.cpp lib/imgui_impl_sdl.cpp lib/imgui_impl_vulkan.cpp lib/imgui_tables.cpp lib/imgui_widgets.cpp)
+target_link_libraries(lidaEngine PUBLIC SDL2::SDL2 ${FREETYPE_LIBRARIES})
+target_include_directories(lidaEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${FREETYPE_INCLUDE_DIRS})
 target_compile_definitions(lidaEngine PRIVATE
   LIDA_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 

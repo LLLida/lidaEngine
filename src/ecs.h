@@ -36,3 +36,7 @@ lida_ID* lida_ComponentIDs(lida_ComponentView* view);
 #ifdef __cplusplus
 }
 #endif
+
+// Local Variables:
+// mode: c++
+// End:

@@ -69,7 +69,7 @@ lida_ECS_Destroy(lida_ECS* ecs)
     }
   }
   lida_MallocFree(ecs->pools);
-  lida_DynArrayClear(&ecs->entities);
+  lida_DynArrayDelete(&ecs->entities);
   lida_MallocFree(ecs);
 }
 

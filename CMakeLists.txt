@@ -2,10 +2,11 @@ cmake_minimum_required(VERSION 3.1)
 project(lidaEngine)
 
 find_package(SDL2 REQUIRED)
+find_package(Freetype REQUIRED)
 
 add_subdirectory(src)
 
-add_executable(tst src/main.c)
+add_executable(tst src/main.cpp)
 target_link_libraries(tst lidaEngine)
 
 set(ENABLE_ASAN 0)

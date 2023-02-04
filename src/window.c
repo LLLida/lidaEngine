@@ -90,8 +90,8 @@ lida_WindowDestroy()
   vkDestroyRenderPass(dev, g_window->render_pass, NULL);
   vkDestroySwapchainKHR(dev, g_window->swapchain, NULL);
   vkDestroySurfaceKHR(lida_GetVulkanInstance(), g_window->surface, NULL);
-
-  lida_TempFree(g_window->images);
+  
+  lida_MallocFree(g_window->images);
   lida_TempFree(g_window);
   g_window = NULL;
 }
@@ -104,6 +104,7 @@ lida_WindowResize()
     vkDestroyFramebuffer(dev, g_window->images[i].framebuffer, NULL);
     vkDestroyImageView(dev, g_window->images[i].image_view, NULL);
   }
+  lida_MallocFree(g_window->images);
   VkResult err = CreateSwapchain(g_window->present_mode);
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to recreate swapchain with error %s", lida_VkResultToString(err));

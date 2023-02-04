@@ -1,5 +1,6 @@
 #include <SDL.h>
 
+#include "init.h"
 #include "device.h"
 #include "memory.h"
 #include "window.h"
@@ -9,9 +10,6 @@
 #include "voxel.h"
 #include "ecs.h"
 
-#include <unistd.h>
-
-static int checkOption(const char* opt);
 static VkPipeline createVoxelPipeline();
 static VkPipeline createTrianglePipeline();
 static VkPipeline createRectPipeline();
@@ -31,76 +29,7 @@ lida_Camera camera;
 lida_VoxelDrawer vox_drawer;
 
 int main(int argc, char** argv) {
-  SDL_Init(SDL_INIT_VIDEO);
-  lida_TempAllocatorCreate(32 * 1024);
-
-  lida_ProfilerBeginSession("results.json");
-
-  {
-    int enable_debug_layers = 1;
-    VkSampleCountFlagBits msaa_samples = VK_SAMPLE_COUNT_4_BIT;
-    int window_w = 1080;
-    int window_h = 720;
-#ifdef __linux__
-    // my tiling window manager immediately resizes the window at startup,
-    // I don't like that behavior. We have an option whether the window is
-    // resizable for debug purposes.
-    int resizable = 0;
-#else
-    int resizable = 1;
-#endif
-    int opt;
-    // TODO: use argp and introduce resizable option
-    while ((opt = getopt(argc, argv, "d:s:w:h:")) != -1) {
-      switch (opt) {
-      case 'd':
-        enable_debug_layers = atoi(optarg);
-        break;
-      case 's':
-        switch (optarg[0]) {
-        case '1':
-          msaa_samples = VK_SAMPLE_COUNT_1_BIT;
-          break;
-        case '2':
-          msaa_samples = VK_SAMPLE_COUNT_2_BIT;
-          break;
-        case '4':
-          msaa_samples = VK_SAMPLE_COUNT_4_BIT;
-          break;
-        case '8':
-          msaa_samples = VK_SAMPLE_COUNT_8_BIT;
-          break;
-        default:
-          LIDA_LOG_WARN("invalid option for MSAA samples: %s", optarg);
-          break;
-        }
-        break;
-      case 'w':
-        window_w = atoi(optarg);
-        break;
-      case 'h':
-        window_h = atoi(optarg);
-        break;
-      }
-    }
-    lida_InitPlatformSpecificLoggers();
-    LIDA_DEVICE_CREATE(.enable_debug_layers = enable_debug_layers,
-                       .gpu_id = 0,
-                       .app_name = "tst",
-                       .app_version = VK_MAKE_VERSION(0, 0, 0),
-                       .device_extensions = (const char*[]){ VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME },
-                       .num_device_extensions = 2);
-
-    LIDA_WINDOW_CREATE(.name = "hello world",
-                       .x = SDL_WINDOWPOS_CENTERED,
-                       .y = SDL_WINDOWPOS_CENTERED,
-                       .w = window_w,
-                       .h = window_h,
-                       .preferred_present_mode = VK_PRESENT_MODE_MAILBOX_KHR,
-                       .resizable = resizable);
-    lida_ForwardPassCreate(lida_WindowGetExtent().width, lida_WindowGetExtent().height, msaa_samples);
-    lida_ShadowPassCreate(1024, 1024);
-  }
+  lida_EngineInit(argc, argv);
   LIDA_LOG_DEBUG("num images in swapchain: %u\n", lida_WindowGetNumImages());
 
   ecs = lida_ECS_Create(8, 32);
@@ -126,7 +55,7 @@ int main(int argc, char** argv) {
   uint32_t curr_time = prev_time;
 
   // hide the cursor
-  int mouse_mode = 1;
+  SDL_bool mouse_mode = SDL_TRUE;
   SDL_SetRelativeMouseMode(mouse_mode);
 
   lida_ComponentView* vox_grids = lida_ECS_Components(ecs, &vox_grid_type_info);
@@ -136,9 +65,9 @@ int main(int argc, char** argv) {
   // 3x3x3 box
   lida_ID entity1 = lida_CreateEntity(ecs);
   {
-    lida_VoxelGrid* grid = lida_ComponentAdd(ecs, vox_grids, entity1);
+    auto grid = (lida_VoxelGrid*)lida_ComponentAdd(ecs, vox_grids, entity1);
     lida_VoxelGridLoadFromFile(grid, "../assets/3x3x3.vox");
-    lida_Transform* transform = lida_ComponentAdd(ecs, transforms, entity1);
+    auto transform = (lida_Transform*)lida_ComponentAdd(ecs, transforms, entity1);
     transform->rotation = LIDA_QUAT_IDENTITY();
     transform->position = LIDA_VEC3_CREATE(3.0f, 2.0f, 0.0f);
     transform->scale = 0.85f;
@@ -147,9 +76,9 @@ int main(int argc, char** argv) {
   // another 3x3x3 box
   lida_ID entity2 = lida_CreateEntity(ecs);
   {
-    lida_VoxelGrid* grid = lida_ComponentAdd(ecs, vox_grids, entity2);
+    auto grid = (lida_VoxelGrid*)lida_ComponentAdd(ecs, vox_grids, entity2);
     lida_VoxelGridLoadFromFile(grid, "../assets/3x3x3.vox");
-    lida_Transform* transform = lida_ComponentAdd(ecs, transforms, entity2);
+    auto transform = (lida_Transform*)lida_ComponentAdd(ecs, transforms, entity2);
     transform->rotation = LIDA_QUAT_IDENTITY();
     transform->position = LIDA_VEC3_CREATE(-3.0f, 2.0f, 0.1f);
     transform->scale = 0.64f;
@@ -158,9 +87,9 @@ int main(int argc, char** argv) {
   // some model
   {
     lida_ID entity = lida_CreateEntity(ecs);
-    lida_VoxelGrid* grid = lida_ComponentAdd(ecs, vox_grids, entity);
+    auto grid = (lida_VoxelGrid*)lida_ComponentAdd(ecs, vox_grids, entity);
     lida_VoxelGridLoadFromFile(grid, "../assets/chr_naked1.vox");
-    lida_Transform* transform = lida_ComponentAdd(ecs, transforms, entity);
+    auto transform = (lida_Transform*)lida_ComponentAdd(ecs, transforms, entity);
     transform->rotation = LIDA_QUAT_IDENTITY();
     transform->position = LIDA_VEC3_CREATE(-1.0f, -1.0f, 3.0f);
     transform->scale = 0.1f;
@@ -168,9 +97,9 @@ int main(int argc, char** argv) {
   // other model
   {
     lida_ID entity = lida_CreateEntity(ecs);
-    lida_VoxelGrid* grid = lida_ComponentAdd(ecs, vox_grids, entity);
+    auto grid = (lida_VoxelGrid*)lida_ComponentAdd(ecs, vox_grids, entity);
     lida_VoxelGridLoadFromFile(grid, "../assets/chr_naked4.vox");
-    lida_Transform* transform = lida_ComponentAdd(ecs, transforms, entity);
+    auto transform = (lida_Transform*)lida_ComponentAdd(ecs, transforms, entity);
     transform->rotation = LIDA_QUAT_IDENTITY();
     transform->position = LIDA_VEC3_CREATE(-1.1f, -1.6f, 7.0f);
     transform->scale = 0.098f;
@@ -197,10 +126,11 @@ int main(int argc, char** argv) {
           LIDA_LOG_INFO("FPS=%f", lida_WindowGetFPS());
           break;
         case SDLK_2:
-          lida_VoxelGridSet(lida_ComponentGet(vox_grids, entity1), 0, 0, 0, 17);
+          lida_VoxelGridSet((lida_VoxelGrid*)lida_ComponentGet(vox_grids, entity1), 0, 0, 0, 17);
           break;
         case SDLK_3:
-          mouse_mode = 1-mouse_mode;
+          if (mouse_mode) mouse_mode = SDL_FALSE;
+          else mouse_mode = SDL_TRUE;
           SDL_SetRelativeMouseMode(mouse_mode);
           break;
 
@@ -286,17 +216,22 @@ int main(int argc, char** argv) {
     lida_OrthographicMatrix(-b, b, -b, b, 1.0f, 40.0f, &light_proj);
     // lida_LookAtMatrix(& LIDA_VEC3_CREATE(1.0f, 10.0f, 0.0f), & LIDA_VEC3_SUB(LIDA_VEC3_CREATE(0.0f, 0.0f, 0.0f), sc_data->sun_dir), &camera.up,
     //                   &light_view);
-    lida_LookAtMatrix(& camera.position, & LIDA_VEC3_ADD(camera.position, camera.front), &camera.up,
+    lida_Vec3 camera_target = camera.position + camera.front;
+    lida_LookAtMatrix(& camera.position, &camera_target, &camera.up,
                       &light_view);
     lida_Mat4Mul(&light_proj, &light_view, &sc_data->light_space);
 
     lida_VoxelDrawerNewFrame(&vox_drawer);
 
     // send voxel grids to draw
-    lida_VoxelGrid* grid;
-    lida_ID* entity;
-    LIDA_COMPONENT_FOREACH(vox_grids, grid, entity) {
-      lida_Transform* transform = lida_ComponentGet(transforms, *entity);
+    lida_VoxelGrid* grid = (lida_VoxelGrid*)lida_ComponentData(vox_grids);
+    lida_ID* entity = lida_ComponentIDs(vox_grids);
+    uint32_t count = 0;
+    // LIDA_COMPONENT_FOREACH(vox_grids, grid, entity)
+    uint32_t count_ = lida_ComponentCount(vox_grids);
+    for (; count_--; grid++, entity++)
+    {
+      lida_Transform* transform = (lida_Transform*)lida_ComponentGet(transforms, *entity);
       lida_VoxelDrawerPushMesh(&vox_drawer, grid, transform);
     }
 
@@ -366,14 +301,7 @@ int main(int argc, char** argv) {
   vkDestroyPipeline(lida_GetLogicalDevice(), pipeline, NULL);
   vkDestroyPipeline(lida_GetLogicalDevice(), vox_pipeline, NULL);
 
-  lida_ShadowPassDestroy();
-  lida_ForwardPassDestroy();
-  lida_WindowDestroy();
-  lida_DeviceDestroy(0);
-
-  lida_ProfilerEndSession();
-
-  lida_TempAllocatorDestroy();
+  lida_EngineFree();
 
   return 0;
 }

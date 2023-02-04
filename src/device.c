@@ -440,8 +440,9 @@ VkShaderModule
 lida_LoadShader(const char* path, const lida_ShaderReflect** reflect)
 {
   LIDA_PROFILE_FUNCTION();
+  ShaderInfo key_tmp = { .name = path };
   // check if we already have loaded this shader
-  ShaderInfo* info = lida_HT_Search(&g_device->shader_cache, &path);
+  ShaderInfo* info = lida_HT_Search(&g_device->shader_cache, &key_tmp);
   if (info) {
     return info->module;
   }
@@ -890,6 +891,8 @@ lida_CreateGraphicsPipelines(VkPipeline* pipelines, uint32_t count, const lida_P
   VkPipelineDepthStencilStateCreateInfo* depth_stencil_states = lida_TempAllocate(count * sizeof(VkPipelineDepthStencilStateCreateInfo));
   VkPipelineColorBlendStateCreateInfo* color_blend_states = lida_TempAllocate(count * sizeof(VkPipelineColorBlendStateCreateInfo));
   VkPipelineDynamicStateCreateInfo* dynamic_states = lida_TempAllocate(count * sizeof(VkPipelineDynamicStateCreateInfo));
+  // reserve shader cache
+  lida_HT_Reserve(&g_device->shader_cache, g_device->shader_cache.size + count * 2);
   for (uint32_t i = 0; i < count; i++) {
     modules[2*i] = lida_LoadShader(descs[i].vertex_shader, &reflects[2*i]);
     stages[2*i] = (VkPipelineShaderStageCreateInfo) {
@@ -1447,6 +1450,8 @@ CreateLogicalDevice(const lida_DeviceDesc* desc)
     if (desc->enable_debug_layers) {
       g_device->enabled_device_extensions[desc->num_device_extensions] = VK_EXT_DEBUG_MARKER_EXTENSION_NAME;
       g_device->debug_marker_enabled = 1;
+    } else {
+      g_device->debug_marker_enabled = 0;
     }
   } else {
     g_device->num_enabled_device_extensions = g_device->num_available_device_extensions;
