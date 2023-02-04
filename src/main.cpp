@@ -90,6 +90,9 @@ int main(int argc, char** argv) {
   uint32_t prev_time = SDL_GetTicks();
   uint32_t curr_time = prev_time;
 
+  // render mode
+  int render_mode = 0;
+
   // hide the cursor
   SDL_bool mouse_mode = SDL_TRUE;
   SDL_SetRelativeMouseMode(mouse_mode);
@@ -169,6 +172,9 @@ int main(int argc, char** argv) {
           else mouse_mode = SDL_TRUE;
           SDL_SetRelativeMouseMode(mouse_mode);
           break;
+        case SDLK_4:
+          render_mode = 1 - render_mode;
+          break;
 
           // camera movement
         case SDLK_w:
@@ -243,29 +249,33 @@ int main(int argc, char** argv) {
     memcpy(&sc_data->camera_projection, &camera.projection_matrix, sizeof(lida_Mat4));
     memcpy(&sc_data->camera_view, &camera.view_matrix, sizeof(lida_Mat4));
     lida_Mat4Mul(&sc_data->camera_projection, &sc_data->camera_view, &sc_data->camera_projview);
-    sc_data->sun_dir = LIDA_VEC3_CREATE(0.03f, 0.9f, -0.1f);
+    sc_data->sun_dir = lida_Vec3{0.03f, 0.9f, 0.09f};
     sc_data->sun_ambient = 0.1f;
     lida_Vec3Normalize(&sc_data->sun_dir, &sc_data->sun_dir);
 
     lida_Mat4 light_proj, light_view;
-    const float b = 40.0f;
-    lida_OrthographicMatrix(-b, b, -b, b, 1.0f, 40.0f, &light_proj);
-    // lida_LookAtMatrix(& LIDA_VEC3_CREATE(1.0f, 10.0f, 0.0f), & LIDA_VEC3_SUB(LIDA_VEC3_CREATE(0.0f, 0.0f, 0.0f), sc_data->sun_dir), &camera.up,
-    //                   &light_view);
-    lida_Vec3 camera_target = camera.position + camera.front;
-    lida_LookAtMatrix(& camera.position, &camera_target, &camera.up,
+    // const float b = 4.0f;
+    // lida_OrthographicMatrix(-b, b, -b, b, 1.0f, 10.0f, &light_proj);
+    lida_PerspectiveMatrix(3.14f / 4.0f, 1.0f, 1.0f, &light_proj);
+
+    static lida_Vec3 light_off = {0.03f, -0.95f, 0.0f};
+    lida_Vec3 light_pos = sc_data->sun_dir * 3.5f;
+    lida_Vec3 light_target = light_pos - light_off;
+    lida_LookAtMatrix(&light_pos, &light_target, &camera.up,
                       &light_view);
+
     lida_Mat4Mul(&light_proj, &light_view, &sc_data->light_space);
 
     lida_VoxelDrawerNewFrame(&vox_drawer);
 
-    for (auto it : vox_grids)
-    {
+    for (auto it : vox_grids) {
       lida_ID entity = std::get<0>(it);
       lida_VoxelGrid* grid = std::get<1>(it);
       lida_Transform* transform = transforms.get(entity);
       lida_VoxelDrawerPushMesh(&vox_drawer, grid, transform);
     }
+
+    static float depth_bias_constant = 1.0f, depth_bias_slope = 1.75f;
 
     if (lida_WindowGetFrameNo() > 0) {
       // new imgui frame
@@ -274,6 +284,13 @@ int main(int argc, char** argv) {
       ImGui::NewFrame();
       // show demo window
       ImGui::ShowDemoWindow();
+
+      ImGui::Begin("Edit");
+      ImGui::Text("position = [%.3f %.3f %.3f]", camera.position.x, camera.position.y, camera.position.z);
+      ImGui::Text("front = [%.3f %.3f %.3f]", camera.front.x, camera.front.y, camera.front.z);
+      ImGui::SliderFloat("depth bias constant", &depth_bias_constant, 0.2f, depth_bias_slope);
+      ImGui::SliderFloat("depth bias slope", &depth_bias_slope, depth_bias_constant, 5.0f);
+      ImGui::End();
 
       ImGui::Render();
     }
@@ -290,7 +307,7 @@ int main(int argc, char** argv) {
     VkDescriptorSet ds_set = lida_ShadowPassGetDS0();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout4, 0, 1, &ds_set, 0, NULL);
     // TODO: don't hardcode depth bias values
-    vkCmdSetDepthBias(cmd, 1.0f, 0.0f, 1.75f);
+    vkCmdSetDepthBias(cmd, depth_bias_constant, 0.0f, depth_bias_slope);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline);
     lida_VoxelDrawerDraw(&vox_drawer, cmd);
     vkCmdEndRenderPass(cmd);
@@ -311,11 +328,11 @@ int main(int argc, char** argv) {
     vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(lida_Vec4)*3 + sizeof(lida_Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     // 2nd draw
-    colors[3] = LIDA_VEC4_CREATE(0.1f, 0.0f, 1.0f, 0.0f);
+    colors[2] = LIDA_VEC4_CREATE(0.1f, 0.0f, 1.0f, 0.0f);
     vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(lida_Vec4)*3 + sizeof(lida_Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     // draw voxels
-    VkDescriptorSet ds_sets[1] = { lida_ForwardPassGetDS0() };
+    VkDescriptorSet ds_sets[] = { lida_ForwardPassGetDS0(), lida_ShadowPassGetDS1() };
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout3, 0, LIDA_ARR_SIZE(ds_sets), ds_sets, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vox_pipeline);
     for (uint32_t i = 0; i < 6; i++) {
@@ -326,7 +343,11 @@ int main(int argc, char** argv) {
     vkCmdEndRenderPass(cmd);
 
     lida_WindowBeginRendering();
-    ds_set = lida_ForwardPassGetDS1();
+    if (render_mode == 0) {
+      ds_set = lida_ForwardPassGetDS1();
+    } else {
+      ds_set = lida_ShadowPassGetDS1();
+    }
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout2, 0, 1, &ds_set, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, rect_pipeline);
     vkCmdDraw(cmd, 4, 1, 0, 0);

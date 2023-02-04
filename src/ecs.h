@@ -97,13 +97,13 @@ namespace lida {
         ids++;
         return *this;
       }
-      
+
       Iterator operator++(int) {
         Iterator tmp = *this;
         ++(*this);
         return tmp;
       }
-      
+
       bool operator==(const Iterator& lhs) const {
         return components == lhs.components && ids == lhs.ids;
       }

@@ -35,6 +35,7 @@ const vec3 normals[] = {
   vec3(0.0, 0.0, 1.0),
 };
 
+// TODO: find a better way to specify normal index
 PUSH_CONSTANT Normal_ID {
   uint normal_ID;
 };
@@ -45,10 +46,10 @@ out gl_PerVertex {
 
 void main() {
   vec3 pos = doTransform(inPosition, inRotation, inTranslation, inScale);
-  // TODO: find a way to specify normal index
   outNormal = normalize(rotate(normals[normal_ID], inRotation));
   outColor = decompress(inColor);
-  vec4 viewSpacePos = g.camera_view * vec4(pos, 1.0);
-  outPosition = viewSpacePos.xyz;
+  // vec4 viewSpacePos = g.camera_view * vec4(pos, 1.0);
+  // outPosition = viewSpacePos.xyz;
+  outPosition = pos;
   gl_Position = g.camera_projview * vec4(pos, 1.0);
 }

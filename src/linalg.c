@@ -280,7 +280,7 @@ lida_OrthographicMatrix(float left, float right, float bottom, float top,
   // };
 #if 1
   out->m00 = 2.0f / (right - left);
-  out->m11 = 2.0f / (top - bottom);
+  out->m11 = -2.0f / (top - bottom);
   out->m22 = -1.0f / (z_far - z_near);
   out->m30 = -(right + left) / (right - left);
   out->m31 = -(top + bottom) / (top - bottom);

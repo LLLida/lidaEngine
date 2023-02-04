@@ -757,7 +757,8 @@ SH_AllocateDescriptorSets()
     .descriptorCount = 1,
     .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
   };
-  VkResult err = lida_AllocateDescriptorSets(bindings, 1, &g_shadow_pass->scene_data_set, 1, 0, "shadow/scene-data");
+  VkResult err = lida_AllocateDescriptorSets(bindings, 1, &g_shadow_pass->scene_data_set, 1, 0,
+                                             "shadow/scene-data");
   if (err == VK_SUCCESS) {
     bindings[0] = (VkDescriptorSetLayoutBinding) {
       .binding = 0,
@@ -765,7 +766,8 @@ SH_AllocateDescriptorSets()
       .descriptorCount = 1,
       .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
     };
-    err = lida_AllocateDescriptorSets(bindings, 1, &g_shadow_pass->shadow_set, 1, 1, "shadow-map-set");
+    err = lida_AllocateDescriptorSets(bindings, 1, &g_shadow_pass->shadow_set, 1, 0,
+                                      "shadow-map-set");
   }
   if (err != VK_SUCCESS) {
     LIDA_LOG_ERROR("failed to allocate descriptor sets with error %s", lida_VkResultToString(err));
@@ -799,6 +801,6 @@ SH_AllocateDescriptorSets()
     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
     .pImageInfo = &image_info
   };
-  lida_UpdateDescriptorSets(write_sets, 2);
+  lida_UpdateDescriptorSets(write_sets, LIDA_ARR_SIZE(write_sets));
   return err;
 }

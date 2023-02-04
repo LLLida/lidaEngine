@@ -1609,7 +1609,7 @@ MergeShaderReflects(lida_ShaderReflect* lhs, const lida_ShaderReflect* rhs)
         assert(*pCount < SHADER_REFLECT_MAX_BINDINGS_PER_SET &&
                "shader reflect merge: binding number overflow, "
                "try to use less number of bindings per set");
-        memcpy(&lhs->sets[i].bindings[*pCount], &set->bindings[i],
+        memcpy(&lhs->sets[i].bindings[*pCount], &set->bindings[j],
                sizeof(VkDescriptorSetLayoutBinding));
         (*pCount)++;
       }
