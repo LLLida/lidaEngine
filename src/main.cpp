@@ -58,50 +58,54 @@ int main(int argc, char** argv) {
   SDL_bool mouse_mode = SDL_TRUE;
   SDL_SetRelativeMouseMode(mouse_mode);
 
-  lida_ComponentView* vox_grids = lida_ECS_Components(ecs, &vox_grid_type_info);
-  lida_ComponentView* transforms = lida_ECS_Components(ecs, &transform_type_info);
-  lida_ComponentSetDestructor(vox_grids, &lida_VoxelGridFreeWrapper);
+  auto vox_grids = lida::components<lida_VoxelGrid>(ecs, &vox_grid_type_info);
+  auto transforms = lida::components<lida_Transform>(ecs, &transform_type_info);
+  vox_grids.set_destructor(&lida_VoxelGridFreeWrapper);
 
   // 3x3x3 box
   lida_ID entity1 = lida_CreateEntity(ecs);
   {
-    auto grid = (lida_VoxelGrid*)lida_ComponentAdd(ecs, vox_grids, entity1);
+    auto grid = vox_grids.add(ecs, entity1);
     lida_VoxelGridLoadFromFile(grid, "../assets/3x3x3.vox");
-    auto transform = (lida_Transform*)lida_ComponentAdd(ecs, transforms, entity1);
+    auto transform = transforms.add(ecs, entity1);
+    LIDA_LOG_DEBUG("%p", transform);
     transform->rotation = LIDA_QUAT_IDENTITY();
-    transform->position = LIDA_VEC3_CREATE(3.0f, 2.0f, 0.0f);
+    transform->position = {3.0f, 2.0f, 0.0f};
     transform->scale = 0.85f;
   }
 
   // another 3x3x3 box
   lida_ID entity2 = lida_CreateEntity(ecs);
   {
-    auto grid = (lida_VoxelGrid*)lida_ComponentAdd(ecs, vox_grids, entity2);
+    auto grid = vox_grids.add(ecs, entity2);
     lida_VoxelGridLoadFromFile(grid, "../assets/3x3x3.vox");
-    auto transform = (lida_Transform*)lida_ComponentAdd(ecs, transforms, entity2);
+    auto transform = transforms.add(ecs, entity2);
+    LIDA_LOG_DEBUG("%p", transform);
     transform->rotation = LIDA_QUAT_IDENTITY();
-    transform->position = LIDA_VEC3_CREATE(-3.0f, 2.0f, 0.1f);
+    transform->position = {-3.0f, 2.0f, 0.1f};
     transform->scale = 0.64f;
   }
 
   // some model
   {
     lida_ID entity = lida_CreateEntity(ecs);
-    auto grid = (lida_VoxelGrid*)lida_ComponentAdd(ecs, vox_grids, entity);
+    auto grid = vox_grids.add(ecs, entity);
     lida_VoxelGridLoadFromFile(grid, "../assets/chr_naked1.vox");
-    auto transform = (lida_Transform*)lida_ComponentAdd(ecs, transforms, entity);
+    auto transform = transforms.add(ecs, entity);
+    LIDA_LOG_DEBUG("%p", transform);
     transform->rotation = LIDA_QUAT_IDENTITY();
-    transform->position = LIDA_VEC3_CREATE(-1.0f, -1.0f, 3.0f);
+    transform->position = {-1.0f, -1.0f, 3.0f};
     transform->scale = 0.1f;
   }
   // other model
   {
     lida_ID entity = lida_CreateEntity(ecs);
-    auto grid = (lida_VoxelGrid*)lida_ComponentAdd(ecs, vox_grids, entity);
+    auto grid = vox_grids.add(ecs, entity);
     lida_VoxelGridLoadFromFile(grid, "../assets/chr_naked4.vox");
-    auto transform = (lida_Transform*)lida_ComponentAdd(ecs, transforms, entity);
+    auto transform = transforms.add(ecs, entity);
+    LIDA_LOG_DEBUG("%p", transform);
     transform->rotation = LIDA_QUAT_IDENTITY();
-    transform->position = LIDA_VEC3_CREATE(-1.1f, -1.6f, 7.0f);
+    transform->position = {-1.1f, -1.6f, 7.0f};
     transform->scale = 0.098f;
   }
 
@@ -126,7 +130,7 @@ int main(int argc, char** argv) {
           LIDA_LOG_INFO("FPS=%f", lida_WindowGetFPS());
           break;
         case SDLK_2:
-          lida_VoxelGridSet((lida_VoxelGrid*)lida_ComponentGet(vox_grids, entity1), 0, 0, 0, 17);
+          lida_VoxelGridSet(vox_grids.get(entity1), 0, 0, 0, 17);
           break;
         case SDLK_3:
           if (mouse_mode) mouse_mode = SDL_FALSE;
@@ -223,15 +227,11 @@ int main(int argc, char** argv) {
 
     lida_VoxelDrawerNewFrame(&vox_drawer);
 
-    // send voxel grids to draw
-    lida_VoxelGrid* grid = (lida_VoxelGrid*)lida_ComponentData(vox_grids);
-    lida_ID* entity = lida_ComponentIDs(vox_grids);
-    uint32_t count = 0;
-    // LIDA_COMPONENT_FOREACH(vox_grids, grid, entity)
-    uint32_t count_ = lida_ComponentCount(vox_grids);
-    for (; count_--; grid++, entity++)
+    for (auto it : vox_grids)
     {
-      lida_Transform* transform = (lida_Transform*)lida_ComponentGet(transforms, *entity);
+      lida_ID entity = std::get<0>(it);
+      lida_VoxelGrid* grid = std::get<1>(it);
+      lida_Transform* transform = transforms.get(entity);
       lida_VoxelDrawerPushMesh(&vox_drawer, grid, transform);
     }
 

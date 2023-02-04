@@ -63,6 +63,7 @@ lida_ForwardPassCreate(uint32_t width, uint32_t height, VkSampleCountFlagBits sa
 {
   LIDA_PROFILE_FUNCTION();
   g_fwd_pass = lida_TempAllocate(sizeof(lida_ForwardPass));
+  memset(g_fwd_pass, 0, sizeof(lida_ForwardPass));
   g_fwd_pass->render_extent = (VkExtent2D) {width, height};
   FWD_ChooseFromats(samples);
   VkResult err = FWD_CreateRenderPass();
@@ -234,6 +235,7 @@ lida_ShadowPassCreate(uint32_t width, uint32_t height)
 {
   LIDA_PROFILE_FUNCTION();
   g_shadow_pass = lida_TempAllocate(sizeof(lida_ShadowPass));
+  memset(g_shadow_pass, 0, sizeof(lida_ShadowPass));
   g_shadow_pass->extent = (VkExtent2D) { width, height };
   VkResult err = SH_CreateRenderPass();
   if (err != VK_SUCCESS) {
