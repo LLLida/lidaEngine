@@ -8,12 +8,8 @@
 #include "render.h"
 #include "voxel.h"
 #include "ecs.h"
+#include "ui.h"
 #include "lib/imgui.h"
-#include "lib/imgui_impl_sdl.h"
-#include "lib/imgui_impl_vulkan.h"
-
-#include <ft2build.h>
-#include FT_FREETYPE_H
 
 static VkPipeline createVoxelPipeline();
 static VkPipeline createTrianglePipeline();
@@ -33,40 +29,11 @@ lida_TypeInfo transform_type_info;
 lida_Camera camera;
 lida_VoxelDrawer vox_drawer;
 
-FT_Library freetype_library;
-
 int main(int argc, char** argv) {
   lida_EngineInit(argc, argv);
   LIDA_LOG_DEBUG("num images in swapchain: %u\n", lida_WindowGetNumImages());
 
-  // initialize free type
-  int error = FT_Init_FreeType(&freetype_library);
-  if (error) {
-    return error;
-  }
-
-  // initialize ImGui
-  auto im_context = ImGui::CreateContext();
-  ImGui::SetCurrentContext(im_context);
-  ImGui_ImplVulkan_InitInfo init_info = {
-    .Instance = lida_GetVulkanInstance(),
-    .PhysicalDevice = lida_GetPhysicalDevice(),
-    .Device = lida_GetLogicalDevice(),
-    .QueueFamily = lida_GetGraphicsQueueFamily(),
-    .Queue = lida_GetGraphicsQueue(),
-    .PipelineCache = VK_NULL_HANDLE,
-    .DescriptorPool = lida_GetDescriptorPool(),
-    .Subpass = 0,
-    .MinImageCount = 2,
-    .ImageCount = lida_WindowGetNumImages(),
-    .MSAASamples = VK_SAMPLE_COUNT_1_BIT,
-    .Allocator = NULL
-  };
-  ImGui_ImplSDL2_InitForVulkan(lida_WindowGet_SDL_Handle());
-  ImGui_ImplVulkan_Init(&init_info, lida_WindowGetRenderPass());
-  auto io = &ImGui::GetIO();
-  io->ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-  io->Fonts->AddFontDefault();
+  lida_Init_ImGui();
 
   ecs = lida_ECS_Create(8, 32);
   vox_grid_type_info = LIDA_TYPE_INFO(lida_VoxelGrid, lida_MallocAllocator(), 0);
@@ -256,10 +223,11 @@ int main(int argc, char** argv) {
     lida_Mat4 light_proj, light_view;
     // const float b = 4.0f;
     // lida_OrthographicMatrix(-b, b, -b, b, 1.0f, 10.0f, &light_proj);
-    lida_PerspectiveMatrix(3.14f / 4.0f, 1.0f, 1.0f, &light_proj);
+    static float light_fov = 3.14f / 5.0f;
+    lida_PerspectiveMatrix(light_fov, 1.0f, 1.0f, &light_proj);
 
     static lida_Vec3 light_off = {0.03f, -0.95f, 0.0f};
-    lida_Vec3 light_pos = sc_data->sun_dir * 3.5f;
+    lida_Vec3 light_pos = sc_data->sun_dir * 3.0f;
     lida_Vec3 light_target = light_pos - light_off;
     lida_LookAtMatrix(&light_pos, &light_target, &camera.up,
                       &light_view);
@@ -277,19 +245,16 @@ int main(int argc, char** argv) {
 
     static float depth_bias_constant = 1.0f, depth_bias_slope = 1.75f;
 
-    if (lida_WindowGetFrameNo() > 0) {
-      // new imgui frame
-      ImGui_ImplVulkan_NewFrame();
-      ImGui_ImplSDL2_NewFrame();
-      ImGui::NewFrame();
+    if (lida_UI_NewFrame() == 0) {
       // show demo window
       ImGui::ShowDemoWindow();
 
       ImGui::Begin("Edit");
       ImGui::Text("position = [%.3f %.3f %.3f]", camera.position.x, camera.position.y, camera.position.z);
       ImGui::Text("front = [%.3f %.3f %.3f]", camera.front.x, camera.front.y, camera.front.z);
-      ImGui::SliderFloat("depth bias constant", &depth_bias_constant, 0.2f, depth_bias_slope);
+      ImGui::SliderFloat("depth bias constant", &depth_bias_constant, 0.0f, depth_bias_slope);
       ImGui::SliderFloat("depth bias slope", &depth_bias_slope, depth_bias_constant, 5.0f);
+      ImGui::SliderFloat("light fov", &light_fov, 0.1f, 3.14f / 2.0f);
       ImGui::End();
 
       ImGui::Render();
@@ -297,16 +262,11 @@ int main(int argc, char** argv) {
 
     VkCommandBuffer cmd = lida_WindowBeginCommands();
 
-    if (lida_WindowGetFrameNo() == 0) {
-      ImGui_ImplVulkan_CreateFontsTexture(cmd);
-    } else if (lida_WindowGetFrameNo() == 2) {
-      ImGui_ImplVulkan_DestroyFontUploadObjects();
-    }
+    lida_UI_Prepare(cmd);
 
     lida_ShadowPassBegin(cmd);
     VkDescriptorSet ds_set = lida_ShadowPassGetDS0();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout4, 0, 1, &ds_set, 0, NULL);
-    // TODO: don't hardcode depth bias values
     vkCmdSetDepthBias(cmd, depth_bias_constant, 0.0f, depth_bias_slope);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline);
     lida_VoxelDrawerDraw(&vox_drawer, cmd);
@@ -352,10 +312,7 @@ int main(int argc, char** argv) {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, rect_pipeline);
     vkCmdDraw(cmd, 4, 1, 0, 0);
 
-    if (lida_WindowGetFrameNo() > 0) {
-      auto draw_data = ImGui::GetDrawData();
-      ImGui_ImplVulkan_RenderDrawData(draw_data, cmd);
-    }
+    lida_UI_Render(cmd);
 
     vkCmdEndRenderPass(cmd);
 
@@ -377,9 +334,7 @@ int main(int argc, char** argv) {
   vkDestroyPipeline(lida_GetLogicalDevice(), pipeline, NULL);
   vkDestroyPipeline(lida_GetLogicalDevice(), vox_pipeline, NULL);
 
-  ImGui_ImplVulkan_Shutdown();
-  ImGui_ImplSDL2_Shutdown();
-  ImGui::DestroyContext();
+  lida_Free_ImGui();
 
   lida_EngineFree();
 
@@ -502,7 +457,7 @@ VkPipeline createSHVoxPipeline()
     .fragment_shader = NULL,
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     .polygonMode = VK_POLYGON_MODE_FILL,
-    .cullMode = VK_CULL_MODE_NONE,
+    .cullMode = VK_CULL_MODE_BACK_BIT,
     .depthBiasEnable = VK_TRUE,
     .msaa_samples = VK_SAMPLE_COUNT_1_BIT,
     .depth_test = VK_TRUE,
