@@ -30,6 +30,7 @@ lida_Camera camera;
 lida_VoxelDrawer vox_drawer;
 
 int main(int argc, char** argv) {
+
   lida_EngineInit(argc, argv);
   LIDA_LOG_DEBUG("num images in swapchain: %u\n", lida_WindowGetNumImages());
 
@@ -45,6 +46,8 @@ int main(int argc, char** argv) {
   VkPipeline rect_pipeline = createRectPipeline();
   VkPipeline vox_pipeline = createVoxelPipeline();
   VkPipeline shadow_pipeline = createSHVoxPipeline();
+
+  lida_FontAtlas* font_atlas = lida_FontAtlasCreate(512, 128);
 
   camera.z_near = 0.01f;
   camera.position = LIDA_VEC3_CREATE(0.0f, 0.0f, -2.0f);
@@ -260,9 +263,18 @@ int main(int argc, char** argv) {
       ImGui::Render();
     }
 
+    // draw text
+    uint32_t num_text_vertices;
+    if (lida_WindowGetFrameNo() > 0) {
+      lida_Vec2 pos = { -0.94f, 0.0f };
+      lida_Vec2 text_size = { 0.004f, 0.004f };
+      lida_Vec4 color = { 1.0f, 0.3f, 0.24f, 0.95f };
+      num_text_vertices = lida_FontAtlasAddText(font_atlas, "Hello", 0, &text_size, &color, &pos);
+    }
+
     VkCommandBuffer cmd = lida_WindowBeginCommands();
 
-    lida_UI_Prepare(cmd);
+    lida_UI_Prepare(cmd, font_atlas);
 
     lida_ShadowPassBegin(cmd);
     VkDescriptorSet ds_set = lida_ShadowPassGetDS0();
@@ -312,6 +324,10 @@ int main(int argc, char** argv) {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, rect_pipeline);
     vkCmdDraw(cmd, 4, 1, 0, 0);
 
+    if (lida_WindowGetFrameNo() > 0) {
+      lida_FontAtlasTextDraw(font_atlas, cmd, num_text_vertices);
+    }
+
     lida_UI_Render(cmd);
 
     vkCmdEndRenderPass(cmd);
@@ -328,6 +344,8 @@ int main(int argc, char** argv) {
   lida_VoxelDrawerDestroy(&vox_drawer);
 
   lida_ECS_Destroy(ecs);
+
+  lida_FontAtlasDestroy(font_atlas);
 
   vkDestroyPipeline(lida_GetLogicalDevice(), shadow_pipeline, NULL);
   vkDestroyPipeline(lida_GetLogicalDevice(), rect_pipeline, NULL);
@@ -418,12 +436,6 @@ VkPipeline createRectPipeline()
   VkPipelineColorBlendAttachmentState colorblend_attachment = {
     .blendEnable = VK_FALSE,
     .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
-  };
-  VkPipelineColorBlendStateCreateInfo colorblend_state = {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-    .logicOpEnable = VK_FALSE,
-    .attachmentCount = 1,
-    .pAttachments = &colorblend_attachment,
   };
   VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
   lida_PipelineDesc pipeline_desc = {

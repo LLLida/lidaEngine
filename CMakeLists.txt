@@ -19,6 +19,8 @@ add_shader(tst "rect.frag")
 add_shader(tst "voxel.vert")
 add_shader(tst "voxel.frag")
 add_shader(tst "shadow_voxel.vert")
+add_shader(tst "text.vert")
+add_shader(tst "text.frag")
 
 include(CTest)
 add_subdirectory(test)
