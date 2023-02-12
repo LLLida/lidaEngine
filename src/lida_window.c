@@ -1,5 +1,13 @@
 /*
+
   Vulkan swapchain creation and management.
+
+  NOTE: in this file you will often see number 2. That's because we
+  have double buffering in this engine. We record commands to command
+  while other frame is rendering. Then we wait that frame to be
+  finished and swap buffers.
+  I think doing '#define FRAMES 2' is redundant.
+
  */
 
 typedef struct {
@@ -40,7 +48,7 @@ GLOBAL Vulkan_Window* g_window;
 
 /// Functions used primarily by this module
 
-VkResult
+INTERNAL VkResult
 CreateMainPass()
 {
   VkAttachmentDescription attachment = {
@@ -359,4 +367,116 @@ DestroyWindow(int free_memory)
   }
 
   g_window = NULL;
+}
+
+INTERNAL VkCommandBuffer
+BeginCommands()
+{
+  Window_Frame* frame = &g_window->frames[g_window->frame_counter % 2];
+  VkCommandBufferBeginInfo begin_info = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+  vkBeginCommandBuffer(frame->cmd, &begin_info);
+  return frame->cmd;
+}
+
+INTERNAL VkResult
+BeginRenderingToWindow()
+{
+  Window_Frame* frame = &g_window->frames[g_window->frame_counter % 2];
+  VkResult err = vkAcquireNextImageKHR(g_device->logical_device,
+                                       g_window->swapchain,
+                                       UINT64_MAX,
+                                       frame->image_available,
+                                       VK_NULL_HANDLE,
+                                       &g_window->current_image);
+  switch (err)
+    {
+    case VK_SUCCESS:
+      break;
+    case VK_SUBOPTIMAL_KHR:
+      LOG_WARN("acquire next image: got VK_SUBOPTIMAL_KHR");
+      break;
+    default:
+      LOG_ERROR("failed to acquire next swapchain image with error %s", ToString_VkResult(err));
+      return err;
+    }
+  // start render pass
+  VkRect2D render_area = { .offset = {0, 0},
+                           .extent = g_window->swapchain_extent };
+  VkRenderPassBeginInfo begin_info = {
+    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+    .renderPass = g_window->render_pass,
+    .framebuffer = g_window->images[g_window->current_image].framebuffer,
+    .renderArea = render_area,
+    .clearValueCount = 0,
+  };
+  vkCmdBeginRenderPass(frame->cmd, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+  VkViewport viewport = {
+    .x = 0.0f,
+    .y = 0.0f,
+    .width = (float)render_area.extent.width,
+    .height =  (float)render_area.extent.height,
+    .minDepth = 0.0f,
+    .maxDepth = 1.0f,
+  };
+  vkCmdSetViewport(frame->cmd, 0, 1, &viewport);
+  vkCmdSetScissor(frame->cmd, 0, 1, &render_area);
+  return VK_SUCCESS;
+}
+
+INTERNAL VkResult
+PresentToScreen()
+{
+  Window_Frame* frame = &g_window->frames[g_window->frame_counter % 2];
+  VkResult err;
+  // wait till commands from previous frame are done, so we can safely use GPU resources
+  err = vkWaitForFences(g_device->logical_device, 1, &g_window->resources_available_fence,
+                        VK_TRUE, UINT64_MAX);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to wait for fence with error %s", ToString_VkResult(err));
+    return err;
+  }
+  err = vkResetFences(g_device->logical_device, 1, &g_window->resources_available_fence);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to reset fence before presenting image with error %s", ToString_VkResult(err));
+    return err;
+  }
+  // submit commands
+  VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+  VkSubmitInfo submit_info = {
+    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+    .waitSemaphoreCount = 1,
+    .pWaitSemaphores = &frame->image_available,
+    .pWaitDstStageMask = wait_stages,
+    .commandBufferCount = 1,
+    .pCommandBuffers = &frame->cmd,
+    .signalSemaphoreCount = 1,
+    .pSignalSemaphores = &g_window->render_finished_semaphore,
+  };
+  err = QueueSubmit(&submit_info, 1, g_window->resources_available_fence);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to submit commands to graphics queue with error %s", ToString_VkResult(err));
+    return err;
+  }
+  // update FPS
+  frame->submit_time = PlatformGetPerformanceCounter();
+  g_window->frames_per_second = (float)PlatformGetPerformanceFrequency() / (float)(frame->submit_time - g_window->last_submit);
+  g_window->last_submit = frame->submit_time;
+  // present image to screen
+  VkResult present_results[1];
+  VkPresentInfoKHR present_info = {
+    .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+    .waitSemaphoreCount = 1,
+    .pWaitSemaphores = &g_window->render_finished_semaphore,
+    .swapchainCount = 1,
+    .pSwapchains = &g_window->swapchain,
+    .pImageIndices = &g_window->current_image,
+    .pResults = present_results,
+  };
+  err = QueuePresent(&present_info);
+  if (err != VK_SUCCESS && err != VK_SUBOPTIMAL_KHR) {
+    LOG_ERROR("queue failed to present with error %s", ToString_VkResult(err));
+  }
+  g_window->frame_counter++;
+  g_window->current_image = UINT32_MAX;
+  return err;
 }

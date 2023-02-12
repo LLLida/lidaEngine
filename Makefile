@@ -22,8 +22,13 @@ CFLAGS += -std=c11
 CXXFLAGS += $(shell pkg-config --cflags sdl2)
 LDFLAGS += $(shell pkg-config --libs sdl2)
 
+# uncomment if using ASAN
+# NOTE: don't forget to do 'make clean' before build if the changed flags!
+CFLAGS += -fsanitize=address -fno-omit-frame-pointer
+LDFLAGS += -fsanitize=address -fno-omit-frame-pointer -lrt
+
 SHADERS := $(wildcard shaders/*.comp) $(wildcard shaders/*.vert) $(wildcard shaders/*.frag)
-SPIRVS := $(addprefix $(BUILDIR)/, $(SHADERS:=.spv))
+SPIRVS := $(addprefix $(BUILDIR)/, $(SHADERS:shaders/%=%.spv))
 
 SOURCES := $(wildcard src/*.c)
 HEADERS := $(wildcard src/*.h) $(wildcard src/lib/*.h)
@@ -38,7 +43,6 @@ clean:
 
 directories:
 	@mkdir -p $(BUILDIR)
-	@mkdir -p $(BUILDIR)/shaders
 
 $(EXECUTABLE): $(OBJS)
 	$(CC) $(LDFLAGS) $^  -o $@
@@ -56,9 +60,9 @@ define compile_shader =
 	$(GLSLANG) $(1) -V -o $(2)
 endef
 
-$(BUILDIR)/shaders/%.comp.spv: shaders/%.comp
+$(BUILDIR)/%.comp.spv: shaders/%.comp
 	$(call compile_shader,$^,$@)
-$(BUILDIR)/shaders/%.vert.spv: shaders/%.vert
+$(BUILDIR)/%.vert.spv: shaders/%.vert
 	$(call compile_shader,$^,$@)
-$(BUILDIR)/shaders/%.frag.spv: shaders/%.frag
+$(BUILDIR)/%.frag.spv: shaders/%.frag
 	$(call compile_shader,$^,$@)

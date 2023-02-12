@@ -1,6 +1,10 @@
 /* -*- mode: c -*-
 
-   Platform abstraction layer.
+   Platform abstraction layer interface.
+
+   NOTE: platform must define
+   entrypoint such main() or WinMain() and implement several functions
+   beginning with 'Platform'.
 
  */
 
@@ -21,35 +25,80 @@ extern "C" {
 // DONE base.c NOTE: file operations
 
 
-/// Common hooks provided by the engine
+/// Keyboard
 
-typedef struct {
-
-  const char* str;
-  const char* file;
-  int line;
-  int strlen;
-  int level;
-  void* udata;
-
-} Log_Event;
-
-typedef void(*Log_Function)(const Log_Event* event);
-
-typedef struct {
-
-  int enable_debug_layers;
-  uint32_t gpu_id;
-  const char* app_name;
-  uint32_t app_version;
-  int window_vsync;
-
-} Engine_Startup_Info;
-
-void EngineLog(int level, const char* file, int line, const char* fmt, ...);
-void EngineAddLogger(Log_Function logger, int level, void* udata);
-void EngineInit(const Engine_Startup_Info* info);
-void EngineFree();
+typedef enum {
+  PlatformKey_UNKNOWN = 0,
+  PlatformKey_RETURN = '\r',
+  PlatformKey_ESCAPE = '\x1B',
+  PlatformKey_BACKSPACE = '\b',
+  PlatformKey_TAB = '\t',
+  PlatformKey_SPACE = ' ',
+  PlatformKey_EXCLAIM = '!',
+  PlatformKey_QUOTEDBL = '"',
+  PlatformKey_HASH = '#',
+  PlatformKey_PERCENT = '%',
+  PlatformKey_DOLLAR = '$',
+  PlatformKey_AMPERSAND = '&',
+  PlatformKey_QUOTE = '\'',
+  PlatformKey_LEFTPAREN = '(',
+  PlatformKey_RIGHTPAREN = ')',
+  PlatformKey_ASTERISK = '*',
+  PlatformKey_PLUS = '+',
+  PlatformKey_COMMA = ',',
+  PlatformKey_MINUS = '-',
+  PlatformKey_PERIOD = '.',
+  PlatformKey_SLASH = '/',
+  PlatformKey_0 = '0',
+  PlatformKey_1 = '1',
+  PlatformKey_2 = '2',
+  PlatformKey_3 = '3',
+  PlatformKey_4 = '4',
+  PlatformKey_5 = '5',
+  PlatformKey_6 = '6',
+  PlatformKey_7 = '7',
+  PlatformKey_8 = '8',
+  PlatformKey_9 = '9',
+  PlatformKey_COLON = ':',
+  PlatformKey_SEMICOLON = ';',
+  PlatformKey_LESS = '<',
+  PlatformKey_EQUALS = '=',
+  PlatformKey_GREATER = '>',
+  PlatformKey_QUESTION = '?',
+  PlatformKey_AT = '@',
+  PlatformKey_LEFTBRACKET = '[',
+  PlatformKey_BACKSLASH = '\\',
+  PlatformKey_RIGHTBRACKET = ']',
+  PlatformKey_CARET = '^',
+  PlatformKey_UNDERSCORE = '_',
+  PlatformKey_BACKQUOTE = '`',
+  PlatformKey_A = 'a',
+  PlatformKey_B = 'b',
+  PlatformKey_C = 'c',
+  PlatformKey_D = 'd',
+  PlatformKey_E = 'e',
+  PlatformKey_F = 'f',
+  PlatformKey_G = 'g',
+  PlatformKey_H = 'h',
+  PlatformKey_I = 'i',
+  PlatformKey_J = 'j',
+  PlatformKey_K = 'k',
+  PlatformKey_L = 'l',
+  PlatformKey_M = 'm',
+  PlatformKey_N = 'n',
+  PlatformKey_O = 'o',
+  PlatformKey_P = 'p',
+  PlatformKey_Q = 'q',
+  PlatformKey_R = 'r',
+  PlatformKey_S = 's',
+  PlatformKey_T = 't',
+  PlatformKey_U = 'u',
+  PlatformKey_V = 'v',
+  PlatformKey_W = 'w',
+  PlatformKey_X = 'x',
+  PlatformKey_Y = 'y',
+  PlatformKey_Z = 'z',
+} PlatformKeyCode;
 
 
 /// Functions that platform need to implement
@@ -77,6 +126,68 @@ void PlatformDestroyWindow();
 // that this function will be called once at startup after
 // platform_create_window().
 VkSurfaceKHR PlatformCreateVkSurface(VkInstance instance);
+
+// after called, application must exit from main loop
+void PlatformWantToQuit();
+
+// get error message from platform layer
+// NOTE: this function can return just an empty string, it made for convenience
+const char* PlatformGetError();
+
+
+
+/// Common hooks provided by the engine
+
+typedef struct {
+
+  const char* str;
+  const char* file;
+  int line;
+  int strlen;
+  int level;
+  void* udata;
+
+} Log_Event;
+
+typedef void(*Log_Function)(const Log_Event* event);
+
+typedef struct {
+
+  int enable_debug_layers;
+  uint32_t gpu_id;
+  const char* app_name;
+  uint32_t app_version;
+  int window_vsync;
+
+} Engine_Startup_Info;
+
+// log a message using engine's builtin logger
+void EngineLog(int level, const char* file, int line, const char* fmt, ...);
+
+// add a logger. Platform must add a logger otherwise engine will be
+// silent and won't produce any log messages.
+void EngineAddLogger(Log_Function logger, int level, void* udata);
+
+// Initialize engine. This function should be called at startup before
+// main loop.
+void EngineInit(const Engine_Startup_Info* info);
+
+// Free resources used by engine. This function should be called after
+// main loop.
+void EngineFree();
+
+// Render a frame. This function should be called inside main loop.
+void EngineUpdateAndRender();
+
+// platform calls this when a key pressed
+void EngineKeyPressed(PlatformKeyCode key);
+
+// platform calls this when a key released
+void EngineKeyReleased(PlatformKeyCode key);
+
+// platform calls this when mouse moved
+void EngineMouseMotion(int x, int y, int xrel, int yrel);
+
 
 #ifdef __cplusplus
 }
