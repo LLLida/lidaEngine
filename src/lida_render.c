@@ -29,12 +29,12 @@ typedef struct {
 
 typedef struct {
 
-  /*lida_Mat4 camera_projview;
-  lida_Mat4 camera_projection;
-  lida_Mat4 camera_view;
-  lida_Mat4 camera_invproj;
-  lida_Mat4 light_space;
-  lida_Vec3 sun_dir;*/
+  Mat4 camera_projview;
+  Mat4 camera_projection;
+  Mat4 camera_view;
+  Mat4 camera_invproj;
+  Mat4 light_space;
+  Vec3 sun_dir;
   float sun_ambient;
 
 } Scene_Data_Struct;
@@ -411,4 +411,46 @@ DestroyForwardPass(Forward_Pass* pass)
 
   FreeVideoMemory(&pass->cpu_memory);
   FreeVideoMemory(&pass->gpu_memory);
+}
+
+void
+SendForwardPassData(Forward_Pass* pass)
+{
+  VkResult err = vkFlushMappedMemoryRanges(g_device->logical_device,
+                                           1, &pass->uniform_buffer_range);
+  if (err != VK_SUCCESS) {
+    LOG_WARN("failed to flush memory with error %s", ToString_VkResult(err));
+  }
+}
+
+
+INTERNAL void
+BeginForwardPass(Forward_Pass* pass, VkCommandBuffer cmd, float clear_color[4])
+{
+  VkClearValue clearValues[2];
+  // color attachment
+  memcpy(clearValues[0].color.float32, clear_color, sizeof(float) * 4);
+  // depth attachment
+  clearValues[1].depthStencil.depth = 0.0f;
+  clearValues[1].depthStencil.stencil = 0;
+  VkRect2D render_area = { .offset = {0, 0},
+                           .extent = pass->render_extent };
+  VkRenderPassBeginInfo begin_info = {
+    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+    .renderPass = pass->render_pass,
+    .framebuffer = pass->framebuffer,
+    .pClearValues = clearValues,
+    .clearValueCount = 2,
+    .renderArea = render_area
+  };
+  vkCmdBeginRenderPass(cmd, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+  VkViewport viewport = {
+    .x = 0.0f, .y = 0.0f,
+    .width = (float)render_area.extent.width,
+    .height = (float)render_area.extent.height,
+    .minDepth = 0.0f,
+    .maxDepth = 1.0f,
+  };
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+  vkCmdSetScissor(cmd, 0, 1, &render_area);
 }

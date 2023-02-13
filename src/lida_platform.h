@@ -98,6 +98,8 @@ typedef enum {
   PlatformKey_X = 'x',
   PlatformKey_Y = 'y',
   PlatformKey_Z = 'z',
+
+  PlatformKey_LSHIFT = 1073742049
 } PlatformKeyCode;
 
 
