@@ -96,7 +96,7 @@ CreateMainPass()
     .dependencyCount = 2,
     .pDependencies = dependencies,
   };
-  return RenderPassCreate(&g_window->render_pass, &render_pass_info, "main-render-pass");
+  return CreateRenderPass(&g_window->render_pass, &render_pass_info, "main-render-pass");
 }
 
 INTERNAL VkResult
@@ -229,11 +229,11 @@ CreateSwapchain(VkPresentModeKHR present_mode)
 
   // get images(VkSwapchainKHR kindly manages their lifetime for us)
   vkGetSwapchainImagesKHR(g_device->logical_device, g_window->swapchain, &g_window->num_images, NULL);
-  VkImage* swapchain_images = PersistentAllocate(sizeof(VkImage) * g_window->num_images);
+  // NOTE: we hope that no device creates more than 8 swapchain images
+  VkImage swapchain_images[8];
   vkGetSwapchainImagesKHR(g_device->logical_device, g_window->swapchain, &g_window->num_images, swapchain_images);
   // create attachments
-  // NOTE: we hope that no device creates more than 8 swapchain images
-  g_window->images = PersistentAllocate(sizeof(Window_Image) * 8);
+  g_window->images = PersistentAllocate(sizeof(Window_Image) * g_window->num_images);
   VkImageViewCreateInfo image_view_info = {
     .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
     .viewType = VK_IMAGE_VIEW_TYPE_2D,
@@ -261,18 +261,17 @@ CreateSwapchain(VkPresentModeKHR present_mode)
     g_window->images[i].image = swapchain_images[i];
     image_view_info.image = swapchain_images[i];
     stbsp_sprintf(buff, "swapchain-image-view[%u]", i);
-    err = ImageViewCreate(&g_window->images[i].image_view, &image_view_info, buff);
+    err = CreateImageView(&g_window->images[i].image_view, &image_view_info, buff);
     if (err != VK_SUCCESS) {
       LOG_ERROR("failed to create image view no. %u with error %s", i, ToString_VkResult(err));
     }
     framebuffer_info.pAttachments = &g_window->images[i].image_view;
     stbsp_sprintf(buff, "swapchain-framebuffer[%u]", i);
-    err = FramebufferCreate(&g_window->images[i].framebuffer, &framebuffer_info, buff);
+    err = CreateFramebuffer(&g_window->images[i].framebuffer, &framebuffer_info, buff);
     if (err != VK_SUCCESS) {
       LOG_ERROR("failed to create framebuffer no. %u with error %s", i, ToString_VkResult(err));
     }
   }
-  PersistentPop(swapchain_images);
 
   // TODO: manage preTransform
   // This is crucial for devices you can flip

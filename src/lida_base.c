@@ -89,7 +89,7 @@ GLOBAL uint32_t g_num_loggers;
 GLOBAL Logger g_loggers[MAX_LOGGERS];
 GLOBAL char g_log_buffer[1024];
 
-void
+void ATTRIBUTE_PRINTF(4)
 EngineLog(int level, const char* file, int line, const char* fmt, ...)
 {
   Log_Event log_event = {
@@ -136,9 +136,31 @@ EngineAddLogger(Log_Function func, int level, void* udata)
 #define LOG_FATAL(...)  LOG_MSG(5, __VA_ARGS__)
 
 
+/// Type info
+
+typedef uint32_t(*Hash_Function)(const void* obj);
+typedef int(*Compare_Function)(const void* lhs, const void* rhs);
+
+typedef struct {
+
+  const char* name;
+  uint64_t type_hash;
+  uint16_t size;
+  uint16_t alignment;
+  Hash_Function hash;
+  Compare_Function cmp;
+
+} Type_Info;
+
+#define TYPE_INFO(type, hash_func, cmp_func) (Type_Info) { .name = #type, .type_hash = HashString64(#type), .size = sizeof(type), .alignment = alignof(type), .hash = hash_func, .cmp = cmp_func }
+
+
 /// Some useful algorithms
 
 #define ARR_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
+
+// compare two integers: -1, 0 or 1 is returned
+#define COMPARE(lhs, rhs) ((lhs) > (rhs)) - ((lhs) < (rhs))
 
 INTERNAL uint32_t
 NearestPow2(uint32_t v)
@@ -175,6 +197,49 @@ MemorySwap(void* lhs, void* rhs, size_t size)
     memcpy(l, r, size);
     memcpy(r, buff, size);
   }
+}
+
+// Simple old quick sort
+INTERNAL void
+QuickSortHelper(void* ptr, size_t size, size_t left, size_t right, Compare_Function cmp)
+{
+  // Not gonna lie, I stole this code from
+  // https://www.geeksforgeeks.org/generic-implementation-of-quicksort-algorithm-in-c/
+  void *vt, *v3;
+  size_t i, last, mid = (left + right) / 2;
+  if (left >= right)
+    return;
+  void* vl = (uint8_t*)ptr + (left * size);
+  void* vr = (uint8_t*)ptr + (mid * size);
+  MemorySwap(vl, vr, size);
+  last = left;
+
+  for (i = left + 1; i <= right; i++) {
+    vt = (uint8_t*)ptr + (i * size);
+    if (cmp(vl, vt) > 0) {
+      ++last;
+      v3 = (uint8_t*)ptr + (last * size);
+      MemorySwap(vt, v3, size);
+    }
+  }
+
+  v3 = (uint8_t*)ptr + (last * size);
+  MemorySwap(vl, v3, size);
+  if (last > 0)
+    QuickSortHelper(ptr, size, left, last - 1, cmp);
+  QuickSortHelper(ptr, size, last + 1, right, cmp);
+}
+
+INTERNAL void
+QuickSort(void* ptr, size_t num, size_t sizeof_, Compare_Function cmp)
+{
+  QuickSortHelper(ptr, sizeof_, 0, num-1, cmp);
+}
+
+INTERNAL void
+QuickSort2(void* ptr, size_t num, const Type_Info* type)
+{
+  QuickSortHelper(ptr, type->size, 0, num-1, type->cmp);
 }
 
 INTERNAL uint32_t
@@ -319,25 +384,6 @@ HashMemory64(const void* key, uint32_t bytes)
 }
 
 
-/// Type info
-
-typedef uint32_t(*Hash_Function)(const void* obj);
-typedef int(*Compare_Function)(const void* lhs, const void* rhs);
-
-typedef struct {
-
-  const char* name;
-  uint64_t type_hash;
-  uint16_t size;
-  uint16_t alignment;
-  Hash_Function hash;
-  Compare_Function cmp;
-
-} Type_Info;
-
-#define TYPE_INFO(type, hash_func, cmp_func) (Type_Info) { .name = #type, .type_hash = HashString64(#type), .size = sizeof(type), .alignment = alignof(type), .hash = hash_func, .cmp = cmp_func }
-
-
 /// Hash tables
 
 typedef struct {
@@ -467,3 +513,64 @@ FHT_Remove(Fixed_Hash_Table* ht, const Type_Info* type, const void* elem)
   }
   return curr;
 }
+
+// iterates over fixed hash table
+typedef struct {
+
+  const Fixed_Hash_Table* ht;
+  const Type_Info* type;
+  size_t id;
+  size_t remaining;
+
+} FHT_Iterator;
+
+INTERNAL void
+FHT_IteratorBegin(const Fixed_Hash_Table* ht, const Type_Info* type, FHT_Iterator* it)
+{
+  it->ht = ht;
+  it->type = type;
+  it->id = 0;
+  it->remaining = ht->size;
+
+  if (ht->size > 0) {
+    // we assume that hash table data is not corrupted, otherwise we
+    // will run into some very bad stuff...
+    while (!FHT_VALID(ht, type, it->id)) {
+      it->id++;
+    }
+  }
+}
+
+INTERNAL int
+FHT_IteratorEmpty(FHT_Iterator* it)
+{
+  return it->remaining == 0;
+}
+
+INTERNAL void
+FHT_IteratorNext(FHT_Iterator* it)
+{
+  it->id++;
+  while (it->id < it->ht->max &&
+         !FHT_VALID(it->ht, it->type, it->id)) {
+    it->id++;
+  }
+  it->remaining--;
+}
+
+INTERNAL void*
+FHT_IteratorGet(FHT_Iterator* it)
+{
+  return FHT_GET(it->ht, it->type, it->id);
+}
+
+// Usage example:
+/*
+  FHT_Iterator it;
+  FHT_FOREACH(&hashtable, &type_info, &it) {
+    Type* value = FHT_IteratorGet(&it);
+    print(value.name);
+  }
+*/
+// TODO: see generated assembly and optimise
+#define FHT_FOREACH(ht, type, it) for (FHT_IteratorBegin(ht, type, it); !FHT_IteratorEmpty(it); FHT_IteratorNext(it))

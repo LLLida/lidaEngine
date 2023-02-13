@@ -81,9 +81,9 @@ typedef struct {
   VkShaderStageFlags stages;
   uint32_t localX, localY, localZ;
   Binding_Set_Desc sets[SHADER_REFLECT_MAX_SETS];
-  uint32_t set_count;
+  size_t set_count;
   VkPushConstantRange ranges[SHADER_REFLECT_MAX_RANGES];
-  uint32_t range_count;
+  size_t range_count;
 
 } Shader_Reflect;
 
@@ -98,7 +98,7 @@ typedef struct {
 typedef struct {
 
   VkDescriptorSetLayoutBinding bindings[16];
-  uint32_t num_bindings;
+  size_t num_bindings;
   VkDescriptorSetLayout layout;
 
 } DS_Layout_Info;
@@ -114,12 +114,48 @@ typedef struct {
 typedef struct {
 
   VkDescriptorSetLayout set_layouts[SHADER_REFLECT_MAX_SETS];
-  uint32_t num_sets;
+  size_t num_sets;
   VkPushConstantRange ranges[SHADER_REFLECT_MAX_RANGES];
-  uint32_t num_ranges;
+  size_t num_ranges;
   VkPipelineLayout handle;
 
 } Pipeline_Layout_Info;
+
+typedef struct {
+
+  const char* vertex_shader;
+  const char* fragment_shader;
+  uint32_t vertex_binding_count;
+  const VkVertexInputBindingDescription* vertex_bindings;
+  uint32_t vertex_attribute_count;
+  const VkVertexInputAttributeDescription* vertex_attributes;
+  VkPrimitiveTopology topology;
+  VkViewport* viewport;
+  VkRect2D* scissor;
+  VkPolygonMode polygonMode;
+  VkCullModeFlags cullMode;
+  // NOTE: if enabled, depth bias should be set dynamically
+  VkBool32 depth_bias_enable;
+  float line_width;
+
+  VkSampleCountFlagBits msaa_samples;
+  // TODO: support sample_shading_enable = VK_TRUE
+  // VkBool32 sample_shading_enable;
+  VkBool32 depth_test;
+  VkBool32 depth_write;
+  VkCompareOp depth_compare_op;
+  uint32_t blend_logic_enable;
+  VkLogicOp blend_logic_op;
+  uint32_t attachment_count;
+  const VkPipelineColorBlendAttachmentState* attachments;
+  float blend_constants[4];
+  uint32_t dynamic_state_count;
+  VkDynamicState* dynamic_states;
+  VkRenderPass render_pass;
+  uint32_t subpass;
+  const char* marker;
+
+} Pipeline_Desc;
 
 
 /// Functions used primarily by this module
@@ -158,6 +194,142 @@ ToString_VkResult(VkResult err)
   case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: return "VK_ERROR_INCOMPATIBLE_DISPLAY_KHR";
   case VK_ERROR_VALIDATION_FAILED_EXT: return "VK_ERROR_VALIDATION_FAILED_EXT";
   default: return "VkResult(nil)";
+  }
+}
+
+const char*
+ToString_VkFormat(VkFormat format)
+{
+  switch (format) {
+  case VK_FORMAT_UNDEFINED: return "VK_FORMAT_UNDEFINED";
+  case VK_FORMAT_R4G4_UNORM_PACK8: return "VK_FORMAT_R4G4_UNORM_PACK8";
+  case VK_FORMAT_R4G4B4A4_UNORM_PACK16: return "VK_FORMAT_R4G4B4A4_UNORM_PACK16";
+  case VK_FORMAT_B4G4R4A4_UNORM_PACK16: return "VK_FORMAT_B4G4R4A4_UNORM_PACK16";
+  case VK_FORMAT_R5G6B5_UNORM_PACK16: return "VK_FORMAT_R5G6B5_UNORM_PACK16";
+  case VK_FORMAT_B5G6R5_UNORM_PACK16: return "VK_FORMAT_B5G6R5_UNORM_PACK16";
+  case VK_FORMAT_R5G5B5A1_UNORM_PACK16: return "VK_FORMAT_R5G5B5A1_UNORM_PACK16";
+  case VK_FORMAT_B5G5R5A1_UNORM_PACK16: return "VK_FORMAT_B5G5R5A1_UNORM_PACK16";
+  case VK_FORMAT_A1R5G5B5_UNORM_PACK16: return "VK_FORMAT_A1R5G5B5_UNORM_PACK16";
+  case VK_FORMAT_R8_UNORM: return "VK_FORMAT_R8_UNORM";
+  case VK_FORMAT_R8_SNORM: return "VK_FORMAT_R8_SNORM";
+  case VK_FORMAT_R8_USCALED: return "VK_FORMAT_R8_USCALED";
+  case VK_FORMAT_R8_SSCALED: return "VK_FORMAT_R8_SSCALED";
+  case VK_FORMAT_R8_UINT: return "VK_FORMAT_R8_UINT";
+  case VK_FORMAT_R8_SINT: return "VK_FORMAT_R8_SINT";
+  case VK_FORMAT_R8_SRGB: return "VK_FORMAT_R8_SRGB";
+  case VK_FORMAT_R8G8_UNORM: return "VK_FORMAT_R8G8_UNORM";
+  case VK_FORMAT_R8G8_SNORM: return "VK_FORMAT_R8G8_SNORM";
+  case VK_FORMAT_R8G8_USCALED: return "VK_FORMAT_R8G8_USCALED";
+  case VK_FORMAT_R8G8_SSCALED: return "VK_FORMAT_R8G8_SSCALED";
+  case VK_FORMAT_R8G8_UINT: return "VK_FORMAT_R8G8_UINT";
+  case VK_FORMAT_R8G8_SINT: return "VK_FORMAT_R8G8_SINT";
+  case VK_FORMAT_R8G8_SRGB: return "VK_FORMAT_R8G8_SRGB";
+  case VK_FORMAT_R8G8B8_UNORM: return "VK_FORMAT_R8G8B8_UNORM";
+  case VK_FORMAT_R8G8B8_SNORM: return "VK_FORMAT_R8G8B8_SNORM";
+  case VK_FORMAT_R8G8B8_USCALED: return "VK_FORMAT_R8G8B8_USCALED";
+  case VK_FORMAT_R8G8B8_SSCALED: return "VK_FORMAT_R8G8B8_SSCALED";
+  case VK_FORMAT_R8G8B8_UINT: return "VK_FORMAT_R8G8B8_UINT";
+  case VK_FORMAT_R8G8B8_SINT: return "VK_FORMAT_R8G8B8_SINT";
+  case VK_FORMAT_R8G8B8_SRGB: return "VK_FORMAT_R8G8B8_SRGB";
+  case VK_FORMAT_B8G8R8_UNORM: return "VK_FORMAT_B8G8R8_UNORM";
+  case VK_FORMAT_B8G8R8_SNORM: return "VK_FORMAT_B8G8R8_SNORM";
+  case VK_FORMAT_B8G8R8_USCALED: return "VK_FORMAT_B8G8R8_USCALED";
+  case VK_FORMAT_B8G8R8_SSCALED: return "VK_FORMAT_B8G8R8_SSCALED";
+  case VK_FORMAT_B8G8R8_UINT: return "VK_FORMAT_B8G8R8_UINT";
+  case VK_FORMAT_B8G8R8_SINT: return "VK_FORMAT_B8G8R8_SINT";
+  case VK_FORMAT_B8G8R8_SRGB: return "VK_FORMAT_B8G8R8_SRGB";
+  case VK_FORMAT_R8G8B8A8_UNORM: return "VK_FORMAT_R8G8B8A8_UNORM";
+  case VK_FORMAT_R8G8B8A8_SNORM: return "VK_FORMAT_R8G8B8A8_SNORM";
+  case VK_FORMAT_R8G8B8A8_USCALED: return "VK_FORMAT_R8G8B8A8_USCALED";
+  case VK_FORMAT_R8G8B8A8_SSCALED: return "VK_FORMAT_R8G8B8A8_SSCALED";
+  case VK_FORMAT_R8G8B8A8_UINT: return "VK_FORMAT_R8G8B8A8_UINT";
+  case VK_FORMAT_R8G8B8A8_SINT: return "VK_FORMAT_R8G8B8A8_SINT";
+  case VK_FORMAT_R8G8B8A8_SRGB: return "VK_FORMAT_R8G8B8A8_SRGB";
+  case VK_FORMAT_B8G8R8A8_UNORM: return "VK_FORMAT_B8G8R8A8_UNORM";
+  case VK_FORMAT_B8G8R8A8_SNORM: return "VK_FORMAT_B8G8R8A8_SNORM";
+  case VK_FORMAT_B8G8R8A8_USCALED: return "VK_FORMAT_B8G8R8A8_USCALED";
+  case VK_FORMAT_B8G8R8A8_SSCALED: return "VK_FORMAT_B8G8R8A8_SSCALED";
+  case VK_FORMAT_B8G8R8A8_UINT: return "VK_FORMAT_B8G8R8A8_UINT";
+  case VK_FORMAT_B8G8R8A8_SINT: return "VK_FORMAT_B8G8R8A8_SINT";
+  case VK_FORMAT_B8G8R8A8_SRGB: return "VK_FORMAT_B8G8R8A8_SRGB";
+  case VK_FORMAT_A8B8G8R8_UNORM_PACK32: return "VK_FORMAT_A8B8G8R8_UNORM_PACK32";
+  case VK_FORMAT_A8B8G8R8_SNORM_PACK32: return "VK_FORMAT_A8B8G8R8_SNORM_PACK32";
+  case VK_FORMAT_A8B8G8R8_USCALED_PACK32: return "VK_FORMAT_A8B8G8R8_USCALED_PACK32";
+  case VK_FORMAT_A8B8G8R8_SSCALED_PACK32: return "VK_FORMAT_A8B8G8R8_SSCALED_PACK32";
+  case VK_FORMAT_A8B8G8R8_UINT_PACK32: return "VK_FORMAT_A8B8G8R8_UINT_PACK32";
+  case VK_FORMAT_A8B8G8R8_SINT_PACK32: return "VK_FORMAT_A8B8G8R8_SINT_PACK32";
+  case VK_FORMAT_A8B8G8R8_SRGB_PACK32: return "VK_FORMAT_A8B8G8R8_SRGB_PACK32";
+  case VK_FORMAT_A2R10G10B10_UNORM_PACK32: return "VK_FORMAT_A2R10G10B10_UNORM_PACK32";
+  case VK_FORMAT_A2R10G10B10_SNORM_PACK32: return "VK_FORMAT_A2R10G10B10_SNORM_PACK32";
+  case VK_FORMAT_A2R10G10B10_USCALED_PACK32: return "VK_FORMAT_A2R10G10B10_USCALED_PACK32";
+  case VK_FORMAT_A2R10G10B10_SSCALED_PACK32: return "VK_FORMAT_A2R10G10B10_SSCALED_PACK32";
+  case VK_FORMAT_A2R10G10B10_UINT_PACK32: return "VK_FORMAT_A2R10G10B10_UINT_PACK32";
+  case VK_FORMAT_A2R10G10B10_SINT_PACK32: return "VK_FORMAT_A2R10G10B10_SINT_PACK32";
+  case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return "VK_FORMAT_A2B10G10R10_UNORM_PACK32";
+  case VK_FORMAT_A2B10G10R10_SNORM_PACK32: return "VK_FORMAT_A2B10G10R10_SNORM_PACK32";
+  case VK_FORMAT_A2B10G10R10_USCALED_PACK32: return "VK_FORMAT_A2B10G10R10_USCALED_PACK32";
+  case VK_FORMAT_A2B10G10R10_SSCALED_PACK32: return "VK_FORMAT_A2B10G10R10_SSCALED_PACK32";
+  case VK_FORMAT_A2B10G10R10_UINT_PACK32: return "VK_FORMAT_A2B10G10R10_UINT_PACK32";
+  case VK_FORMAT_A2B10G10R10_SINT_PACK32: return "VK_FORMAT_A2B10G10R10_SINT_PACK32";
+  case VK_FORMAT_R16_UNORM: return "VK_FORMAT_R16_UNORM";
+  case VK_FORMAT_R16_SNORM: return "VK_FORMAT_R16_SNORM";
+  case VK_FORMAT_R16_USCALED: return "VK_FORMAT_R16_USCALED";
+  case VK_FORMAT_R16_SSCALED: return "VK_FORMAT_R16_SSCALED";
+  case VK_FORMAT_R16_UINT: return "VK_FORMAT_R16_UINT";
+  case VK_FORMAT_R16_SINT: return "VK_FORMAT_R16_SINT";
+  case VK_FORMAT_R16_SFLOAT: return "VK_FORMAT_R16_SFLOAT";
+  case VK_FORMAT_R16G16_UNORM: return "VK_FORMAT_R16G16_UNORM";
+  case VK_FORMAT_R16G16_SNORM: return "VK_FORMAT_R16G16_SNORM";
+  case VK_FORMAT_R16G16_USCALED: return "VK_FORMAT_R16G16_USCALED";
+  case VK_FORMAT_R16G16_SSCALED: return "VK_FORMAT_R16G16_SSCALED";
+  case VK_FORMAT_R16G16_UINT: return "VK_FORMAT_R16G16_UINT";
+  case VK_FORMAT_R16G16_SINT: return "VK_FORMAT_R16G16_SINT";
+  case VK_FORMAT_R16G16_SFLOAT: return "VK_FORMAT_R16G16_SFLOAT";
+  case VK_FORMAT_R16G16B16_UNORM: return "VK_FORMAT_R16G16B16_UNORM";
+  case VK_FORMAT_R16G16B16_SNORM: return "VK_FORMAT_R16G16B16_SNORM";
+  case VK_FORMAT_R16G16B16_USCALED: return "VK_FORMAT_R16G16B16_USCALED";
+  case VK_FORMAT_R16G16B16_SSCALED: return "VK_FORMAT_R16G16B16_SSCALED";
+  case VK_FORMAT_R16G16B16_UINT: return "VK_FORMAT_R16G16B16_UINT";
+  case VK_FORMAT_R16G16B16_SINT: return "VK_FORMAT_R16G16B16_SINT";
+  case VK_FORMAT_R16G16B16_SFLOAT: return "VK_FORMAT_R16G16B16_SFLOAT";
+  case VK_FORMAT_R16G16B16A16_UNORM: return "VK_FORMAT_R16G16B16A16_UNORM";
+  case VK_FORMAT_R16G16B16A16_SNORM: return "VK_FORMAT_R16G16B16A16_SNORM";
+  case VK_FORMAT_R16G16B16A16_USCALED: return "VK_FORMAT_R16G16B16A16_USCALED";
+  case VK_FORMAT_R16G16B16A16_SSCALED: return "VK_FORMAT_R16G16B16A16_SSCALED";
+  case VK_FORMAT_R16G16B16A16_UINT: return "VK_FORMAT_R16G16B16A16_UINT";
+  case VK_FORMAT_R16G16B16A16_SINT: return "VK_FORMAT_R16G16B16A16_SINT";
+  case VK_FORMAT_R16G16B16A16_SFLOAT: return "VK_FORMAT_R16G16B16A16_SFLOAT";
+  case VK_FORMAT_R32_UINT: return "VK_FORMAT_R32_UINT";
+  case VK_FORMAT_R32_SINT: return "VK_FORMAT_R32_SINT";
+  case VK_FORMAT_R32_SFLOAT: return "VK_FORMAT_R32_SFLOAT";
+  case VK_FORMAT_R32G32_UINT: return "VK_FORMAT_R32G32_UINT";
+  case VK_FORMAT_R32G32_SINT: return "VK_FORMAT_R32G32_SINT";
+  case VK_FORMAT_R32G32_SFLOAT: return "VK_FORMAT_R32G32_SFLOAT";
+  case VK_FORMAT_R32G32B32_UINT: return "VK_FORMAT_R32G32B32_UINT";
+  case VK_FORMAT_R32G32B32_SINT: return "VK_FORMAT_R32G32B32_SINT";
+  case VK_FORMAT_R32G32B32_SFLOAT: return "VK_FORMAT_R32G32B32_SFLOAT";
+  case VK_FORMAT_R32G32B32A32_UINT: return "VK_FORMAT_R32G32B32A32_UINT";
+  case VK_FORMAT_R32G32B32A32_SINT: return "VK_FORMAT_R32G32B32A32_SINT";
+  case VK_FORMAT_R32G32B32A32_SFLOAT: return "VK_FORMAT_R32G32B32A32_SFLOAT";
+  case VK_FORMAT_R64_UINT: return "VK_FORMAT_R64_UINT";
+  case VK_FORMAT_R64_SINT: return "VK_FORMAT_R64_SINT";
+  case VK_FORMAT_R64_SFLOAT: return "VK_FORMAT_R64_SFLOAT";
+  case VK_FORMAT_R64G64_UINT: return "VK_FORMAT_R64G64_UINT";
+  case VK_FORMAT_R64G64_SINT: return "VK_FORMAT_R64G64_SINT";
+  case VK_FORMAT_R64G64_SFLOAT: return "VK_FORMAT_R64G64_SFLOAT";
+  case VK_FORMAT_R64G64B64_UINT: return "VK_FORMAT_R64G64B64_UINT";
+  case VK_FORMAT_R64G64B64_SINT: return "VK_FORMAT_R64G64B64_SINT";
+  case VK_FORMAT_R64G64B64_SFLOAT: return "VK_FORMAT_R64G64B64_SFLOAT";
+  case VK_FORMAT_R64G64B64A64_UINT: return "VK_FORMAT_R64G64B64A64_UINT";
+  case VK_FORMAT_R64G64B64A64_SINT: return "VK_FORMAT_R64G64B64A64_SINT";
+  case VK_FORMAT_R64G64B64A64_SFLOAT: return "VK_FORMAT_R64G64B64A64_SFLOAT";
+  case VK_FORMAT_D16_UNORM: return "VK_FORMAT_D16_UNORM";
+  case VK_FORMAT_D32_SFLOAT: return "VK_FORMAT_D32_SFLOAT";
+  case VK_FORMAT_S8_UINT: return "VK_FORMAT_S8_UINT";
+  case VK_FORMAT_D16_UNORM_S8_UINT: return "VK_FORMAT_D16_UNORM_S8_UINT";
+  case VK_FORMAT_D24_UNORM_S8_UINT: return "VK_FORMAT_D24_UNORM_S8_UINT";
+  case VK_FORMAT_D32_SFLOAT_S8_UINT: return "VK_FORMAT_D32_SFLOAT_S8_UINT";
+  default: return "VkFormat(nil)";
   }
 }
 
@@ -410,6 +582,55 @@ CreateDeviceCommandPool()
   return err;
 }
 
+INTERNAL VkResult
+CreateDeviceDescriptorPools()
+{
+  // tweak values here to reduce memory usage of application/add more space for descriptors
+  VkDescriptorPoolSize sizes[] = {
+    // { VK_DESCRIPTOR_TYPE_SAMPLER, 0 },
+    { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64 },
+    // { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 0 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 64 },
+    // { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 0 },
+    // { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 0 },
+    { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 32 },
+    { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 32 },
+    // { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 0 },
+    // { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 0 },
+    // { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 16 },
+  };
+  VkDescriptorPoolCreateInfo pool_info = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+    .maxSets = 128,
+    .poolSizeCount = ARR_SIZE(sizes),
+    .pPoolSizes = sizes,
+  };
+  VkResult err = vkCreateDescriptorPool(g_device->logical_device, &pool_info, NULL,
+                                        &g_device->static_ds_pool);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create pool for static resources with error %d", err);
+    return err;
+  }
+  err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_VIEW_EXT, (uint64_t)g_device->static_ds_pool,
+                        "static-descriptor-pool");
+  if (err != VK_SUCCESS) {
+    LOG_WARN("failed to mark static descriptor pool with error %s", ToString_VkResult(err));
+  }
+  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  err = vkCreateDescriptorPool(g_device->logical_device, &pool_info, NULL,
+                               &g_device->dynamic_ds_pool);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create pool for dynamic resources with error %d", err);
+    return err;
+  }
+  err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_VIEW_EXT, (uint64_t)g_device->static_ds_pool,
+                        "dynamic-descriptor-pool");
+  if (err != VK_SUCCESS) {
+    LOG_WARN("failed to mark dynamic descriptor pool with error %s", ToString_VkResult(err));
+  }
+  return err;
+}
+
 INTERNAL uint32_t
 HashShaderInfo(const void* obj)
 {
@@ -427,13 +648,17 @@ CompareShaderInfo(const void* lhs, const void* rhs)
 INTERNAL uint32_t
 HashDSL_Info(const void* obj)
 {
-  return HashMemory32(obj, sizeof(DS_Layout_Info) - sizeof(VkDescriptorSetLayout));
+  const DS_Layout_Info* info = obj;
+  return HashMemory32(info->bindings, info->num_bindings * sizeof(VkDescriptorSetLayoutBinding));
 }
 
 INTERNAL int
 CompareDSL_Infos(const void* lhs, const void* rhs)
 {
-  return memcmp(lhs, rhs, sizeof(DS_Layout_Info) - sizeof(VkDescriptorSetLayout));
+  const DS_Layout_Info* l = lhs, *r = rhs;
+  if (COMPARE(l->num_bindings, r->num_bindings) != 0)
+    return COMPARE(l->num_bindings, r->num_bindings);
+  return memcmp(l, r, l->num_bindings * sizeof(VkDescriptorSetLayoutBinding));
 }
 
 INTERNAL uint32_t
@@ -451,13 +676,25 @@ CompareSamplerInfo(const void* lhs, const void* rhs)
 INTERNAL uint32_t
 HashPipelineLayoutInfo(const void* obj)
 {
-  return HashMemory32(obj, sizeof(Pipeline_Layout_Info) - sizeof(VkPipelineLayout));
+  const Pipeline_Layout_Info* info = obj;
+  uint32_t hashes[2];
+  hashes[0] = HashMemory32(info->set_layouts, info->num_sets * sizeof(VkDescriptorSetLayout));
+  hashes[1] = HashMemory32(info->ranges, info->num_ranges * sizeof(VkPushConstantRange));
+  return HashCombine32(hashes, 2);
 }
 
 INTERNAL int
 ComparePipelineLayoutInfo(const void* lhs, const void* rhs)
 {
-  return memcmp(lhs, rhs, sizeof(Pipeline_Layout_Info) - sizeof(VkPipelineLayout));
+  const Pipeline_Layout_Info* l = lhs, *r = rhs;
+  int ret = COMPARE(l->num_sets, r->num_sets);
+  if (ret != 0) return ret;
+  ret = memcmp(l->set_layouts, r->set_layouts, l->num_sets * sizeof(VkDescriptorSetLayout));
+  if (ret != 0) return ret;
+  ret = COMPARE(l->num_ranges, r->num_ranges);
+  if (ret != 0) return ret;
+  ret = memcmp(l->ranges, r->ranges, l->num_ranges * sizeof(VkPushConstantRange));
+  return ret;
 }
 
 
@@ -513,6 +750,11 @@ CreateDevice(int enable_debug_layers, uint32_t gpu_id,
     LOG_ERROR("failed to create command pool with error %s", ToString_VkResult(err));
   }
 
+  err = CreateDeviceDescriptorPools();
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create descriptor pool with error %s", ToString_VkResult(err));
+  }
+
   g_device->shader_info_type = TYPE_INFO(Shader_Info, &HashShaderInfo, &CompareShaderInfo);
   g_device->ds_layout_info_type = TYPE_INFO(DS_Layout_Info, &HashDSL_Info, &CompareDSL_Infos);
   g_device->sampler_info_type = TYPE_INFO(Sampler_Info, &HashSamplerInfo, &CompareSamplerInfo);
@@ -529,7 +771,7 @@ CreateDevice(int enable_debug_layers, uint32_t gpu_id,
            num_ds_layouts, &g_device->ds_layout_info_type);
   FHT_Init(&g_device->sampler_cache,
            PersistentAllocate(sizeof(Sampler_Info)*num_samplers),
-           num_samplers, &g_device->ds_layout_info_type);
+           num_samplers, &g_device->sampler_info_type);
   FHT_Init(&g_device->pipeline_layout_cache,
            PersistentAllocate(sizeof(Pipeline_Layout_Info)*num_pipeline_layouts),
            num_pipeline_layouts, &g_device->pipeline_layout_info_type);
@@ -543,6 +785,31 @@ CreateDevice(int enable_debug_layers, uint32_t gpu_id,
 INTERNAL void
 DestroyDevice(int free_memory)
 {
+  FHT_Iterator it;
+
+  FHT_FOREACH(&g_device->pipeline_layout_cache, &g_device->pipeline_layout_info_type, &it) {
+    Pipeline_Layout_Info* layout = FHT_IteratorGet(&it);
+    vkDestroyPipelineLayout(g_device->logical_device, layout->handle, NULL);
+  }
+
+  FHT_FOREACH(&g_device->sampler_cache, &g_device->sampler_info_type, &it) {
+    Sampler_Info* sampler = FHT_IteratorGet(&it);
+    vkDestroySampler(g_device->logical_device, sampler->handle, NULL);
+  }
+
+  FHT_FOREACH(&g_device->ds_layout_cache, &g_device->ds_layout_info_type, &it) {
+    DS_Layout_Info* layout = FHT_IteratorGet(&it);
+    vkDestroyDescriptorSetLayout(g_device->logical_device, layout->layout, NULL);
+  }
+
+  FHT_FOREACH(&g_device->shader_cache, &g_device->shader_info_type, &it) {
+    Shader_Info* shader = FHT_IteratorGet(&it);
+    vkDestroyShaderModule(g_device->logical_device, shader->module, NULL);
+  }
+
+  vkDestroyDescriptorPool(g_device->logical_device, g_device->dynamic_ds_pool, NULL);
+  vkDestroyDescriptorPool(g_device->logical_device, g_device->static_ds_pool, NULL);
+
   vkDestroyCommandPool(g_device->logical_device, g_device->command_pool, NULL);
 
   vkDestroyDevice(g_device->logical_device, NULL);
@@ -568,7 +835,28 @@ DestroyDevice(int free_memory)
 }
 
 INTERNAL VkResult
-RenderPassCreate(VkRenderPass* render_pass, const VkRenderPassCreateInfo* render_pass_info, const char* marker)
+CreateBuffer(VkBuffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage, const char* marker)
+{
+  VkBufferCreateInfo buffer_info = {
+    .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+    .size = size,
+    .usage = usage,
+    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+  };
+  VkResult err = vkCreateBuffer(g_device->logical_device, &buffer_info, NULL, buffer);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create buffer '%s' with error %s", marker, ToString_VkResult(err));
+  } else {
+    err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, (uint64_t)*buffer, marker);
+    if (err != VK_SUCCESS) {
+      LOG_WARN("failed to mark buffer '%s' with error %s", marker, ToString_VkResult(err));
+    }
+  }
+  return err;
+}
+
+INTERNAL VkResult
+CreateRenderPass(VkRenderPass* render_pass, const VkRenderPassCreateInfo* render_pass_info, const char* marker)
 {
   VkResult err = vkCreateRenderPass(g_device->logical_device, render_pass_info, NULL, render_pass);
   if (err != VK_SUCCESS) {
@@ -585,7 +873,7 @@ RenderPassCreate(VkRenderPass* render_pass, const VkRenderPassCreateInfo* render
 }
 
 INTERNAL VkResult
-ImageCreate(VkImage* image, const VkImageCreateInfo* image_info, const char* marker)
+CreateImage(VkImage* image, const VkImageCreateInfo* image_info, const char* marker)
 {
   VkResult err = vkCreateImage(g_device->logical_device, image_info, NULL, image);
   if (err != VK_SUCCESS) {
@@ -601,7 +889,7 @@ ImageCreate(VkImage* image, const VkImageCreateInfo* image_info, const char* mar
 }
 
 INTERNAL VkResult
-ImageViewCreate(VkImageView* image_view, const VkImageViewCreateInfo* image_view_info, const char* marker)
+CreateImageView(VkImageView* image_view, const VkImageViewCreateInfo* image_view_info, const char* marker)
 {
   VkResult err = vkCreateImageView(g_device->logical_device, image_view_info, NULL, image_view);
   if (err != VK_SUCCESS) {
@@ -617,7 +905,7 @@ ImageViewCreate(VkImageView* image_view, const VkImageViewCreateInfo* image_view
 }
 
 INTERNAL VkResult
-FramebufferCreate(VkFramebuffer* framebuffer, const VkFramebufferCreateInfo* framebuffer_info, const char* marker)
+CreateFramebuffer(VkFramebuffer* framebuffer, const VkFramebufferCreateInfo* framebuffer_info, const char* marker)
 {
   VkResult err = vkCreateFramebuffer(g_device->logical_device, framebuffer_info, NULL, framebuffer);
   if (err != VK_SUCCESS) {
@@ -747,6 +1035,70 @@ MergeMemoryRequirements(const VkMemoryRequirements* requirements, size_t count, 
   }
 }
 
+INTERNAL VkResult
+ProvideVideoMemory(Video_Memory* memory, const VkMemoryRequirements* requirements)
+{
+  if (((1 << memory->type) & requirements->memoryTypeBits) == 0) {
+    LOG_ERROR("buffer cannot be bound to memory. bits %u are needed, but bit %u is available",
+              requirements->memoryTypeBits, memory->type);
+    return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+  }
+  memory->offset = ALIGN_TO(memory->offset, requirements->alignment);
+  if (memory->offset > memory->size) {
+    LOG_ERROR("out of video memory");
+    return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+  }
+  return VK_SUCCESS;
+}
+
+INTERNAL VkResult
+ImageBindToMemory(Video_Memory* memory, VkImage image, const VkMemoryRequirements* requirements)
+{
+  VkResult err = ProvideVideoMemory(memory, requirements);
+  if (err != VK_SUCCESS) {
+    return err;
+  }
+  err = vkBindImageMemory(g_device->logical_device, image, memory->handle, memory->offset);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to bind image to memory with error %s", ToString_VkResult(err));
+  } else {
+    memory->offset += requirements->size;
+  }
+  return err;
+}
+
+INTERNAL VkResult
+BufferBindToMemory(Video_Memory* memory, VkBuffer buffer,
+                   const VkMemoryRequirements* requirements, void** mapped,
+                   VkMappedMemoryRange* mappedRange)
+{
+  VkResult err = ProvideVideoMemory(memory, requirements);
+  if (err != VK_SUCCESS) {
+    return err;
+  }
+  err = vkBindBufferMemory(g_device->logical_device, buffer, memory->handle, memory->offset);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to bind buffer to memory with error %s", ToString_VkResult(err));
+  } else if (mapped) {
+    if (memory->mapped) {
+      *mapped = (char*)memory->mapped + memory->offset;
+    } else {
+      LOG_WARN("memory is not mapped, can't access it's content from CPU");
+    }
+    if (mappedRange) {
+      mappedRange->sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+      mappedRange->memory = memory->handle;
+      mappedRange->offset = memory->offset;
+      // Vulkan spec: If size is not equal to VK_WHOLE_SIZE, size must either be a multiple of
+      // VkPhysicalDeviceLimits::nonCoherentAtomSize, or offset plus size must equal the size
+      // of memory.
+      mappedRange->size = ALIGN_TO(requirements->size, g_device->properties.limits.nonCoherentAtomSize);
+    }
+    memory->offset += requirements->size;
+  }
+  return err;
+}
+
 typedef struct {
 
   uint32_t opcode;
@@ -869,19 +1221,19 @@ ReflectSPIRV(const uint32_t* code, uint32_t size, Shader_Reflect* shader)
     uint32_t word_count = ins[0] >> 16;
     switch (opcode) {
     case SpvOpEntryPoint:
-      assert(word_count >= 2);
+      Assert(word_count >= 2);
       switch (ins[1]) {
       case SpvExecutionModelVertex: shader->stages = VK_SHADER_STAGE_VERTEX_BIT; break;
       case SpvExecutionModelFragment: shader->stages = VK_SHADER_STAGE_FRAGMENT_BIT; break;
       case SpvExecutionModelGLCompute: shader->stages = VK_SHADER_STAGE_COMPUTE_BIT; break;
-      default: assert(0 && "SPIR-V: invalid shader stage");
+      default: Assert(0 && "SPIR-V: invalid shader stage");
       }
       break;
     case SpvOpExecutionMode:
-      assert(word_count >= 3);
+      Assert(word_count >= 3);
       switch (ins[2]) {
       case SpvExecutionModeLocalSize:
-        assert(word_count == 6);
+        Assert(word_count == 6);
         shader->localX = ins[3];
         shader->localY = ins[4];
         shader->localZ = ins[5];
@@ -889,16 +1241,16 @@ ReflectSPIRV(const uint32_t* code, uint32_t size, Shader_Reflect* shader)
       }
       break;
     case SpvOpDecorate:
-      assert(word_count >= 3);
+      Assert(word_count >= 3);
       // ins[1] is id of entity that describes current instruction
-      assert(ins[1] < id_bound);
+      Assert(ins[1] < id_bound);
       switch (ins[2]) {
       case SpvDecorationDescriptorSet:
-        assert(word_count == 4);
+        Assert(word_count == 4);
         ids[ins[1]].data.binding.set = ins[3];
         break;
       case SpvDecorationBinding:
-        assert(word_count == 4);
+        Assert(word_count == 4);
         ids[ins[1]].data.binding.binding = ins[3];
         break;
       case SpvDecorationBlock:
@@ -918,57 +1270,57 @@ ReflectSPIRV(const uint32_t* code, uint32_t size, Shader_Reflect* shader)
     case SpvOpTypeImage:
     case SpvOpTypeSampler:
     case SpvOpTypeSampledImage:
-      assert(word_count >= 2);
-      assert(ins[1] < id_bound);
-      assert(ids[ins[1]].opcode == 0);
+      Assert(word_count >= 2);
+      Assert(ins[1] < id_bound);
+      Assert(ids[ins[1]].opcode == 0);
       ids[ins[1]].opcode = opcode;
       break;
     case SpvOpTypeInt:
-      assert(word_count == 4);
-      assert(ids[ins[1]].opcode == 0);
+      Assert(word_count == 4);
+      Assert(ids[ins[1]].opcode == 0);
       ids[ins[1]].opcode = opcode;
       ids[ins[1]].data.val_int.integerWidth = ins[2];
       ids[ins[1]].data.val_int.integerSigned = ins[3];
       break;
     case SpvOpTypeFloat:
-      assert(word_count == 3);
-      assert(ids[ins[1]].opcode == 0);
+      Assert(word_count == 3);
+      Assert(ids[ins[1]].opcode == 0);
       ids[ins[1]].opcode = opcode;
       ids[ins[1]].data.val_float.floatWidth = ins[2];
       break;
     case SpvOpTypeVector:
     case SpvOpTypeMatrix:
-      assert(word_count == 4);
-      assert(ids[ins[1]].opcode == 0);
+      Assert(word_count == 4);
+      Assert(ids[ins[1]].opcode == 0);
       ids[ins[1]].opcode = opcode;
       ids[ins[1]].data.val_vec.componentTypeId = ins[2];
       ids[ins[1]].data.val_vec.numComponents = ins[3];
       break;
     case SpvOpTypeArray:
-      assert(ids[ins[1]].opcode == 0);
+      Assert(ids[ins[1]].opcode == 0);
       ids[ins[1]].opcode = opcode;
       ids[ins[1]].data.val_array.elementTypeId = ins[2];
       ids[ins[1]].data.val_array.sizeConstantId = ins[3];
       break;
     case SpvOpTypePointer:
-      assert(word_count == 4);
-      assert(ins[1] < id_bound);
-      assert(ids[ins[1]].opcode == 0);
+      Assert(word_count == 4);
+      Assert(ins[1] < id_bound);
+      Assert(ids[ins[1]].opcode == 0);
       ids[ins[1]].opcode = opcode;
       ids[ins[1]].data.binding.storageClass = ins[2];
       ids[ins[1]].data.binding.typeId = ins[3];
       break;
     case SpvOpVariable:
-      assert(word_count >= 4);
+      Assert(word_count >= 4);
       // ins[2] is id
-      assert(ins[2] < id_bound);
-      assert(ids[ins[2]].opcode == 0);
+      Assert(ins[2] < id_bound);
+      Assert(ids[ins[2]].opcode == 0);
       ids[ins[2]].opcode = opcode;
       ids[ins[2]].data.binding.typeId = ins[1];
       ids[ins[2]].data.binding.storageClass = ins[3];
       break;
     case SpvOpConstant:
-      assert(ids[ins[2]].opcode == 0);
+      Assert(ids[ins[2]].opcode == 0);
       ids[ins[2]].opcode = opcode;
       ids[ins[2]].data.val_const.constantType = ins[1];
       ids[ins[2]].data.val_const.constantValue = ins[3];
@@ -993,13 +1345,13 @@ ReflectSPIRV(const uint32_t* code, uint32_t size, Shader_Reflect* shader)
          id->data.binding.storageClass == SpvStorageClassUniformConstant ||
          id->data.binding.storageClass == SpvStorageClassStorageBuffer)) {
       // process uniform
-      assert(id->data.binding.set < SHADER_REFLECT_MAX_SETS &&
+      Assert(id->data.binding.set < SHADER_REFLECT_MAX_SETS &&
              "descriptor set number is bigger than max value");
       if (id->data.binding.set+1 > shader->set_count)
         shader->set_count = id->data.binding.set+1;
-      assert(id->data.binding.binding < SHADER_REFLECT_MAX_BINDINGS_PER_SET &&
+      Assert(id->data.binding.binding < SHADER_REFLECT_MAX_BINDINGS_PER_SET &&
              "descriptor binding number is bigger than max value");
-      assert(ids[id->data.binding.typeId].opcode == SpvOpTypePointer);
+      Assert(ids[id->data.binding.typeId].opcode == SpvOpTypePointer);
       Binding_Set_Desc* set = &shader->sets[id->data.binding.set];
       VkDescriptorType* ds_type = &set->bindings[set->binding_count].descriptorType;
       switch (ids[ids[id->data.binding.typeId].data.binding.typeId].opcode) {
@@ -1028,7 +1380,7 @@ ReflectSPIRV(const uint32_t* code, uint32_t size, Shader_Reflect* shader)
         *ds_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         break;
       default:
-        assert(0 && "Unknown resource type");
+        Assert(0 && "Unknown resource type");
         break;
       }
 
@@ -1039,7 +1391,7 @@ ReflectSPIRV(const uint32_t* code, uint32_t size, Shader_Reflect* shader)
     } else if (id->opcode == SpvOpVariable &&
                id->data.binding.storageClass == SpvStorageClassPushConstant) {
       // process push constant
-      assert(ids[id->data.binding.typeId].data.binding.storageClass == SpvStorageClassPushConstant);
+      Assert(ids[id->data.binding.typeId].data.binding.storageClass == SpvStorageClassPushConstant);
       shader->ranges[shader->range_count] = (VkPushConstantRange) {
         .stageFlags = shader->stages,
         .offset = 0,
@@ -1062,6 +1414,9 @@ LoadShader(const char* path, const Shader_Reflect** reflect)
   // check if we already have loaded this shader
   Shader_Info* info = FHT_Search(&g_device->shader_cache, &g_device->shader_info_type, &path);
   if (info) {
+    if (reflect) {
+      *reflect = &info->reflect;
+    }
     return info->module;
   }
   // load the shader
@@ -1095,5 +1450,434 @@ LoadShader(const char* path, const Shader_Reflect** reflect)
     }
   }
   PlatformFreeFile(buffer);
+  return ret;
+}
+
+INTERNAL int
+Compare_DSLB(const void* l, const void* r)
+{
+  return memcmp(l, r, sizeof(VkDescriptorSetLayoutBinding));
+}
+
+INTERNAL VkDescriptorSetLayout
+GetDescriptorSetLayout(const VkDescriptorSetLayoutBinding* bindings, size_t num_bindings)
+{
+  DS_Layout_Info key;
+  key.num_bindings = num_bindings;
+  Assert(num_bindings <= ARR_SIZE(key.bindings));
+  memcpy(key.bindings, bindings, sizeof(VkDescriptorSetLayoutBinding));
+  QuickSort(key.bindings, num_bindings, sizeof(VkDescriptorSetLayoutBinding), &Compare_DSLB);
+  DS_Layout_Info* layout = FHT_Search(&g_device->ds_layout_cache, &g_device->ds_layout_info_type, &key);
+  if (layout) {
+    return layout->layout;
+  }
+    VkDescriptorSetLayoutCreateInfo layout_info = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+    .bindingCount = num_bindings,
+    .pBindings = bindings,
+  };
+  VkResult err = vkCreateDescriptorSetLayout(g_device->logical_device, &layout_info, NULL, &key.layout);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create descriptor layout with error %s", ToString_VkResult(err));
+  }
+  FHT_Insert(&g_device->ds_layout_cache, &g_device->ds_layout_info_type, &key);
+  return key.layout;
+}
+
+INTERNAL VkSampler
+GetSampler(VkFilter filter, VkSamplerAddressMode mode)
+{
+  Sampler_Info sampler;
+  sampler.filter = filter;
+  sampler.mode = mode;
+  // try to look if have this sampler in cache
+  Sampler_Info* it = FHT_Search(&g_device->sampler_cache, &g_device->sampler_info_type, &sampler);
+  if (it) {
+    return it->handle;
+  }
+  // create a new sampler
+  VkSamplerCreateInfo sampler_info = {
+    .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+    .magFilter = filter,
+    .minFilter = filter,
+    .mipmapMode = (filter == VK_FILTER_NEAREST) ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR,
+    .addressModeU = mode,
+    .addressModeV = mode,
+    .addressModeW = mode,
+    .minLod = 0.0f,
+    .maxLod = 1.0f,
+    .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE
+  };
+  VkResult err = vkCreateSampler(g_device->logical_device, &sampler_info, NULL, &sampler.handle);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create sampler with error %s", ToString_VkResult(err));
+    return VK_NULL_HANDLE;
+  }
+  // add sampler to cache if succeeded
+  FHT_Insert(&g_device->sampler_cache, &g_device->sampler_info_type, &sampler);
+  LOG_TRACE("create a sampler");
+  return sampler.handle;
+}
+
+INTERNAL void
+MergeShaderReflects(Shader_Reflect* lhs, const Shader_Reflect* rhs)
+{
+  lhs->stages |= rhs->stages;
+  if (rhs->set_count > lhs->set_count) lhs->set_count = rhs->set_count;
+  for (uint32_t i = 0; i < rhs->set_count; i++) {
+    const Binding_Set_Desc* set = &rhs->sets[i];
+    uint32_t* pCount = &lhs->sets[i].binding_count;
+    uint32_t old_count = *pCount;
+    for (uint32_t j = 0; j < set->binding_count; j++) {
+      int found = 0;
+      for (uint32_t k = 0; old_count; k++) {
+        VkDescriptorSetLayoutBinding* binding = &lhs->sets[j].bindings[k];
+        if (binding->binding == set->bindings[j].binding) {
+          if (binding->descriptorType != set->bindings[j].descriptorType ||
+              binding->descriptorCount != set->bindings[j].descriptorCount) {
+            LOG_WARN("shader merge error: different uniforms have the same binding number");
+          }
+          binding->stageFlags |= set->bindings[j].stageFlags;
+          found = 1;
+          break;
+        }
+      }
+      if (!found) {
+        // add binding
+        Assert(*pCount < SHADER_REFLECT_MAX_BINDINGS_PER_SET &&
+               "shader reflect merge: binding number overflow, "
+               "try to use less number of bindings per set");
+        memcpy(&lhs->sets[i].bindings[*pCount], &set->bindings[j],
+               sizeof(VkDescriptorSetLayoutBinding));
+        (*pCount)++;
+      }
+    }
+  }
+  for (uint32_t i = 0; i < rhs->range_count; i++) {
+    const VkPushConstantRange* lrange, *rrange;
+    int found = 0;
+    rrange = &rhs->ranges[i];
+    for (uint32_t j = 0; j < lhs->range_count; j++) {
+      lrange = &lhs->ranges[j];
+      if (lrange->offset == rrange->offset &&
+          lrange->size == rrange->size) {
+        found = 1;
+        break;
+      }
+    }
+    if (!found) {
+      Assert(lhs->range_count < SHADER_REFLECT_MAX_RANGES &&
+             "shader reflect merge: push constant number overflow");
+      memcpy(&lhs->ranges[lhs->range_count], rrange, sizeof(VkPushConstantRange));
+      lhs->range_count++;
+    }
+  }
+}
+
+INTERNAL Shader_Reflect*
+CollectShaderReflects(const Shader_Reflect** shaders, size_t count)
+{
+  Shader_Reflect* shader = PersistentAllocate(sizeof(Shader_Reflect));
+  memcpy(shader, shaders[0], sizeof(Shader_Reflect));
+  for (size_t i = 1; i < count; i++) {
+    MergeShaderReflects(shader, shaders[i]);
+  }
+  return shader;
+}
+
+INTERNAL VkPipelineLayout
+CreatePipelineLayout(const Shader_Reflect** shader_templates, size_t count)
+{
+  // NOTE: I didn't figure out a good way to mark pipeline layout.
+  // Leaving it unmarked
+  const Shader_Reflect* shader;
+  Pipeline_Layout_Info layout_info = { .num_sets = 0, .num_ranges = 0 };
+  if (count > 0) {
+    if (count == 1) {
+      shader = shader_templates[0];
+    } else {
+      shader = CollectShaderReflects(shader_templates, count);
+    }
+    layout_info.num_sets = shader->set_count;
+    for (uint32_t i = 0; i < shader->set_count; i++) {
+      layout_info.set_layouts[i] = GetDescriptorSetLayout(shader->sets[i].bindings,
+                                                          shader->sets[i].binding_count);
+    }
+    layout_info.num_ranges = shader->range_count;
+    for (uint32_t i = 0; i < shader->range_count; i++) {
+      layout_info.ranges[i] = shader->ranges[i];
+    }
+  }
+  Pipeline_Layout_Info* it = FHT_Search(&g_device->pipeline_layout_cache,
+                                        &g_device->pipeline_layout_info_type, &layout_info);
+  if (it) {
+    return it->handle;
+  }
+  // create a new pipeline layout
+  VkPipelineLayoutCreateInfo pipeline_layout = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+    .setLayoutCount = layout_info.num_sets,
+    .pSetLayouts = layout_info.set_layouts,
+    .pushConstantRangeCount = layout_info.num_ranges,
+    .pPushConstantRanges = layout_info.ranges,
+  };
+  VkResult err = vkCreatePipelineLayout(g_device->logical_device, &pipeline_layout, NULL,
+                                        &layout_info.handle);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create pipeline layout with error %s", ToString_VkResult(err));
+  } else {
+    // add pipeline layout to cache if succeeded
+    FHT_Insert(&g_device->pipeline_layout_cache, &g_device->pipeline_layout_info_type, &layout_info);
+  }
+  if (count > 1)
+    PersistentPop((void*)shader);
+  return layout_info.handle;
+}
+
+INTERNAL VkResult
+CreateGraphicsPipelines(VkPipeline* pipelines, size_t count, const Pipeline_Desc* descs, VkPipelineLayout* layouts)
+{
+  // allocate some structures
+  VkGraphicsPipelineCreateInfo* create_infos = PersistentAllocate(count * sizeof(VkGraphicsPipelineCreateInfo));
+  VkPipelineShaderStageCreateInfo* stages = PersistentAllocate(2 * count * sizeof(VkPipelineShaderStageCreateInfo));
+  VkShaderModule* modules = PersistentAllocate(2 * count * sizeof(VkShaderModule));
+  const Shader_Reflect** reflects = PersistentAllocate(2 * count * sizeof(Shader_Reflect*));
+  VkPipelineVertexInputStateCreateInfo* vertex_input_states = PersistentAllocate(count * sizeof(VkPipelineVertexInputStateCreateInfo));
+  VkPipelineInputAssemblyStateCreateInfo* input_assembly_states = PersistentAllocate(count * sizeof(VkPipelineInputAssemblyStateCreateInfo));
+  VkPipelineViewportStateCreateInfo* viewport_states = PersistentAllocate(count * sizeof(VkPipelineViewportStateCreateInfo));
+  VkPipelineRasterizationStateCreateInfo* rasterization_states = PersistentAllocate(count * sizeof(VkPipelineRasterizationStateCreateInfo));
+  VkPipelineMultisampleStateCreateInfo* multisample_states = PersistentAllocate(count * sizeof(VkPipelineMultisampleStateCreateInfo));
+  VkPipelineDepthStencilStateCreateInfo* depth_stencil_states = PersistentAllocate(count * sizeof(VkPipelineDepthStencilStateCreateInfo));
+  VkPipelineColorBlendStateCreateInfo* color_blend_states = PersistentAllocate(count * sizeof(VkPipelineColorBlendStateCreateInfo));
+  VkPipelineDynamicStateCreateInfo* dynamic_states = PersistentAllocate(count * sizeof(VkPipelineDynamicStateCreateInfo));
+  for (size_t i = 0; i < count; i++) {
+
+    modules[2*i] = LoadShader(descs[i].vertex_shader, &reflects[2*i]);
+    stages[2*i] = (VkPipelineShaderStageCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .stage = VK_SHADER_STAGE_VERTEX_BIT,
+      .module = modules[2*i],
+      .pName = "main"
+    };
+    if (descs[i].fragment_shader) {
+      // some pipelines may have not a fragment shader
+      modules[2*i+1] = LoadShader(descs[i].fragment_shader, &reflects[2*i+1]);
+      stages[2*i+1] = (VkPipelineShaderStageCreateInfo) {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = modules[2*i+1],
+        .pName = "main"
+      };
+    }
+
+    layouts[i] = CreatePipelineLayout(&reflects[2*i],
+                                      (descs[i].fragment_shader) ? 2 : 1);
+
+    vertex_input_states[i] = (VkPipelineVertexInputStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .vertexBindingDescriptionCount = descs[i].vertex_binding_count,
+      .pVertexBindingDescriptions = descs[i].vertex_bindings,
+      .vertexAttributeDescriptionCount = descs[i].vertex_attribute_count,
+      .pVertexAttributeDescriptions = descs[i].vertex_attributes
+    };
+    input_assembly_states[i] = (VkPipelineInputAssemblyStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+      .topology = descs[i].topology,
+      // currently we don't use primitiveRestartEnable in lidaEngine
+      .primitiveRestartEnable = VK_FALSE
+    };
+
+    viewport_states[i] = (VkPipelineViewportStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+      // currently we always 1 viewport and 1 scissor, maybe I should
+      // add an option to use multiple scissors. I saw that ImGui uses
+      // multiple scissors for rendering.
+      .viewportCount = 1,
+      .pViewports = descs[i].viewport,
+      .scissorCount = 1,
+      .pScissors = descs[i].scissor,
+    };
+
+    rasterization_states[i] = (VkPipelineRasterizationStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+      .depthClampEnable = VK_FALSE,
+      .rasterizerDiscardEnable = VK_FALSE,
+      .polygonMode = descs[i].polygonMode,
+      .cullMode = descs[i].cullMode,
+      // we always use CCW
+      .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+      .depthBiasEnable = descs[i].depth_bias_enable,
+      .lineWidth = descs[i].line_width
+    };
+
+    multisample_states[i] = (VkPipelineMultisampleStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+      .rasterizationSamples = descs[i].msaa_samples,
+      .sampleShadingEnable = VK_FALSE,
+    };
+
+    depth_stencil_states[i] = (VkPipelineDepthStencilStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+      .depthTestEnable = descs[i].depth_test,
+      .depthWriteEnable = descs[i].depth_write,
+      .depthCompareOp = descs[i].depth_compare_op,
+      // we're not using depth bounds
+      .depthBoundsTestEnable = VK_FALSE,
+    };
+
+    color_blend_states[i] = (VkPipelineColorBlendStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+      .logicOpEnable = descs[i].blend_logic_enable,
+      .logicOp = descs[i].blend_logic_op,
+      .attachmentCount = descs[i].attachment_count,
+      .pAttachments = descs[i].attachments,
+    };
+
+    memcpy(color_blend_states[i].blendConstants, descs[i].blend_constants, sizeof(float)*4);
+    dynamic_states[i] = (VkPipelineDynamicStateCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+      .dynamicStateCount = descs[i].dynamic_state_count,
+      .pDynamicStates = descs[i].dynamic_states,
+    };
+
+    create_infos[i] = (VkGraphicsPipelineCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+      .stageCount = (descs[i].fragment_shader) ? 2 : 1,
+      .pStages = &stages[i*2],
+      .pVertexInputState = &vertex_input_states[i],
+      .pInputAssemblyState = &input_assembly_states[i],
+      .pViewportState = &viewport_states[i],
+      .pRasterizationState = &rasterization_states[i],
+      .pMultisampleState = &multisample_states[i],
+      // I think it's pretty convenient to specify depth_write = 0 and
+      // depth_test = 0 to say that pipeline doesn't use depth buffer.
+      .pDepthStencilState = (descs[i].depth_write || descs[i].depth_test) ? &depth_stencil_states[i] : NULL,
+      .pColorBlendState = &color_blend_states[i],
+      .pDynamicState = &dynamic_states[i],
+      .layout = layouts[i],
+      .renderPass = descs[i].render_pass,
+      .subpass = descs[i].subpass
+    };
+
+  }
+
+  VkResult err = vkCreateGraphicsPipelines(g_device->logical_device, VK_NULL_HANDLE,
+                                           count, create_infos, VK_NULL_HANDLE, pipelines);
+
+  PersistentPop(dynamic_states);
+  PersistentPop(color_blend_states);
+  PersistentPop(depth_stencil_states);
+  PersistentPop(multisample_states);
+  PersistentPop(viewport_states);
+  PersistentPop(input_assembly_states);
+  PersistentPop(vertex_input_states);
+  PersistentPop(reflects);
+  PersistentPop(modules);
+  PersistentPop(stages);
+  PersistentPop(create_infos);
+
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create graphics pipelines with error %s", ToString_VkResult(err));
+  } else {
+    for (size_t i = 0; i < count; i++) {
+      err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT, (uint64_t)pipelines[i],
+                            descs[i].marker);
+      if (err != VK_SUCCESS) {
+        LOG_WARN("failed to debug mark graphics pipeline '%s' with error %s", descs[i].marker,
+                  ToString_VkResult(err));
+      }
+    }
+  }
+  return err;
+}
+
+INTERNAL VkResult
+AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, size_t num_bindings,
+                       VkDescriptorSet* sets, size_t num_sets, int dynamic,
+                       const char* marker)
+{
+  // find appropriate descriptor layout
+  VkDescriptorSetLayout layout = GetDescriptorSetLayout(bindings, num_bindings);
+  VkDescriptorSetLayout* layouts = PersistentAllocate(num_sets * sizeof(VkDescriptorSetLayout));
+  for (size_t i = 0; i < num_sets; i++)
+    layouts[i] = layout;
+  VkDescriptorSetAllocateInfo allocate_info = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+      .descriptorPool = (dynamic) ? g_device->dynamic_ds_pool : g_device->static_ds_pool,
+      .descriptorSetCount = num_sets,
+      .pSetLayouts = layouts,
+  };
+  VkResult err = vkAllocateDescriptorSets(g_device->logical_device, &allocate_info, sets);
+  if (err != VK_SUCCESS) {
+    LOG_WARN("failed to allocate descriptor sets with error %s", ToString_VkResult(err));
+  }
+  PersistentPop(layouts);
+  if (err == VK_SUCCESS) {
+    // do naming
+    char buff[128];
+    const char* type = (dynamic != 0 ? "resetable" : "static");
+    for (uint32_t i = 0; i < num_sets; i++) {
+      stbsp_snprintf(buff, sizeof(buff), "%s[%u]-%s", marker, i, type);
+      err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_EXT, (uint64_t)sets[i], buff);
+      if (err != VK_SUCCESS) {
+        LOG_WARN("failed to debug marker descriptor sets '%s' with error %s", marker,
+                 ToString_VkResult(err));
+        break;
+      }
+    }
+  }
+  return err;
+}
+
+INTERNAL VkResult
+FreeDescriptorSets(const VkDescriptorSet* sets, size_t num_sets)
+{
+  return vkFreeDescriptorSets(g_device->logical_device, g_device->dynamic_ds_pool,
+                              num_sets, sets);
+}
+
+INTERNAL void
+UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, size_t count)
+{
+  vkUpdateDescriptorSets(g_device->logical_device, count, pDescriptorWrites, 0, NULL);
+}
+
+INTERNAL VkFormat
+FindSupportedFormat(VkFormat* options, uint32_t count, VkImageTiling tiling, VkFormatFeatureFlags flags)
+{
+  VkFormatProperties properties;
+  for (uint32_t i = 0; i < count; i++) {
+    vkGetPhysicalDeviceFormatProperties(g_device->physical_device, options[i], &properties);
+    if ((tiling == VK_IMAGE_TILING_LINEAR && (properties.linearTilingFeatures & flags)) ||
+        (tiling == VK_IMAGE_TILING_OPTIMAL && (properties.optimalTilingFeatures & flags))) {
+      return options[i];
+    }
+  }
+  // I hope we will never run in this case...
+  return VK_FORMAT_MAX_ENUM;
+}
+
+INTERNAL VkSampleCountFlagBits
+MaxSampleCount(VkSampleCountFlagBits max_samples)
+{
+  VkSampleCountFlags flags =
+    g_device->properties.limits.framebufferColorSampleCounts &
+    g_device->properties.limits.framebufferDepthSampleCounts &
+    // FIXME: should we use this? we don't currently use stencil test
+    g_device->properties.limits.framebufferStencilSampleCounts;
+  // SAMPLE_COUNT_1 is guaranteed to work
+  VkSampleCountFlagBits ret = VK_SAMPLE_COUNT_1_BIT;
+  VkSampleCountFlagBits options[] = {
+    VK_SAMPLE_COUNT_2_BIT,
+    VK_SAMPLE_COUNT_4_BIT,
+    VK_SAMPLE_COUNT_8_BIT,
+    VK_SAMPLE_COUNT_16_BIT,
+    VK_SAMPLE_COUNT_32_BIT,
+    VK_SAMPLE_COUNT_64_BIT,
+  };
+  for (uint32_t i = 0; i < ARR_SIZE(options); i++) {
+    if ((options[i] <= max_samples) && (options[i] & flags))
+      ret = options[i];
+  }
   return ret;
 }
