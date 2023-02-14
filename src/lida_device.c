@@ -1,4 +1,5 @@
 /*
+  lida_device.c
   Vulkan device creation and a lot of vulkan abstraction.
  */
 
@@ -763,18 +764,15 @@ CreateDevice(int enable_debug_layers, uint32_t gpu_id,
   const size_t num_ds_layouts = 16;
   const size_t num_samplers = 8;
   const size_t num_pipeline_layouts = 16;
-  FHT_Init(&g_device->shader_cache,
-           PersistentAllocate(sizeof(Shader_Info)*num_shaders),
-           num_shaders, &g_device->shader_info_type);
-  FHT_Init(&g_device->ds_layout_cache,
-           PersistentAllocate(sizeof(DS_Layout_Info)*num_ds_layouts),
-           num_ds_layouts, &g_device->ds_layout_info_type);
-  FHT_Init(&g_device->sampler_cache,
-           PersistentAllocate(sizeof(Sampler_Info)*num_samplers),
-           num_samplers, &g_device->sampler_info_type);
-  FHT_Init(&g_device->pipeline_layout_cache,
-           PersistentAllocate(sizeof(Pipeline_Layout_Info)*num_pipeline_layouts),
-           num_pipeline_layouts, &g_device->pipeline_layout_info_type);
+  // this just allocates a hash table of needed size
+#define INIT_HT(type)   FHT_Init(&g_device->type##_cache, \
+           PersistentAllocate(FHT_CALC_SIZE(&g_device->type##_info_type, num_##type##s)), \
+           num_##type##s, &g_device->type##_info_type)
+  INIT_HT(shader);
+  INIT_HT(ds_layout);
+  INIT_HT(sampler);
+  INIT_HT(pipeline_layout);
+#undef INIT_HT
 
   return VK_SUCCESS;
  error:
@@ -1840,6 +1838,12 @@ INTERNAL void
 UpdateDescriptorSets(const VkWriteDescriptorSet* pDescriptorWrites, size_t count)
 {
   vkUpdateDescriptorSets(g_device->logical_device, count, pDescriptorWrites, 0, NULL);
+}
+
+INTERNAL void
+ResetDynamicDescriptorSets()
+{
+  vkResetDescriptorPool(g_device->logical_device, g_device->dynamic_ds_pool, 0);
 }
 
 INTERNAL VkFormat

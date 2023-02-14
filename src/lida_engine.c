@@ -1,5 +1,5 @@
 /* -*- mode: c -*-
-
+   lida_engine.c
   lida engine - portable and small 3D Vulkan engine.
 
   ===============================
@@ -8,6 +8,7 @@
  */
 
 #include "lib/volk.h"
+#include "lib/ogt_vox.h"
 
 #include "stdalign.h"
 #include "string.h"
@@ -24,15 +25,19 @@
 #include "lida_window.c"
 #include "lida_algebra.c"
 #include "lida_render.c"
+#include "lida_voxel.c"
 
 typedef struct {
 
   Forward_Pass forward_pass;
   Camera camera;
+  Voxel_Drawer vox_drawer;
   VkPipelineLayout rect_pipeline_layout;
   VkPipeline rect_pipeline;
   VkPipelineLayout triangle_pipeline_layout;
   VkPipeline triangle_pipeline;
+  VkPipelineLayout voxel_pipeline_layout;
+  VkPipeline voxel_pipeline;
   uint32_t prev_time;
   uint32_t curr_time;
   int mouse_mode;
@@ -41,11 +46,15 @@ typedef struct {
 
 GLOBAL Engine_Context* g_context;
 
+GLOBAL Voxel_Grid grid_1;
+GLOBAL Voxel_Grid grid_2;
+
 
 /// Engine general functions
 
 INTERNAL void CreateRectPipeline();
 INTERNAL void CreateTrianglePipeline();
+INTERNAL void CreateVoxelPipeline();
 
 void
 EngineInit(const Engine_Startup_Info* info)
@@ -67,6 +76,7 @@ EngineInit(const Engine_Startup_Info* info)
 
   CreateRectPipeline();
   CreateTrianglePipeline();
+  CreateVoxelPipeline();
 
   g_context->camera.z_near = 0.01f;
   g_context->camera.position = VEC3_CREATE(0.0f, 0.0f, -2.0f);
@@ -81,6 +91,11 @@ EngineInit(const Engine_Startup_Info* info)
 
   g_context->prev_time = PlatformGetTicks();
   g_context->curr_time = g_context->prev_time;
+
+  CreateVoxelDrawer(&g_context->vox_drawer, 128*1024, 32);
+
+  LoadVoxelGridFromFile(&grid_1, "../assets/3x3x3.vox");
+  LoadVoxelGridFromFile(&grid_2, "../assets/chr_beau.vox");
 }
 
 void
@@ -89,6 +104,9 @@ EngineFree()
   // wait until commands from previous frames are ended so we can safely destroy GPU resources
   vkDeviceWaitIdle(g_device->logical_device);
 
+  DestroyVoxelDrawer(&g_context->vox_drawer);
+
+  vkDestroyPipeline(g_device->logical_device, g_context->voxel_pipeline, NULL);
   vkDestroyPipeline(g_device->logical_device, g_context->triangle_pipeline, NULL);
   vkDestroyPipeline(g_device->logical_device, g_context->rect_pipeline, NULL);
 
@@ -137,6 +155,18 @@ EngineUpdateAndRender()
 
   Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
 
+  NewVoxelDrawerFrame(&g_context->vox_drawer);
+
+  Transform transform = {
+    .rotation = QUAT_IDENTITY(),
+    .position = VEC3_CREATE(3.1f, 2.6f, 1.0f),
+    .scale = 0.9f,
+  };
+  PushMeshToVoxelDrawer(&g_context->vox_drawer, &grid_1, &transform);
+  transform.position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
+  transform.scale = 0.09f;
+  PushMeshToVoxelDrawer(&g_context->vox_drawer, &grid_2, &transform);
+
   VkCommandBuffer cmd = BeginCommands();
   VkDescriptorSet ds_set;
 
@@ -150,6 +180,7 @@ EngineUpdateAndRender()
   float clear_color[4] = { 0.08f, 0.2f, 0.25f, 1.0f };
   BeginForwardPass(&g_context->forward_pass, cmd, clear_color);
   {
+    // draw triangles
     ds_set = g_context->forward_pass.scene_data_set;
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             g_context->triangle_pipeline_layout, 0, 1, &ds_set, 0, NULL);
@@ -158,6 +189,19 @@ EngineUpdateAndRender()
     vkCmdPushConstants(cmd, g_context->triangle_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT,
                        0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
+    // 2nd draw
+    colors[2] = VEC4_CREATE(0.1f, 0.3f, 1.0f, 0.0f);
+    vkCmdPushConstants(cmd, g_context->triangle_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT,
+                       0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    // draw voxels
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            g_context->voxel_pipeline_layout, 0, 1, &ds_set, 0, NULL);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->voxel_pipeline);
+    for (uint32_t i = 0; i < 6; i++) {
+      vkCmdPushConstants(cmd, g_context->voxel_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
+      DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i);
+    }
   }
   vkCmdEndRenderPass(cmd);
 
@@ -172,9 +216,20 @@ EngineUpdateAndRender()
   }
   vkCmdEndRenderPass(cmd);
 
+  // end of frame
   vkEndCommandBuffer(cmd);
 
-  PresentToScreen();
+  SendForwardPassData(&g_context->forward_pass);
+
+  VkResult err = PresentToScreen();
+  if (err == VK_SUBOPTIMAL_KHR) {
+    // resize render attachments
+    vkDeviceWaitIdle(g_device->logical_device);
+    ResizeWindow();
+    ResetDynamicDescriptorSets();
+    ResizeForwardPass(&g_context->forward_pass,
+                      g_window->swapchain_extent.width, g_window->swapchain_extent.height);
+  }
 }
 
 void
@@ -333,4 +388,38 @@ void CreateTrianglePipeline()
     .marker = "draw-triangle-pipeline"
   };
   CreateGraphicsPipelines(&g_context->triangle_pipeline, 1, &pipeline_desc, &g_context->triangle_pipeline_layout);
+}
+
+void CreateVoxelPipeline()
+{
+  VkPipelineColorBlendAttachmentState colorblend_attachment = {
+    .blendEnable = VK_FALSE,
+    .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
+  };
+  VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+
+  Pipeline_Desc pipeline_desc = {
+    .vertex_shader = "voxel.vert.spv",
+    .fragment_shader = "voxel.frag.spv",
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_FRONT_BIT,
+    .depth_bias_enable = VK_FALSE,
+    .msaa_samples = g_context->forward_pass.msaa_samples,
+    .depth_test = VK_TRUE,
+    .depth_write = VK_TRUE,
+    .depth_compare_op = VK_COMPARE_OP_GREATER,
+    .blend_logic_enable = VK_FALSE,
+    .attachment_count = 1,
+    .attachments = &colorblend_attachment,
+    .dynamic_state_count = ARR_SIZE(dynamic_states),
+    .dynamic_states = dynamic_states,
+    .render_pass = g_context->forward_pass.render_pass,
+    .subpass = 0,
+    .marker = "forward/voxel-pipeline"
+  };
+  PipelineVoxelVertices(&pipeline_desc.vertex_attributes, &pipeline_desc.vertex_attribute_count,
+                        &pipeline_desc.vertex_bindings, &pipeline_desc.vertex_binding_count,
+                        1);
+  CreateGraphicsPipelines(&g_context->voxel_pipeline, 1, &pipeline_desc, &g_context->voxel_pipeline_layout);
 }

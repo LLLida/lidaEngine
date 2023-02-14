@@ -1,5 +1,5 @@
 /* -*- mode: c++ -*-
-
+   lida_platform1.cc
    Platform functions implementation using SDL2 library.
 
  */
@@ -9,6 +9,9 @@
 #include "lida_platform.h"
 
 #include <argp.h>
+
+#define OGT_VOX_IMPLEMENTATION
+#include "lib/ogt_vox.h"
 
 
 /// implementation of platform abstraction layer

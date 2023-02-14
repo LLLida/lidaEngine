@@ -1,4 +1,5 @@
 /*
+  lida_algebra.c
   Vector and linear algebra.
  */
 

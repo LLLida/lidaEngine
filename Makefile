@@ -24,7 +24,7 @@ CXXFLAGS += $(shell pkg-config --cflags sdl2)
 LDFLAGS += $(shell pkg-config --libs sdl2)
 
 # uncomment if using ASAN
-# NOTE: don't forget to do 'make clean' before build if the changed flags!
+# NOTE: don't forget to do 'make clean' before build if you changed flags!
 CFLAGS += -fsanitize=address -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address -fno-omit-frame-pointer -lrt
 

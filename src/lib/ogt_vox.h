@@ -120,20 +120,24 @@
 #ifndef OGT_VOX_H__
 #define OGT_VOX_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #if _MSC_VER == 1400
     // VS2005 doesn't have inttypes or stdint so we just define what we need here.
     typedef unsigned char uint8_t;
     typedef signed int    int32_t;
     typedef unsigned int  uint32_t;
-	#ifndef UINT32_MAX
-		#define UINT32_MAX	((uint32_t)0xFFFFFFFF)
-	#endif
-	#ifndef INT32_MAX
-		#define INT32_MAX	((int32_t)0x7FFFFFFF)
-	#endif
-	#ifndef UINT8_MAX
-		#define UINT8_MAX	((uint8_t)0xFF)
-	#endif
+        #ifndef UINT32_MAX
+                #define UINT32_MAX	((uint32_t)0xFFFFFFFF)
+        #endif
+        #ifndef INT32_MAX
+                #define INT32_MAX	((int32_t)0x7FFFFFFF)
+        #endif
+        #ifndef UINT8_MAX
+                #define UINT8_MAX	((uint8_t)0xFF)
+        #endif
 #elif defined(_MSC_VER)
     // general VS*
     #include <inttypes.h>
@@ -172,7 +176,7 @@
     } ogt_vox_palette;
 
     // Extended Material Chunk MATL types
-    enum ogt_matl_type
+    typedef enum ogt_matl_type
     {
         ogt_matl_type_diffuse = 0, // diffuse is default
         ogt_matl_type_metal   = 1,
@@ -180,7 +184,7 @@
         ogt_matl_type_emit    = 3,
         ogt_matl_type_blend   = 4,
         ogt_matl_type_media   = 5,
-    };
+    } ogt_matl_type;
 
     // Content Flags for ogt_vox_matl values for a given material
     static const uint32_t k_ogt_vox_matl_have_metal  = 1 << 0;
@@ -244,14 +248,14 @@
         uint32_t          model_index;  // index of the model used by this instance. used to lookup the model in the scene's models[] array.
         uint32_t          layer_index;  // index of the layer used by this instance. used to lookup the layer in the scene's layers[] array.
         uint32_t          group_index;  // this will be the index of the group in the scene's groups[] array. If group is zero it will be the scene root group and the instance transform will be a world-space transform, otherwise the transform is relative to the group.
-        bool              hidden;       // whether this instance is individually hidden or not. Note: the instance can also be hidden when its layer is hidden, or if it belongs to a group that is hidden.
+        uint8_t              hidden;       // whether this instance is individually hidden or not. Note: the instance can also be hidden when its layer is hidden, or if it belongs to a group that is hidden.
     } ogt_vox_instance;
 
     // describes a layer within the scene
     typedef struct ogt_vox_layer
     {
         const char* name;               // name of this layer if there is one, will be NULL otherwise.
-        bool        hidden;             // whether this layer is hidden or not.
+        uint8_t     hidden;             // whether this layer is hidden or not.
     } ogt_vox_layer;
 
     // describes a group within the scene
@@ -260,7 +264,7 @@
         ogt_vox_transform transform;            // transform of this group relative to its parent group (if any), otherwise this will be relative to world-space.
         uint32_t          parent_group_index;   // if this group is parented to another group, this will be the index of its parent in the scene's groups[] array, otherwise this group will be the scene root group and this value will be k_invalid_group_index
         uint32_t          layer_index;          // which layer this group belongs to. used to lookup the layer in the scene's layers[] array.
-        bool              hidden;               // whether this group is hidden or not.
+        uint8_t           hidden;               // whether this group is hidden or not.
     } ogt_vox_group;
 
     // the scene parsed from a .vox file.
@@ -308,6 +312,10 @@
     // merges the specified scenes together to create a bigger scene. Merged scene can be destroyed using ogt_vox_destroy_scene
     // If you require specific colors in the merged scene palette, provide up to and including 255 of them via required_colors/required_color_count.
     ogt_vox_scene* ogt_vox_merge_scenes(const ogt_vox_scene** scenes, uint32_t scene_count, const ogt_vox_rgba* required_colors, const uint32_t required_color_count);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // OGT_VOX_H__
 
@@ -650,10 +658,10 @@
 
     // lookup table for _vox_make_transform_from_dict_strings
     static const vec3 k_vectors[4] = {
-	vec3_make(1.0f, 0.0f, 0.0f),
-	vec3_make(0.0f, 1.0f, 0.0f),
-	vec3_make(0.0f, 0.0f, 1.0f),
-	vec3_make(0.0f, 0.0f, 0.0f)    // invalid!
+        vec3_make(1.0f, 0.0f, 0.0f),
+        vec3_make(0.0f, 1.0f, 0.0f),
+        vec3_make(0.0f, 0.0f, 1.0f),
+        vec3_make(0.0f, 0.0f, 0.0f)    // invalid!
     };
 
     // lookup table for _vox_make_transform_from_dict_strings

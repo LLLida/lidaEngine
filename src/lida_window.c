@@ -1,5 +1,5 @@
 /*
-
+  lida_window.c
   Vulkan swapchain creation and management.
 
   NOTE: in this file you will often see number 2. That's because we
@@ -233,7 +233,6 @@ CreateSwapchain(VkPresentModeKHR present_mode)
   VkImage swapchain_images[8];
   vkGetSwapchainImagesKHR(g_device->logical_device, g_window->swapchain, &g_window->num_images, swapchain_images);
   // create attachments
-  g_window->images = PersistentAllocate(sizeof(Window_Image) * g_window->num_images);
   VkImageViewCreateInfo image_view_info = {
     .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
     .viewType = VK_IMAGE_VIEW_TYPE_2D,
@@ -325,6 +324,8 @@ CreateWindow(int vsync)
 {
   g_window = PersistentAllocate(sizeof(Vulkan_Window));
   memset(g_window, 0, sizeof(Vulkan_Window));
+  // we just hope that 8 images are enough
+  g_window->images = PersistentAllocate(sizeof(Window_Image) * 8);
   PlatformCreateWindow();
   VkPresentModeKHR preferred = (vsync == 0) ? VK_PRESENT_MODE_MAILBOX_KHR : VK_PRESENT_MODE_FIFO_KHR;
   g_window->surface = PlatformCreateVkSurface(g_device->instance);
@@ -366,6 +367,22 @@ DestroyWindow(int free_memory)
   }
 
   g_window = NULL;
+}
+
+INTERNAL VkResult
+ResizeWindow()
+{
+  for (uint32_t i = 0; i < g_window->num_images; i++) {
+    vkDestroyFramebuffer(g_device->logical_device, g_window->images[i].framebuffer, NULL);
+    vkDestroyImageView(g_device->logical_device, g_window->images[i].image_view, NULL);
+  }
+  VkResult err = CreateSwapchain(g_window->present_mode);
+  if (err != VK_SUCCESS) {
+    LOG_FATAL("failed to recreate swapchain with error %s", ToString_VkResult(err));
+    return err;
+  }
+  LOG_TRACE("successfully resized window");
+  return err;
 }
 
 INTERNAL VkCommandBuffer

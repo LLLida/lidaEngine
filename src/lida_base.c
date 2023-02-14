@@ -1,4 +1,5 @@
 /*
+  lida_base.c
   Basic core of utilities and algorithms that whole engine uses.
  */
 
@@ -49,7 +50,7 @@ typedef struct {
 INTERNAL void*
 MemoryAllocateLeft(Memory_Chunk* chunk, uint32_t size)
 {
-  Assert(chunk->left + size < chunk->size);
+  Assert(chunk->left + size < chunk->size && "out of memory");
   uint8_t* start = (uint8_t*)chunk->ptr + chunk->left;
   void* ATTRIBUTE_ALIGNED(8) bytes = start + MEM_ALIGN_OFF(start, 8);
   chunk->left += size + MEM_ALIGN_OFF(start, 8);
@@ -233,7 +234,9 @@ QuickSortHelper(void* ptr, size_t size, size_t left, size_t right, Compare_Funct
 INTERNAL void
 QuickSort(void* ptr, size_t num, size_t sizeof_, Compare_Function cmp)
 {
-  QuickSortHelper(ptr, sizeof_, 0, num-1, cmp);
+  if (num > 0) {
+    QuickSortHelper(ptr, sizeof_, 0, num-1, cmp);
+  }
 }
 
 INTERNAL void
@@ -399,6 +402,7 @@ Each cell has following fields:
 } Fixed_Hash_Table;
 
 // TODO: respect alignment
+#define FHT_CALC_SIZE(type, n) (((type)->size + sizeof(uint32_t) + sizeof(uint32_t)) * n)
 #define FHT_ELEM_SIZE(type) ((type)->size + sizeof(uint32_t) + sizeof(uint32_t))
 #define FHT_GET(ht, type, i) ((uint8_t*)(ht)->ptr + FHT_ELEM_SIZE(type)*i)
 #define FHT_GET_HASH(ht, type, i) (uint32_t*)(FHT_GET(ht, type, i) + type->size)

@@ -1,4 +1,5 @@
 /*
+  lida_render.c
   A classic forward renderer. I might switch to gbuffer in future.
  */
 
@@ -413,7 +414,54 @@ DestroyForwardPass(Forward_Pass* pass)
   FreeVideoMemory(&pass->gpu_memory);
 }
 
-void
+INTERNAL void
+ResizeForwardPass(Forward_Pass* pass, uint32_t width, uint32_t height)
+{
+  // destroy attachments
+  vkDestroyFramebuffer(g_device->logical_device, pass->framebuffer, NULL);
+  vkDestroyImageView(g_device->logical_device, pass->depth_image_view, NULL);
+  vkDestroyImageView(g_device->logical_device, pass->color_image_view, NULL);
+  if (pass->resolve_image_view)
+    vkDestroyImageView(g_device->logical_device, pass->resolve_image_view, NULL);
+  vkDestroyImage(g_device->logical_device, pass->depth_image, NULL);
+  vkDestroyImage(g_device->logical_device, pass->color_image, NULL);
+  if (pass->resolve_image)
+    vkDestroyImage(g_device->logical_device, pass->resolve_image, NULL);
+    // create attachments
+  pass->render_extent = (VkExtent2D) {width, height};
+  VkResult err = FWD_CreateAttachments(pass, width, height);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to resize forward pass attachments");
+  }
+  // allocate a new descriptor set and update it
+  VkDescriptorSetLayoutBinding binding = {
+    .binding = 0,
+    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .descriptorCount = 1,
+    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
+  };
+  err = AllocateDescriptorSets(&binding, 1, &pass->resulting_image_set, 1, 1,
+                               "forward/resulting_image_set");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to allocate descriptor set with error %s", ToString_VkResult(err));
+  }
+  VkDescriptorImageInfo image_info = {
+    .imageView = (pass->msaa_samples == VK_SAMPLE_COUNT_1_BIT) ? pass->color_image_view : pass->resolve_image_view,
+    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+  };
+  VkWriteDescriptorSet write_set = {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .dstSet = pass->resulting_image_set,
+    .dstBinding = 0,
+    .descriptorCount = 1,
+    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .pImageInfo = &image_info,
+  };
+  UpdateDescriptorSets(&write_set, 1);
+}
+
+INTERNAL void
 SendForwardPassData(Forward_Pass* pass)
 {
   VkResult err = vkFlushMappedMemoryRanges(g_device->logical_device,

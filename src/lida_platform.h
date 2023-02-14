@@ -28,6 +28,8 @@ extern "C" {
 /// Keyboard
 
 typedef enum {
+  // obviously I just copied values from SDL_keycode.h.
+
   PlatformKey_UNKNOWN = 0,
   PlatformKey_RETURN = '\r',
   PlatformKey_ESCAPE = '\x1B',
@@ -99,7 +101,9 @@ typedef enum {
   PlatformKey_Y = 'y',
   PlatformKey_Z = 'z',
 
+  // I calculated this myself
   PlatformKey_LSHIFT = 1073742049
+
 } PlatformKeyCode;
 
 
