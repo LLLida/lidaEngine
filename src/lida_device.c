@@ -472,7 +472,7 @@ PickPhysicalDevice(uint32_t gpu_id)
     LOG_WARN("lida_DeviceDesc->gpu_id is out of bounds, picking GPU0");
     g_device->physical_device = devices[0];
   }
-  PersistentPop(devices);
+  PersistentRelease(devices);
 
   memset(&g_device->properties, 0, sizeof(VkPhysicalDeviceProperties));
   vkGetPhysicalDeviceProperties(g_device->physical_device, &g_device->properties);
@@ -776,7 +776,7 @@ CreateDevice(int enable_debug_layers, uint32_t gpu_id,
 
   return VK_SUCCESS;
  error:
-  PersistentPop(g_device);
+  PersistentRelease(g_device);
   return err;
 }
 
@@ -816,17 +816,17 @@ DestroyDevice(int free_memory)
   vkDestroyInstance(g_device->instance, NULL);
 
   if (free_memory) {
-    PersistentPop(g_device->shader_cache.ptr);
-    PersistentPop(g_device->ds_layout_cache.ptr);
-    PersistentPop(g_device->sampler_cache.ptr);
-    PersistentPop(g_device->pipeline_layout_cache.ptr);
+    PersistentRelease(g_device->shader_cache.ptr);
+    PersistentRelease(g_device->ds_layout_cache.ptr);
+    PersistentRelease(g_device->sampler_cache.ptr);
+    PersistentRelease(g_device->pipeline_layout_cache.ptr);
 
-    PersistentPop(g_device->enabled_device_extensions);
-    PersistentPop(g_device->available_device_extensions);
-    PersistentPop(g_device->queue_families);
-    PersistentPop(g_device->enabled_instance_extensions);
-    PersistentPop(g_device->available_instance_extensions);
-    PersistentPop(g_device);
+    PersistentRelease(g_device->enabled_device_extensions);
+    PersistentRelease(g_device->available_device_extensions);
+    PersistentRelease(g_device->queue_families);
+    PersistentRelease(g_device->enabled_instance_extensions);
+    PersistentRelease(g_device->available_instance_extensions);
+    PersistentRelease(g_device);
   }
   g_device = NULL;
   LOG_INFO("destroyed device");
@@ -1400,7 +1400,7 @@ ReflectSPIRV(const uint32_t* code, uint32_t size, Shader_Reflect* shader)
 
   }
 
-  PersistentPop(ids);
+  PersistentRelease(ids);
   return 0;
 }
 
@@ -1628,7 +1628,7 @@ CreatePipelineLayout(const Shader_Reflect** shader_templates, size_t count)
     FHT_Insert(&g_device->pipeline_layout_cache, &g_device->pipeline_layout_info_type, &layout_info);
   }
   if (count > 1)
-    PersistentPop((void*)shader);
+    PersistentRelease((void*)shader);
   return layout_info.handle;
 }
 
@@ -1762,17 +1762,17 @@ CreateGraphicsPipelines(VkPipeline* pipelines, size_t count, const Pipeline_Desc
   VkResult err = vkCreateGraphicsPipelines(g_device->logical_device, VK_NULL_HANDLE,
                                            count, create_infos, VK_NULL_HANDLE, pipelines);
 
-  PersistentPop(dynamic_states);
-  PersistentPop(color_blend_states);
-  PersistentPop(depth_stencil_states);
-  PersistentPop(multisample_states);
-  PersistentPop(viewport_states);
-  PersistentPop(input_assembly_states);
-  PersistentPop(vertex_input_states);
-  PersistentPop(reflects);
-  PersistentPop(modules);
-  PersistentPop(stages);
-  PersistentPop(create_infos);
+  PersistentRelease(dynamic_states);
+  PersistentRelease(color_blend_states);
+  PersistentRelease(depth_stencil_states);
+  PersistentRelease(multisample_states);
+  PersistentRelease(viewport_states);
+  PersistentRelease(input_assembly_states);
+  PersistentRelease(vertex_input_states);
+  PersistentRelease(reflects);
+  PersistentRelease(modules);
+  PersistentRelease(stages);
+  PersistentRelease(create_infos);
 
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to create graphics pipelines with error %s", ToString_VkResult(err));
@@ -1809,7 +1809,7 @@ AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, size_t num_
   if (err != VK_SUCCESS) {
     LOG_WARN("failed to allocate descriptor sets with error %s", ToString_VkResult(err));
   }
-  PersistentPop(layouts);
+  PersistentRelease(layouts);
   if (err == VK_SUCCESS) {
     // do naming
     char buff[128];

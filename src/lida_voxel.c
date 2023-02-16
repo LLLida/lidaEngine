@@ -10,7 +10,7 @@ typedef uint8_t Voxel;
 // stores voxels as plain 3D array
 typedef struct {
 
-  Voxel* data;
+  Allocation* data;
   uint32_t width;
   uint32_t height;
   uint32_t depth;
@@ -99,32 +99,32 @@ typedef struct {
 // NOTE: this doesn't do bounds checking
 // NOTE: setting a voxel value with this macro is unsafe, hash won't be correct,
 // consider using SetInVoxelGrid
-#define GetInVoxelGrid(grid, x, y, z) (grid)->data[(x) + (y)*(grid)->width + (z)*(grid)->width*(grid)->height]
+#define GetInVoxelGrid(grid, x, y, z) ((Voxel*)(grid)->data->ptr)[(x) + (y)*(grid)->width + (z)*(grid)->width*(grid)->height]
 
 
 /// Voxel grid
 
 INTERNAL int
-ReallocateVoxelGrid(Voxel_Grid* grid, uint32_t w, uint32_t h, uint32_t d)
+ReallocateVoxelGrid(Allocator* allocator, Voxel_Grid* grid, uint32_t w, uint32_t h, uint32_t d)
 {
-  Voxel* old_data = grid->data;
-  // TODO: use allocator
-  grid->data = (Voxel*)PlatformAllocateMemory(w*h*d);
+  Allocation* old_data = grid->data;
+  grid->data = DoAllocation(allocator, w*h*d);
   if (grid->data == NULL) {
     grid->data = old_data;
+    LOG_WARN("out of memory");
     return -1;
   }
   if (old_data) {
     for (uint32_t i = 0; i < grid->depth; i++) {
       for (uint32_t j = 0; j < grid->height; j++) {
-        memcpy(grid->data + i*w*h + j*w,
-               old_data + i*grid->width*grid->height + j*grid->width,
+        memcpy((Voxel*)grid->data->ptr + i*w*h + j*w,
+               (Voxel*)old_data->ptr + i*grid->width*grid->height + j*grid->width,
                grid->width);
       }
     }
-    PlatformFreeMemory(old_data);
+    FreeAllocation(allocator, old_data);
   } else {
-    memset(grid->data, 0, w*h*d);
+    memset(grid->data->ptr, 0, w*h*d);
   }
   grid->width = w;
   grid->height = h;
@@ -133,25 +133,19 @@ ReallocateVoxelGrid(Voxel_Grid* grid, uint32_t w, uint32_t h, uint32_t d)
 }
 
 INTERNAL int
-AllocateVoxelGrid(Voxel_Grid* grid, uint32_t w, uint32_t h, uint32_t d)
+AllocateVoxelGrid(Allocator* allocator, Voxel_Grid* grid, uint32_t w, uint32_t h, uint32_t d)
 {
   grid->data = NULL;
-  return ReallocateVoxelGrid(grid, w, h, d);
+  return ReallocateVoxelGrid(allocator, grid, w, h, d);
 }
 
 INTERNAL void
-FreeVoxelGrid(Voxel_Grid* grid)
+FreeVoxelGrid(Allocator* allocator, Voxel_Grid* grid)
 {
   if (grid->data) {
-    PlatformFreeMemory(grid->data);
+    FreeAllocation(allocator, grid->data);
     grid->data = NULL;
   }
-}
-
-INTERNAL void
-FreeVoxelGridWrapper(void* grid)
-{
-  FreeVoxelGrid((Voxel_Grid*)grid);
 }
 
 INTERNAL void
@@ -361,13 +355,13 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Voxel_Vertex* vertices, int 
           }
       }
   }
-  PersistentPop(merged_mask);
+  PersistentRelease(merged_mask);
   LOG_DEBUG("wrote %u vertices", (uint32_t)(vertices - begin));
   return vertices - begin;
 }
 
 INTERNAL int
-LoadVoxelGrid(Voxel_Grid* grid, const uint8_t* buffer, uint32_t size)
+LoadVoxelGrid(Allocator* allocator, Voxel_Grid* grid, const uint8_t* buffer, uint32_t size)
 {
   const ogt_vox_scene* scene = ogt_vox_read_scene(buffer, size);
   if (scene == NULL) {
@@ -375,7 +369,10 @@ LoadVoxelGrid(Voxel_Grid* grid, const uint8_t* buffer, uint32_t size)
     return -1;
   }
   const ogt_vox_model* model = scene->models[0];
-  AllocateVoxelGrid(grid, model->size_x, model->size_y, model->size_z);
+  if (AllocateVoxelGrid(allocator, grid, model->size_x, model->size_y, model->size_z)) {
+    // if out of memory
+    return -1;
+  }
   memcpy(grid->palette, scene->palette.color, 256 * sizeof(ogt_vox_rgba));
   for (uint32_t x = 0; x < grid->width; x++) {
     for (uint32_t y = 0; y < grid->height; y++) {
@@ -388,12 +385,12 @@ LoadVoxelGrid(Voxel_Grid* grid, const uint8_t* buffer, uint32_t size)
     }
   }
   ogt_vox_destroy_scene(scene);
-  grid->hash = HashMemory64(grid->data, grid->width * grid->height * grid->depth);
+  grid->hash = HashMemory64(grid->data->ptr, grid->width * grid->height * grid->depth);
   return 0;
 }
 
 INTERNAL int
-LoadVoxelGridFromFile(Voxel_Grid* grid, const char* filename)
+LoadVoxelGridFromFile(Allocator* allocator, Voxel_Grid* grid, const char* filename)
 {
   size_t buff_size;
   uint8_t* buffer = (uint8_t*)PlatformLoadEntireFile(filename, &buff_size);
@@ -401,7 +398,7 @@ LoadVoxelGridFromFile(Voxel_Grid* grid, const char* filename)
     LOG_WARN("failed to open file '%s' for voxel model loading", filename);
     return -1;
   }
-  int ret = LoadVoxelGrid(grid, buffer, buff_size);
+  int ret = LoadVoxelGrid(allocator, grid, buffer, buff_size);
   PlatformFreeFile(buffer);
   return ret;
 }
@@ -491,7 +488,7 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
 INTERNAL void
 DestroyVoxelDrawer(Voxel_Drawer* drawer)
 {
-  PersistentPop(drawer->vertex_temp_buffer);
+  PersistentRelease(drawer->vertex_temp_buffer);
   vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
   vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
   FreeVideoMemory(&drawer->memory);

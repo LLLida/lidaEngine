@@ -29,6 +29,7 @@
 
 typedef struct {
 
+  Allocator allocator;
   Forward_Pass forward_pass;
   Camera camera;
   Voxel_Drawer vox_drawer;
@@ -59,8 +60,8 @@ INTERNAL void CreateVoxelPipeline();
 void
 EngineInit(const Engine_Startup_Info* info)
 {
-  g_persistent_memory.size = 16 * 1024 * 1024;
-  g_persistent_memory.ptr = PlatformAllocateMemory(g_persistent_memory.size);
+  const size_t total_memory = 16 * 1024 * 1024;
+  InitMemoryChunk(&g_persistent_memory, PlatformAllocateMemory(total_memory), total_memory);
   const char* device_extensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
   CreateDevice(info->enable_debug_layers,
                info->gpu_id,
@@ -69,6 +70,7 @@ EngineInit(const Engine_Startup_Info* info)
   CreateWindow(info->window_vsync);
 
   g_context = PersistentAllocate(sizeof(Engine_Context));
+  InitAllocator(&g_context->allocator, MemoryAllocateRight(&g_persistent_memory, 4 * 1024 * 1024), 4*1024*1024);
 
   CreateForwardPass(&g_context->forward_pass,
                     g_window->swapchain_extent.width, g_window->swapchain_extent.height,
@@ -94,15 +96,26 @@ EngineInit(const Engine_Startup_Info* info)
 
   CreateVoxelDrawer(&g_context->vox_drawer, 128*1024, 32);
 
-  LoadVoxelGridFromFile(&grid_1, "../assets/3x3x3.vox");
-  LoadVoxelGridFromFile(&grid_2, "../assets/chr_beau.vox");
+  LoadVoxelGridFromFile(&g_context->allocator, &grid_1, "../assets/3x3x3.vox");
+  Allocation* some_allocation = DoAllocation(&g_context->allocator, 6969);
+  LoadVoxelGridFromFile(&g_context->allocator, &grid_2, "../assets/chr_beau.vox");
+  Allocation* other_allocation = DoAllocation(&g_context->allocator, 1337);
+  FreeAllocation(&g_context->allocator, some_allocation);
+  FreeAllocation(&g_context->allocator, other_allocation);
 }
 
 void
 EngineFree()
 {
+  FreeVoxelGrid(&g_context->allocator, &grid_1);
+  FreeVoxelGrid(&g_context->allocator, &grid_2);
+
   // wait until commands from previous frames are ended so we can safely destroy GPU resources
   vkDeviceWaitIdle(g_device->logical_device);
+
+  if (ReleaseAllocator(&g_context->allocator)) {
+    LOG_WARN("memory leak detected");
+  }
 
   DestroyVoxelDrawer(&g_context->vox_drawer);
 
@@ -112,7 +125,7 @@ EngineFree()
 
   DestroyForwardPass(&g_context->forward_pass);
 
-  // PersistentPop(g_context);
+  // PersistentRelease(g_context);
 
   DestroyWindow(0);
   DestroyDevice(0);
@@ -257,6 +270,12 @@ EngineKeyPressed(PlatformKeyCode key)
         PlatformHideCursor();
       }
       break;
+      // '7' shrinks memory
+    case PlatformKey_7:
+      {
+        uint32_t s = FixFragmentation(&g_context->allocator);
+        LOG_INFO("just saved %u bytes", s);
+      } break;
 
       // camera movement
     case PlatformKey_W:

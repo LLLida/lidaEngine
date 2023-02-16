@@ -130,7 +130,7 @@ CreateSwapchain(VkPresentModeKHR present_mode)
       break;
     }
   }
-  PersistentPop(formats);
+  PersistentRelease(formats);
 
   // choose present mode
   vkGetPhysicalDeviceSurfacePresentModesKHR(g_device->physical_device, g_window->surface, &count, NULL);
@@ -143,7 +143,7 @@ CreateSwapchain(VkPresentModeKHR present_mode)
       break;
     }
   }
-  PersistentPop(present_modes);
+  PersistentRelease(present_modes);
 
   // choose extent
   if (capabilities.currentExtent.width == UINT32_MAX) {
@@ -340,7 +340,7 @@ CreateWindow(int vsync)
   }
   return VK_SUCCESS;
  error:
-  PersistentPop(g_window);
+  PersistentRelease(g_window);
   return err;
 }
 
@@ -362,8 +362,8 @@ DestroyWindow(int free_memory)
   vkDestroySurfaceKHR(g_device->instance, g_window->surface, NULL);
 
   if (free_memory)  {
-    PersistentPop(g_window->images);
-    PersistentPop(g_window);
+    PersistentRelease(g_window->images);
+    PersistentRelease(g_window);
   }
 
   g_window = NULL;

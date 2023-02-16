@@ -41,10 +41,19 @@ typedef struct {
   void* ptr;
   size_t size;
   size_t left;
-  //size_t right;
+  size_t right;
 } Memory_Chunk;
 
-// allocate memory that is aligned to 8
+INTERNAL void
+InitMemoryChunk(Memory_Chunk* chunk, void* ptr, size_t size)
+{
+  chunk->ptr = ptr;
+  chunk->size = size;
+  chunk->left = 0;
+  chunk->right = size;
+}
+
+// allocate memory from the left of the chunk. Memory adress is aligned to 8 bytes.
 // FIXME: this looks kinda ugly.. What if we need our memory to be aligned to 16? 64? 256?
 // Should we introduce some kind of macro?
 INTERNAL void*
@@ -57,11 +66,27 @@ MemoryAllocateLeft(Memory_Chunk* chunk, uint32_t size)
   return bytes;
 }
 
+INTERNAL void*
+MemoryAllocateRight(Memory_Chunk* chunk, uint32_t size)
+{
+  Assert(chunk->right >= chunk->left + size && "out of memory");
+  chunk->right -= size + (chunk->right - size) % 8;
+  void* ATTRIBUTE_ALIGNED(8) bytes = (uint8_t*)chunk->ptr + chunk->right;
+  return bytes;
+}
+
 INTERNAL void
-MemoryPopLeft(Memory_Chunk* chunk, void* ptr)
+MemoryReleaseLeft(Memory_Chunk* chunk, void* ptr)
 {
   Assert(ptr > chunk->ptr && (size_t)((uint8_t*)ptr - (uint8_t*)chunk->ptr) <= chunk->size);
   chunk->left = (uint8_t*)ptr - (uint8_t*)chunk->ptr;
+}
+
+INTERNAL void
+MemoryReleaseRight(Memory_Chunk* chunk, uint32_t size)
+{
+  Assert(chunk->right + size < chunk->size);
+  chunk->right += size;
 }
 
 INTERNAL void
@@ -73,7 +98,157 @@ MemoryChunkReset(Memory_Chunk* chunk)
 GLOBAL Memory_Chunk g_persistent_memory;
 
 #define PersistentAllocate(size) MemoryAllocateLeft(&g_persistent_memory, size)
-#define PersistentPop(size) MemoryPopLeft(&g_persistent_memory, size)
+#define PersistentRelease(size) MemoryReleaseLeft(&g_persistent_memory, size)
+
+typedef struct Allocation Allocation;
+
+struct Allocation {
+
+  // NOTE: never store this pointer; there's always possibility for
+  // relocation and very bad things might happen.
+  void* ptr;
+  uint32_t size;
+  // for internal usage
+  // TODO: use uint32_t offsets to not waste space
+  Allocation* left;
+  Allocation* right;
+
+};
+
+typedef struct {
+
+  // NOTE: you might wonder why we have so many fields for that simple
+  // allocator. That is because we might need to gather some
+  // information for profiling, debug etc.
+  void* ptr;
+  uint32_t size;
+  uint32_t effective_size;
+  uint32_t offset;
+  uint32_t num_allocations;
+  uint32_t alloc_offset;
+  Allocation* first_allocation;
+  Allocation* last_allocation;
+  uint32_t* free_allocation;
+
+} Allocator;
+
+INTERNAL void
+InitAllocator(Allocator* allocator, void* ptr, uint32_t size)
+{
+  allocator->ptr = ptr;
+  allocator->effective_size = 0;
+  allocator->size = size;
+  allocator->offset = 0;
+  allocator->num_allocations = 0;
+  allocator->alloc_offset = size;
+  allocator->first_allocation = NULL;
+  allocator->last_allocation = NULL;
+  allocator->free_allocation = NULL;
+}
+
+// check if we're not leaking memory.
+// NOTE: this should be called when exiting application
+INTERNAL int
+ReleaseAllocator(Allocator* allocator)
+{
+  if (allocator->num_allocations != 0)
+    return -1;
+  return 0;
+}
+
+// shrink.
+// number of saved bytes is returned.
+INTERNAL uint32_t
+FixFragmentation(Allocator* allocator)
+{
+  uint32_t counter = 0;
+  for (Allocation* it = allocator->first_allocation; it; it = it->right) {
+    uint32_t offset = (uint8_t*)it->ptr - (uint8_t*)allocator->ptr;
+    if (offset > counter) {
+      memmove((uint8_t*)allocator->ptr, it->ptr, it->size);
+    }
+    counter += it->size;
+  }
+  uint32_t old = allocator->offset - counter;
+  allocator->offset = counter;
+  return old;
+}
+
+// O(1) best case
+// O(1) common case
+// O(N) worst case, relocation
+INTERNAL Allocation*
+DoAllocation(Allocator* allocator, uint32_t size)
+{
+  if (allocator->effective_size + size > allocator->alloc_offset) {
+    // out of space
+    return NULL;
+  }
+  void* ptr = (uint8_t*)allocator->ptr + allocator->offset;
+  if (allocator->offset + size > allocator->alloc_offset) {
+    FixFragmentation(allocator);
+    // allocator->offset certainly changed, need to reassign ptr
+    ptr = (uint8_t*)allocator->ptr + allocator->offset;
+  }
+  Allocation* ret;
+  if (allocator->free_allocation == NULL) {
+    ret = (Allocation*)((uint8_t*)allocator->ptr + allocator->alloc_offset - sizeof(Allocation));
+    allocator->alloc_offset -= sizeof(Allocation);
+  } else {
+    ret = (Allocation*)allocator->free_allocation;
+    allocator->free_allocation = (uint32_t*)((uint8_t*)allocator->ptr + *allocator->free_allocation);
+  }
+  ret->ptr = ptr;
+  ret->size = size;
+  ret->left = allocator->last_allocation;
+  if (ret->left) {
+    ret->left->right = ret;
+  }
+  ret->right = NULL;
+  allocator->num_allocations++;
+  allocator->effective_size += size;
+  allocator->offset += size;
+  allocator->last_allocation = ret;
+  if (allocator->first_allocation == NULL) {
+    allocator->first_allocation = ret;
+  }
+  return ret;
+}
+
+// O(1) always
+INTERNAL void
+FreeAllocation(Allocator* allocator, Allocation* allocation)
+{
+  // TODO: various checks that allocation is valid
+  // important optimization: if last allocation is freed then we can
+  // decrease stack cursor
+  if (allocation == allocator->last_allocation) {
+    allocator->offset -= allocation->size;
+  }
+  // remove from linked list
+  if (allocation->left) {
+    allocation->left->right = allocation->right;
+  } else {
+    allocator->first_allocation = allocation->right;
+  }
+  if (allocation->right) {
+    allocation->right->left = allocation->left;
+  } else {
+    allocator->last_allocation = allocation->left;
+  }
+  if ((uint8_t*)allocation == (uint8_t*)allocator->ptr + allocator->alloc_offset) {
+    // decrease size of allocation stack
+    allocator->alloc_offset += sizeof(Allocation);
+  } else {
+    // add to linked list of free allocations
+    *(uint32_t*)allocation = (uint8_t*)allocator->free_allocation - (uint8_t*)allocation->ptr;
+    allocator->free_allocation = (uint32_t*)allocation;
+  }
+  allocator->effective_size -= allocation->size;
+  allocator->num_allocations--;
+}
+
+// TODO: ChangeAllocationSize() this is the same as realloc()
 
 
 /// Logging
