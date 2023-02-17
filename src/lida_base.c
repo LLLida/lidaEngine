@@ -176,10 +176,11 @@ FixFragmentation(Allocator* allocator)
 
 // O(1) best case
 // O(1) common case
-// O(N) worst case, relocation
+// O(N) worst case, relocation happens
 INTERNAL Allocation*
 DoAllocation(Allocator* allocator, uint32_t size)
 {
+  Assert(size > 0);
   if (allocator->effective_size + size > allocator->alloc_offset) {
     // out of space
     return NULL;
@@ -248,7 +249,28 @@ FreeAllocation(Allocator* allocator, Allocation* allocation)
   allocator->num_allocations--;
 }
 
-// TODO: ChangeAllocationSize() this is the same as realloc()
+// behaves same as realloc()
+INTERNAL Allocation*
+ChangeAllocationSize(Allocator* allocator, Allocation* allocation, uint32_t new_size)
+{
+  Assert(new_size > 0);
+  if (allocation == NULL) {
+    return DoAllocation(allocator, new_size);
+  }
+  if (new_size <= allocation->size) {
+    allocator->effective_size -= allocation->size - new_size;
+    allocation->size = new_size;
+    return allocation;
+  }
+  Allocation* next = allocation->right;
+  if (next && (uint8_t*)next->ptr - (uint8_t*)allocation->ptr >= new_size) {
+    allocator->effective_size += new_size - allocation->size;
+    allocation->size = new_size;
+    return allocation;
+  }
+  FreeAllocation(allocator, allocation);
+  return DoAllocation(allocator, new_size);
+}
 
 
 /// Logging

@@ -26,10 +26,13 @@
 #include "lida_algebra.c"
 #include "lida_render.c"
 #include "lida_voxel.c"
+#include "lida_ecs.c"
 
 typedef struct {
 
-  Allocator allocator;
+  Allocator entity_allocator;
+  Allocator vox_allocator;
+  ECS ecs;
   Forward_Pass forward_pass;
   Camera camera;
   Voxel_Drawer vox_drawer;
@@ -47,8 +50,11 @@ typedef struct {
 
 GLOBAL Engine_Context* g_context;
 
-GLOBAL Voxel_Grid grid_1;
-GLOBAL Voxel_Grid grid_2;
+GLOBAL Type_Info vox_type_info;
+GLOBAL Type_Info transform_type_info;
+
+GLOBAL EID grid_1;
+GLOBAL EID grid_2;
 
 
 /// Engine general functions
@@ -70,7 +76,9 @@ EngineInit(const Engine_Startup_Info* info)
   CreateWindow(info->window_vsync);
 
   g_context = PersistentAllocate(sizeof(Engine_Context));
-  InitAllocator(&g_context->allocator, MemoryAllocateRight(&g_persistent_memory, 4 * 1024 * 1024), 4*1024*1024);
+#define INIT_ALLOCATOR(alloc, mb) InitAllocator(&g_context->alloc, MemoryAllocateRight(&g_persistent_memory, mb * 1024 * 1024), mb*1024*1024)
+  INIT_ALLOCATOR(vox_allocator, 4);
+  INIT_ALLOCATOR(entity_allocator, 1);
 
   CreateForwardPass(&g_context->forward_pass,
                     g_window->swapchain_extent.width, g_window->swapchain_extent.height,
@@ -94,28 +102,50 @@ EngineInit(const Engine_Startup_Info* info)
   g_context->prev_time = PlatformGetTicks();
   g_context->curr_time = g_context->prev_time;
 
+  CreateECS(&g_context->entity_allocator, &g_context->ecs, 8, 8);
+
   CreateVoxelDrawer(&g_context->vox_drawer, 128*1024, 32);
 
-  LoadVoxelGridFromFile(&g_context->allocator, &grid_1, "../assets/3x3x3.vox");
-  Allocation* some_allocation = DoAllocation(&g_context->allocator, 6969);
-  LoadVoxelGridFromFile(&g_context->allocator, &grid_2, "../assets/chr_beau.vox");
-  Allocation* other_allocation = DoAllocation(&g_context->allocator, 1337);
-  FreeAllocation(&g_context->allocator, some_allocation);
-  FreeAllocation(&g_context->allocator, other_allocation);
+  vox_type_info = TYPE_INFO(Voxel_Grid, NULL, NULL);
+  transform_type_info = TYPE_INFO(Transform, NULL, NULL);
+
+  // create some entities
+  grid_1 = CreateEntity(&g_context->ecs);
+  grid_2 = CreateEntity(&g_context->ecs);
+  Voxel_Grid* vox = AddComponent(&g_context->ecs, grid_1, &vox_type_info);
+  Transform* transform = AddComponent(&g_context->ecs, grid_1, &transform_type_info);
+  LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "../assets/3x3x3.vox");
+  transform->rotation = QUAT_IDENTITY();
+  transform->position = VEC3_CREATE(3.1f, 2.6f, 1.0f);
+  transform->scale = 0.9f;
+
+  vox = AddComponent(&g_context->ecs, grid_2, &vox_type_info);
+  transform = AddComponent(&g_context->ecs, grid_2, &transform_type_info);
+  LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "../assets/chr_beau.vox");
+  transform->rotation = QUAT_IDENTITY();
+  transform->position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
+  transform->scale = 0.09f;
 }
 
 void
 EngineFree()
 {
-  FreeVoxelGrid(&g_context->allocator, &grid_1);
-  FreeVoxelGrid(&g_context->allocator, &grid_2);
+  FOREACH_COMPONENT(&g_context->ecs, Voxel_Grid, &vox_type_info) {
+    FreeVoxelGrid(&g_context->vox_allocator, &components[i]);
+  }
+
+  DestroyECS(&g_context->ecs);
+
+  if (ReleaseAllocator(&g_context->vox_allocator)) {
+    LOG_WARN("vox: memory leak detected");
+  }
+
+  if (ReleaseAllocator(&g_context->entity_allocator)) {
+    LOG_WARN("entity: memory leak detected");
+  }
 
   // wait until commands from previous frames are ended so we can safely destroy GPU resources
   vkDeviceWaitIdle(g_device->logical_device);
-
-  if (ReleaseAllocator(&g_context->allocator)) {
-    LOG_WARN("memory leak detected");
-  }
 
   DestroyVoxelDrawer(&g_context->vox_drawer);
 
@@ -170,15 +200,19 @@ EngineUpdateAndRender()
 
   NewVoxelDrawerFrame(&g_context->vox_drawer);
 
-  Transform transform = {
-    .rotation = QUAT_IDENTITY(),
-    .position = VEC3_CREATE(3.1f, 2.6f, 1.0f),
-    .scale = 0.9f,
-  };
-  PushMeshToVoxelDrawer(&g_context->vox_drawer, &grid_1, &transform);
-  transform.position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
-  transform.scale = 0.09f;
-  PushMeshToVoxelDrawer(&g_context->vox_drawer, &grid_2, &transform);
+  // Transform transform = {
+  //   .rotation = QUAT_IDENTITY(),
+  //   .position = VEC3_CREATE(3.1f, 2.6f, 1.0f),
+  //   .scale = 0.9f,
+  // };
+  // PushMeshToVoxelDrawer(&g_context->vox_drawer, &grid_1, &transform);
+  // transform.position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
+  // transform.scale = 0.09f;
+  // PushMeshToVoxelDrawer(&g_context->vox_drawer, &grid_2, &transform);
+  FOREACH_COMPONENT(&g_context->ecs, Voxel_Grid, &vox_type_info) {
+    Transform* transform = GetComponent(&g_context->ecs, entities[i], &transform_type_info);
+    PushMeshToVoxelDrawer(&g_context->vox_drawer, &components[i], transform);
+  }
 
   VkCommandBuffer cmd = BeginCommands();
   VkDescriptorSet ds_set;
@@ -273,7 +307,7 @@ EngineKeyPressed(PlatformKeyCode key)
       // '7' shrinks memory
     case PlatformKey_7:
       {
-        uint32_t s = FixFragmentation(&g_context->allocator);
+        uint32_t s = FixFragmentation(&g_context->vox_allocator);
         LOG_INFO("just saved %u bytes", s);
       } break;
 
