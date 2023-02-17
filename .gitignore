@@ -3,6 +3,7 @@ GRTAGS
 GTAGS
 build/
 bin/
+freetype
 SDL2
 vulkan
 .cache/
