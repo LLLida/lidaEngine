@@ -209,6 +209,7 @@ INTERNAL void
 CreateECS(Allocator* allocator, ECS* ecs, uint32_t init_num_types, uint32_t init_num_entities)
 {
   Assert(init_num_types > 0);
+  Assert(init_num_entities > 0);
   ecs->num_dead = 0;
   ecs->num_entities = 0;
   ecs->num_pools = NearestPow2(init_num_types);

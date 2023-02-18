@@ -35,6 +35,7 @@ typedef struct {
   Allocator vox_allocator;
   ECS ecs;
   Forward_Pass forward_pass;
+  Shadow_Pass shadow_pass;
   Font_Atlas font_atlas;
   Camera camera;
   Voxel_Drawer vox_drawer;
@@ -44,11 +45,20 @@ typedef struct {
   VkPipeline triangle_pipeline;
   VkPipelineLayout voxel_pipeline_layout;
   VkPipeline voxel_pipeline;
+  VkPipelineLayout shadow_pipeline_layout;
+  VkPipeline shadow_pipeline;
   uint32_t prev_time;
   uint32_t curr_time;
   int mouse_mode;
+  int render_mode;
 
 } Engine_Context;
+
+enum {
+  RENDER_MODE_DEFAULT,
+  RENDER_MODE_SHADOW_MAP,
+  RENDER_MODE_COUNT,
+};
 
 GLOBAL Engine_Context* g_context;
 
@@ -64,6 +74,7 @@ GLOBAL EID grid_2;
 INTERNAL void CreateRectPipeline();
 INTERNAL void CreateTrianglePipeline();
 INTERNAL void CreateVoxelPipeline();
+INTERNAL void CreateShadowPipeline();
 
 void
 EngineInit(const Engine_Startup_Info* info)
@@ -94,9 +105,13 @@ EngineInit(const Engine_Startup_Info* info)
                     g_window->swapchain_extent.width, g_window->swapchain_extent.height,
                     msaa_samples);
 
+  CreateShadowPass(&g_context->shadow_pass, &g_context->forward_pass,
+                   1024, 1024);
+
   CreateRectPipeline();
   CreateTrianglePipeline();
   CreateVoxelPipeline();
+  CreateShadowPipeline();
 
   CreateFontAtlas(&g_context->font_atlas, 512, 128);
 
@@ -183,9 +198,12 @@ EngineFree()
 
   DestroyFontAtlas(&g_context->font_atlas);
 
+  vkDestroyPipeline(g_device->logical_device, g_context->shadow_pipeline, NULL);
   vkDestroyPipeline(g_device->logical_device, g_context->voxel_pipeline, NULL);
   vkDestroyPipeline(g_device->logical_device, g_context->triangle_pipeline, NULL);
   vkDestroyPipeline(g_device->logical_device, g_context->rect_pipeline, NULL);
+
+  DestroyShadowPass(&g_context->shadow_pass);
 
   DestroyForwardPass(&g_context->forward_pass);
 
@@ -253,6 +271,18 @@ EngineUpdateAndRender()
 
   VkDescriptorSet ds_set;
 
+  // render to shadow map
+  BeginShadowPass(&g_context->shadow_pass, cmd);
+  {
+    ds_set = g_context->shadow_pass.scene_data_set;
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->shadow_pipeline_layout,
+                            0, 1, &ds_set, 0, NULL);
+    vkCmdSetDepthBias(cmd, 1.0f, 0.0f, 2.0f);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->shadow_pipeline);
+    DrawVoxels(&g_context->vox_drawer, cmd);
+  }
+  vkCmdEndRenderPass(cmd);
+
   Vec4 colors[] = {
     VEC4_CREATE(1.0f, 0.2f, 0.2f, 1.0f),
     VEC4_CREATE(0.0f, 0.9f, 0.4f, 1.0f),
@@ -278,8 +308,9 @@ EngineUpdateAndRender()
                        0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     // draw voxels
+    VkDescriptorSet ds_sets[] = { ds_set, g_context->shadow_pass.shadow_set };
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            g_context->voxel_pipeline_layout, 0, 1, &ds_set, 0, NULL);
+                            g_context->voxel_pipeline_layout, 0, ARR_SIZE(ds_sets), ds_sets, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->voxel_pipeline);
     for (uint32_t i = 0; i < 6; i++) {
       vkCmdPushConstants(cmd, g_context->voxel_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
@@ -291,7 +322,16 @@ EngineUpdateAndRender()
   // render to screen
   BeginRenderingToWindow();
   {
-    ds_set = g_context->forward_pass.resulting_image_set;
+    switch (g_context->render_mode) {
+    case RENDER_MODE_DEFAULT:
+      ds_set = g_context->forward_pass.resulting_image_set;
+      break;
+    case RENDER_MODE_SHADOW_MAP:
+      ds_set = g_context->shadow_pass.shadow_set;
+      break;
+    default:
+      Assert(0);
+    }
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             g_context->rect_pipeline_layout, 0, 1, &ds_set, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->rect_pipeline);
@@ -342,6 +382,10 @@ EngineKeyPressed(PlatformKeyCode key)
         g_context->mouse_mode = 1;
         PlatformHideCursor();
       }
+      break;
+      // '4' toggles render mode
+    case PlatformKey_4:
+      g_context->render_mode = (g_context->render_mode + 1) % RENDER_MODE_COUNT;
       break;
       // '7' shrinks memory
     case PlatformKey_7:
@@ -514,4 +558,34 @@ void CreateVoxelPipeline()
                         &pipeline_desc.vertex_bindings, &pipeline_desc.vertex_binding_count,
                         1);
   CreateGraphicsPipelines(&g_context->voxel_pipeline, 1, &pipeline_desc, &g_context->voxel_pipeline_layout);
+}
+
+void CreateShadowPipeline()
+{
+  VkDynamicState dynamic_state = VK_DYNAMIC_STATE_DEPTH_BIAS;
+  Pipeline_Desc pipeline_desc = {
+    .vertex_shader = "shadow_voxel.vert.spv",
+    .fragment_shader = NULL,
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_BACK_BIT,
+    .depth_bias_enable = VK_TRUE,
+    .msaa_samples = VK_SAMPLE_COUNT_1_BIT,
+    .depth_test = VK_TRUE,
+    .depth_write = VK_TRUE,
+    .depth_compare_op = VK_COMPARE_OP_GREATER,
+    .blend_logic_enable = VK_FALSE,
+    .attachment_count = 0,
+    .dynamic_state_count = 1,
+    .dynamic_states = &dynamic_state,
+    .render_pass = g_context->shadow_pass.render_pass,
+    .subpass = 0,
+    .marker = "voxels-to-shadow-map",
+  };
+  PipelineVoxelVertices(&pipeline_desc.vertex_attributes, &pipeline_desc.vertex_attribute_count,
+                        &pipeline_desc.vertex_bindings, &pipeline_desc.vertex_binding_count,
+                        0);
+  ShadowPassViewport(&g_context->shadow_pass, &pipeline_desc.viewport, &pipeline_desc.scissor);
+
+  CreateGraphicsPipelines(&g_context->shadow_pipeline, 1, &pipeline_desc, &g_context->shadow_pipeline_layout);
 }

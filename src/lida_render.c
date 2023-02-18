@@ -40,6 +40,19 @@ typedef struct {
 
 } Scene_Data_Struct;
 
+typedef struct {
+
+  Video_Memory memory;
+  VkImage image;
+  VkImageView image_view;
+  VkFramebuffer framebuffer;
+  VkRenderPass render_pass;
+  VkExtent2D extent;
+  VkDescriptorSet scene_data_set;
+  VkDescriptorSet shadow_set;
+
+} Shadow_Pass;
+
 
 /// Functions primarily by this module
 
@@ -361,6 +374,172 @@ FWD_AllocateDescriptorSets(Forward_Pass* pass)
   return err;
 }
 
+INTERNAL VkResult
+SH_CreateRenderPass(Shadow_Pass* pass, const Forward_Pass* fwd_pass)
+{
+  VkAttachmentDescription attachment = {
+    .format = fwd_pass->depth_format,
+    .samples = VK_SAMPLE_COUNT_1_BIT,
+    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+  };
+  VkAttachmentReference depth_reference = { 0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+  VkSubpassDescription subpass = {
+    .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+    .pDepthStencilAttachment = &depth_reference,
+  };
+  VkSubpassDependency dependencies[2];
+  dependencies[0] = (VkSubpassDependency) {
+    0, VK_SUBPASS_EXTERNAL,
+    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+    0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+    VK_DEPENDENCY_BY_REGION_BIT
+  };
+  dependencies[1] = (VkSubpassDependency) {
+    0, VK_SUBPASS_EXTERNAL,
+    VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+    VK_DEPENDENCY_BY_REGION_BIT
+  };
+  VkRenderPassCreateInfo render_pass_info = {
+    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+    .attachmentCount = 1,
+    .pAttachments = &attachment,
+    .subpassCount = 1,
+    .pSubpasses = &subpass,
+    .dependencyCount = ARR_SIZE(dependencies),
+    .pDependencies = dependencies,
+  };
+  return CreateRenderPass(&pass->render_pass, &render_pass_info, "shadow/render-pass");
+}
+
+INTERNAL VkResult
+SH_CreateAttachments(Shadow_Pass* pass, const Forward_Pass* fwd_pass)
+{
+  // typical Vulkan boring stuff ... 😴
+  VkImageCreateInfo image_info = {
+    .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+    .imageType = VK_IMAGE_TYPE_2D,
+    .format = fwd_pass->depth_format,
+    .extent = (VkExtent3D) { pass->extent.width, pass->extent.height, 1 },
+    .mipLevels = 1,
+    .arrayLayers = 1,
+    .samples = VK_SAMPLE_COUNT_1_BIT,
+    .tiling = VK_IMAGE_TILING_OPTIMAL,
+    .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
+    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+  };
+  VkResult err = CreateImage(&pass->image, &image_info, "shadow/image");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create image for shadow attachment with error %s",
+                   ToString_VkResult(err));
+    return err;
+  }
+  VkMemoryRequirements requirements;
+  vkGetImageMemoryRequirements(g_device->logical_device, pass->image, &requirements);
+  err = AllocateVideoMemory(&pass->memory, requirements.size,
+                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, requirements.memoryTypeBits,
+                            "shadow/attachment-memory");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to allocate memory for shadow attachment with error %s",
+              ToString_VkResult(err));
+    return err;
+  }
+  // bind image to memory
+  ImageBindToMemory(&pass->memory, pass->image, &requirements);
+  VkImageViewCreateInfo image_view_info = {
+    .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+    .image = pass->image,
+    .viewType = VK_IMAGE_VIEW_TYPE_2D,
+    .format = fwd_pass->depth_format,
+    .subresourceRange = (VkImageSubresourceRange) { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 },
+  };
+  err = CreateImageView(&pass->image_view, &image_view_info, "shadow/image-view");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create image view for shadow attachment with error %s)",
+              ToString_VkResult(err));
+    return err;
+  }
+  VkFramebufferCreateInfo framebuffer_info = {
+    .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+    .renderPass = pass->render_pass,
+    .attachmentCount = 1,
+    .pAttachments = &pass->image_view,
+    .width = pass->extent.width,
+    .height = pass->extent.height,
+    .layers = 1,
+  };
+  err = CreateFramebuffer(&pass->framebuffer, &framebuffer_info, "shadow/framebuffer");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create framebuffer for shadow pass with error %s",
+              ToString_VkResult(err));
+    return err;
+  }
+  LOG_TRACE("allocated %u bytes for shadow map", (uint32_t)requirements.size);
+  return err;
+}
+
+INTERNAL VkResult
+SH_AllocateDescriptorSets(Shadow_Pass* pass, const Forward_Pass* fwd_pass)
+{
+  // allocate descriptor sets
+  VkDescriptorSetLayoutBinding bindings[4];
+  bindings[0] = (VkDescriptorSetLayoutBinding) {
+    .binding = 0,
+    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    .descriptorCount = 1,
+    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+  };
+  VkResult err = AllocateDescriptorSets(bindings, 1, &pass->scene_data_set, 1, 0,
+                                        "shadow/scene-data");
+  if (err == VK_SUCCESS) {
+    bindings[0] = (VkDescriptorSetLayoutBinding) {
+      .binding = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+    };
+    err = AllocateDescriptorSets(bindings, 1, &pass->shadow_set, 1, 0,
+                                 "shadow-map-set");
+  }
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to allocate descriptor sets with error %s", ToString_VkResult(err));
+    return err;
+  }
+  // update descriptor sets
+  VkWriteDescriptorSet write_sets[2];
+  VkDescriptorBufferInfo buffer_info = {
+    .buffer = fwd_pass->uniform_buffer,
+    .offset = 0,
+    .range = sizeof(Scene_Data_Struct)
+  };
+  write_sets[0] = (VkWriteDescriptorSet) {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .dstSet = pass->scene_data_set,
+    .dstBinding = 0,
+    .descriptorCount = 1,
+    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+    .pBufferInfo = &buffer_info,
+  };
+  VkDescriptorImageInfo image_info = {
+    .imageView = pass->image_view,
+    .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+  };
+  write_sets[1] = (VkWriteDescriptorSet) {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .dstSet = pass->shadow_set,
+    .dstBinding = 0,
+    .descriptorCount = 1,
+    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .pImageInfo = &image_info
+  };
+  UpdateDescriptorSets(write_sets, ARR_SIZE(write_sets));
+  return err;
+}
+
 
 /// Functions used by other modules
 
@@ -501,4 +680,79 @@ BeginForwardPass(Forward_Pass* pass, VkCommandBuffer cmd, float clear_color[4])
   };
   vkCmdSetViewport(cmd, 0, 1, &viewport);
   vkCmdSetScissor(cmd, 0, 1, &render_area);
+}
+
+INTERNAL VkResult
+CreateShadowPass(Shadow_Pass* pass, const Forward_Pass* fwd_pass, uint32_t width, uint32_t height)
+{
+  pass->extent.width = width;
+  pass->extent.height = height;
+  VkResult err = SH_CreateRenderPass(pass, fwd_pass);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create render pass for rendering to shadow map with error %s",
+              ToString_VkResult(err));
+    return err;
+  }
+  err = SH_CreateAttachments(pass, fwd_pass);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create attachments for rendering to shadow map with error %s",
+              ToString_VkResult(err));
+    return err;
+  }
+  err = SH_AllocateDescriptorSets(pass, fwd_pass);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to allocate descriptor sets for rendering to shadow map with error %s",
+              ToString_VkResult(err));
+    return err;
+  }
+  return err;
+}
+
+INTERNAL void
+DestroyShadowPass(Shadow_Pass* pass)
+{
+  vkDestroyFramebuffer(g_device->logical_device, pass->framebuffer, NULL);
+  vkDestroyImageView(g_device->logical_device, pass->image_view, NULL);
+  vkDestroyImage(g_device->logical_device, pass->image, NULL);
+  vkDestroyRenderPass(g_device->logical_device, pass->render_pass, NULL);
+
+  FreeVideoMemory(&pass->memory);
+}
+
+INTERNAL void
+BeginShadowPass(Shadow_Pass* pass, VkCommandBuffer cmd)
+{
+  VkClearValue clearValue;
+  clearValue.depthStencil.depth = 0.0f;
+  clearValue.depthStencil.stencil = 0;
+  VkRect2D render_area = { .offset = { 0, 0 },
+                           .extent = pass->extent };
+  VkRenderPassBeginInfo begin_info = {
+    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+    .renderPass = pass->render_pass,
+    .framebuffer = pass->framebuffer,
+    .pClearValues = &clearValue,
+    .clearValueCount = 1,
+    .renderArea = render_area
+  };
+  vkCmdBeginRenderPass(cmd, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+}
+
+INTERNAL void
+ShadowPassViewport(Shadow_Pass* pass, VkViewport** p_viewport, VkRect2D** p_scissor)
+{
+  GLOBAL VkViewport viewport;
+  GLOBAL VkRect2D rect;
+  viewport.x = 0.0f;
+  viewport.y = 0.0f;
+  viewport.width = (float)pass->extent.width;
+  viewport.height = (float)pass->extent.height;
+  viewport.minDepth = 0.0f;
+  viewport.maxDepth = 1.0f;
+  rect.offset.x = 0;
+  rect.offset.y = 0;
+  rect.extent.width = pass->extent.width;
+  rect.extent.height = pass->extent.height;
+  *p_viewport = &viewport;
+  *p_scissor = &rect;
 }
