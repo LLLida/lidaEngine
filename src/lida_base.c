@@ -112,6 +112,7 @@ struct Allocation {
   // TODO: use uint32_t offsets to not waste space
   Allocation* left;
   Allocation* right;
+  // TODO: debug information: function from where this allocation made, when it was made etc.
 
 };
 

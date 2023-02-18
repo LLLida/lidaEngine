@@ -27,6 +27,7 @@
 #include "lida_render.c"
 #include "lida_voxel.c"
 #include "lida_ecs.c"
+#include "lida_ui.c"
 
 typedef struct {
 
@@ -34,6 +35,7 @@ typedef struct {
   Allocator vox_allocator;
   ECS ecs;
   Forward_Pass forward_pass;
+  Font_Atlas font_atlas;
   Camera camera;
   Voxel_Drawer vox_drawer;
   VkPipelineLayout rect_pipeline_layout;
@@ -87,6 +89,8 @@ EngineInit(const Engine_Startup_Info* info)
   CreateRectPipeline();
   CreateTrianglePipeline();
   CreateVoxelPipeline();
+
+  CreateFontAtlas(&g_context->font_atlas, 512, 128);
 
   g_context->camera.z_near = 0.01f;
   g_context->camera.position = VEC3_CREATE(0.0f, 0.0f, -2.0f);
@@ -148,6 +152,8 @@ EngineFree()
   vkDeviceWaitIdle(g_device->logical_device);
 
   DestroyVoxelDrawer(&g_context->vox_drawer);
+
+  DestroyFontAtlas(&g_context->font_atlas);
 
   vkDestroyPipeline(g_device->logical_device, g_context->voxel_pipeline, NULL);
   vkDestroyPipeline(g_device->logical_device, g_context->triangle_pipeline, NULL);
@@ -215,6 +221,17 @@ EngineUpdateAndRender()
   }
 
   VkCommandBuffer cmd = BeginCommands();
+  uint32_t num_text_vertices;
+
+  if (g_window->frame_counter == 0) {
+    LoadToFontAtlas(&g_context->font_atlas, cmd, "../assets/arial.ttf", 32);
+  } else {
+    Vec2 pos = { -0.94f, 0.0f };
+    Vec2 text_size = { 0.004f, 0.004f };
+    Vec4 color = { 1.0f, 0.3f, 0.24f, 0.95f };
+    num_text_vertices = AddTextToFontAtlas(&g_context->font_atlas, "Banana", 0, &text_size, &color, &pos);
+  }
+
   VkDescriptorSet ds_set;
 
   Vec4 colors[] = {
@@ -260,6 +277,9 @@ EngineUpdateAndRender()
                             g_context->rect_pipeline_layout, 0, 1, &ds_set, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->rect_pipeline);
     vkCmdDraw(cmd, 4, 1, 0, 0);
+
+    // draw text
+    DrawFontAtlasText(&g_context->font_atlas, cmd, num_text_vertices);
   }
   vkCmdEndRenderPass(cmd);
 
