@@ -82,9 +82,17 @@ EngineInit(const Engine_Startup_Info* info)
   INIT_ALLOCATOR(vox_allocator, 4);
   INIT_ALLOCATOR(entity_allocator, 1);
 
+  int options[] = { 1, 2, 4, 8, 16, 32 };
+  VkSampleCountFlagBits values[] = { VK_SAMPLE_COUNT_1_BIT, VK_SAMPLE_COUNT_2_BIT, VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_8_BIT, VK_SAMPLE_COUNT_16_BIT, VK_SAMPLE_COUNT_32_BIT };
+  VkSampleCountFlagBits msaa_samples = VK_SAMPLE_COUNT_4_BIT;
+  for (size_t i = 0; i < ARR_SIZE(values); i++)
+    if (info->msaa_samples == options[i]) {
+      msaa_samples = values[i];
+      break;
+    }
   CreateForwardPass(&g_context->forward_pass,
                     g_window->swapchain_extent.width, g_window->swapchain_extent.height,
-                    VK_SAMPLE_COUNT_4_BIT);
+                    msaa_samples);
 
   CreateRectPipeline();
   CreateTrianglePipeline();
@@ -116,19 +124,39 @@ EngineInit(const Engine_Startup_Info* info)
   // create some entities
   grid_1 = CreateEntity(&g_context->ecs);
   grid_2 = CreateEntity(&g_context->ecs);
+
+  // entity 1
   Voxel_Grid* vox = AddComponent(&g_context->ecs, grid_1, &vox_type_info);
   Transform* transform = AddComponent(&g_context->ecs, grid_1, &transform_type_info);
   LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "../assets/3x3x3.vox");
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(3.1f, 2.6f, 1.0f);
   transform->scale = 0.9f;
-
+  // entity 2
   vox = AddComponent(&g_context->ecs, grid_2, &vox_type_info);
   transform = AddComponent(&g_context->ecs, grid_2, &transform_type_info);
   LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "../assets/chr_beau.vox");
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
   transform->scale = 0.09f;
+  // floor
+  EID floor = CreateEntity(&g_context->ecs);
+  vox = AddComponent(&g_context->ecs, floor, &vox_type_info);
+  transform = AddComponent(&g_context->ecs, floor, &transform_type_info);
+  // manually write voxels
+  AllocateVoxelGrid(&g_context->vox_allocator, vox, 128, 1, 128);
+  // арбузовое счастье
+  vox->palette[1] = 0x00004C00;
+  vox->palette[2] = 0x00003C00;
+  for (size_t i = 0; i < 128 * 128; i++) {
+    Voxel* voxels = vox->data->ptr;
+    if ((i >> 3) & 1) voxels[i] = 1;
+    else voxels[i] = 2;
+  }
+  vox->hash = HashMemory64(vox->data->ptr, 128*128);
+  transform->rotation = QUAT_IDENTITY();
+  transform->position = VEC3_CREATE(0.0f, -4.0f, 0.0f);
+  transform->scale = 1.0f;
 }
 
 void
@@ -206,15 +234,6 @@ EngineUpdateAndRender()
 
   NewVoxelDrawerFrame(&g_context->vox_drawer);
 
-  // Transform transform = {
-  //   .rotation = QUAT_IDENTITY(),
-  //   .position = VEC3_CREATE(3.1f, 2.6f, 1.0f),
-  //   .scale = 0.9f,
-  // };
-  // PushMeshToVoxelDrawer(&g_context->vox_drawer, &grid_1, &transform);
-  // transform.position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
-  // transform.scale = 0.09f;
-  // PushMeshToVoxelDrawer(&g_context->vox_drawer, &grid_2, &transform);
   FOREACH_COMPONENT(&g_context->ecs, Voxel_Grid, &vox_type_info) {
     Transform* transform = GetComponent(&g_context->ecs, entities[i], &transform_type_info);
     PushMeshToVoxelDrawer(&g_context->vox_drawer, &components[i], transform);

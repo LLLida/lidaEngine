@@ -129,7 +129,7 @@ typedef struct {
   uint32_t alloc_offset;
   Allocation* first_allocation;
   Allocation* last_allocation;
-  uint32_t* free_allocation;
+  Allocation* free_allocation;
 
 } Allocator;
 
@@ -197,8 +197,9 @@ DoAllocation(Allocator* allocator, uint32_t size)
     ret = (Allocation*)((uint8_t*)allocator->ptr + allocator->alloc_offset - sizeof(Allocation));
     allocator->alloc_offset -= sizeof(Allocation);
   } else {
-    ret = (Allocation*)allocator->free_allocation;
-    allocator->free_allocation = (uint32_t*)((uint8_t*)allocator->ptr + *allocator->free_allocation);
+    // pop free allocation list
+    ret = allocator->free_allocation;
+    allocator->free_allocation = allocator->free_allocation->ptr;
   }
   ret->ptr = ptr;
   ret->size = size;
@@ -243,8 +244,8 @@ FreeAllocation(Allocator* allocator, Allocation* allocation)
     allocator->alloc_offset += sizeof(Allocation);
   } else {
     // add to linked list of free allocations
-    *(uint32_t*)allocation = (uint8_t*)allocator->free_allocation - (uint8_t*)allocation->ptr;
-    allocator->free_allocation = (uint32_t*)allocation;
+    allocation->ptr = allocator->free_allocation;
+    allocator->free_allocation = allocation;
   }
   allocator->effective_size -= allocation->size;
   allocator->num_allocations--;
@@ -255,6 +256,7 @@ INTERNAL Allocation*
 ChangeAllocationSize(Allocator* allocator, Allocation* allocation, uint32_t new_size)
 {
   Assert(new_size > 0);
+  // TODO: checks for failures
   if (allocation == NULL) {
     return DoAllocation(allocator, new_size);
   }
@@ -264,13 +266,25 @@ ChangeAllocationSize(Allocator* allocator, Allocation* allocation, uint32_t new_
     return allocation;
   }
   Allocation* next = allocation->right;
-  if (next && (uint8_t*)next->ptr - (uint8_t*)allocation->ptr >= new_size) {
-    allocator->effective_size += new_size - allocation->size;
+  if (next) {
+    if ((uint8_t*)next->ptr - (uint8_t*)allocation->ptr >= new_size) {
+      allocator->effective_size += new_size - allocation->size;
+      allocation->size = new_size;
+      return allocation;
+    }
+  } else {
+    // allocation is at the end, we can grow it easily
+    if (allocator->offset + new_size - allocation->size > allocator->alloc_offset) {
+      FixFragmentation(allocator);
+    }
     allocation->size = new_size;
     return allocation;
   }
+  // worst case: make a new allocation
+  Allocation* new_allocation = DoAllocation(allocator, new_size);
+  memcpy(new_allocation->ptr, allocation->ptr, allocation->size);
   FreeAllocation(allocator, allocation);
-  return DoAllocation(allocator, new_size);
+  return new_allocation;
 }
 
 
@@ -776,3 +790,38 @@ FHT_IteratorGet(FHT_Iterator* it)
 */
 // TODO: see generated assembly and optimise
 #define FHT_FOREACH(ht, type, it) for (FHT_IteratorBegin(ht, type, it); !FHT_IteratorEmpty(it); FHT_IteratorNext(it))
+
+
+/// Random number generator
+// based on PCG: https://www.pcg-random.org/download.html
+
+typedef struct {
+
+  uint64_t state;
+  uint64_t inc;
+
+} Random_State;
+
+INTERNAL uint32_t
+Random(Random_State* rng)
+{
+  uint64_t oldstate = rng->state;
+  rng->state = oldstate * 6364136223846793005ULL + (rng->inc|1);
+  uint32_t xorshifted = ((oldstate >> 18u) ^ oldstate) >> 27u;
+  uint32_t rot = oldstate >> 59u;
+  return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
+}
+
+INTERNAL void
+SeedRandom(Random_State* rng, uint64_t initstate, uint64_t initseq)
+{
+  rng->state = 0U;
+  rng->inc = (initseq << 1u) | 1u;
+  Random(rng);
+  rng->state += initstate;
+  Random(rng);
+}
+
+// TODO: various convenience functions: generate range of random
+// numbers, generate a uniformly distributed number, generate float
+// number etc.

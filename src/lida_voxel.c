@@ -275,6 +275,8 @@ GetInVoxelGridChecked(const Voxel_Grid* grid, uint32_t x, uint32_t y, uint32_t z
 INTERNAL uint32_t
 GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Voxel_Vertex* vertices, int face)
 {
+  // TODO: my dream is to make this function execute fast, processing
+  // 4 or 8 voxels at same time
   Voxel_Vertex* begin = vertices;
   Vec3 half_size = {
     grid->width * 0.5f,

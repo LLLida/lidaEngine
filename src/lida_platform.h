@@ -164,6 +164,8 @@ typedef struct {
   const char* app_name;
   uint32_t app_version;
   int window_vsync;
+  // value should be a power of 2 < 32
+  int msaa_samples;
 
 } Engine_Startup_Info;
 

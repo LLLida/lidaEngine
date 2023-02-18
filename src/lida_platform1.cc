@@ -159,6 +159,7 @@ main(int argc, char** argv)
   engine_info.gpu_id = 0;
   engine_info.app_name = "test";
   engine_info.window_vsync = 0;
+  engine_info.msaa_samples = 4;
 
   argp argp = {};
   argp.options = arg_options;
@@ -245,17 +246,16 @@ parse_opt(int key, char* arg, struct argp_state* state)
 
     case 's':
       {
-        // int options[] = { 1, 2, 4, 8, 16, 32 };
-        // VkSampleCountFlagBits values[] = { VK_SAMPLE_COUNT_1_BIT, VK_SAMPLE_COUNT_2_BIT, VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_8_BIT, VK_SAMPLE_COUNT_16_BIT, VK_SAMPLE_COUNT_32_BIT };
-        // int s = atoi(arg);
-        // for (size_t i = 0; i < LIDA_ARR_SIZE(options); i++) {
-        //   if (s == options[i]) {
-        //     arguments->msaa_samples = values[i];
-        //     return 0;
-        //   }
-        // }
-        // LIDA_LOG_FATAL("unknown sample count %d", s);
-        // argp_usage(state);
+        int options[] = { 1, 2, 4, 8, 16, 32 };
+        int s = atoi(arg);
+        for (size_t i = 0; i < sizeof(options) / sizeof(int); i++) {
+          if (s == options[i]) {
+            info->msaa_samples = options[i];
+            return 0;
+          }
+        }
+        EngineLog(4, __FILE__, __LINE__, "unknown sample count %d", s);
+        argp_usage(state);
       }
       break;
 

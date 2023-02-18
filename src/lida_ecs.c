@@ -26,6 +26,7 @@ typedef struct {
   Allocator* allocator;
   Allocation* entities;
   Allocation* pools;
+  uint32_t num_entities;
   uint32_t max_entities;
   uint32_t num_pools;
   uint32_t num_dead;
@@ -57,14 +58,12 @@ SetSparseSetMaxID(Allocator* allocator, Sparse_Set* set, EID id)
     return 1;
   Allocation* old = set->sparse;
   set->sparse = ChangeAllocationSize(allocator, set->sparse, sizeof(uint32_t) * id);
+  LOG_TRACE("%s: sparse=%p", set->type_info->name, set->sparse->ptr);
   if (set->sparse == NULL) {
     set->sparse = old;
     LOG_WARN("entity component system: out of memory");
     return -1;
   }
-  // FIXME: we don't really need this line. Maybe it will help in debugging?
-  uint32_t* sparse = set->sparse->ptr;
-  memset(sparse + set->max_id, -1, sizeof(uint32_t) * (id - set->max_id));
   set->max_id = id;
   return 0;
 }
@@ -109,7 +108,7 @@ INTERNAL void*
 InsertToSparseSet(Allocator* allocator, Sparse_Set* set, EID entity)
 {
   if (entity >= set->max_id) {
-    SetSparseSetMaxID(allocator, set, entity+1);
+    SetSparseSetMaxID(allocator, set, entity+8);
   } else if (SearchSparseSet(set, entity)) {
     // sparse set already has this entity
     return NULL;
@@ -156,7 +155,7 @@ EraseFromSparseSet(Sparse_Set* set, EID entity)
 INTERNAL Sparse_Set*
 GetSparseSet(ECS* ecs, const Type_Info* type_info)
 {
-  uint32_t id = type_info->type_hash % ecs->num_pools;
+  uint32_t id = type_info->type_hash & (ecs->num_pools-1);
   Sparse_Set* pools = ecs->pools->ptr;
   for (uint32_t i = 0; i < ecs->num_pools; i++) {
     Sparse_Set* set = &pools[id];
@@ -211,6 +210,7 @@ CreateECS(Allocator* allocator, ECS* ecs, uint32_t init_num_types, uint32_t init
 {
   Assert(init_num_types > 0);
   ecs->num_dead = 0;
+  ecs->num_entities = 0;
   ecs->num_pools = NearestPow2(init_num_types);
   ecs->max_entities = init_num_entities;
   ecs->entities = DoAllocation(allocator, init_num_entities * sizeof(EID));
@@ -242,10 +242,14 @@ INTERNAL EID
 CreateEntity(ECS* ecs)
 {
   if (ecs->num_dead == 0) {
-    ecs->entities = ChangeAllocationSize(ecs->allocator, ecs->entities, ecs->max_entities + 1);
+    if (ecs->num_entities == ecs->max_entities) {
+      // TODO: pick a better grow policy
+      ecs->entities = ChangeAllocationSize(ecs->allocator, ecs->entities, ecs->max_entities * 2 * sizeof(uint32_t));
+      ecs->max_entities *= 2;
+    }
     uint32_t* entities = ecs->entities->ptr;
-    EID entity = ecs->max_entities;
-    ecs->max_entities += 1;
+    EID entity = ecs->num_entities;
+    ecs->num_entities++;
     entities[entity] = 0;
     return entity;
   }
