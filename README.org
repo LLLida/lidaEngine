@@ -1,0 +1,10 @@
+#+TITLE: lida engine
+#+AUTHOR: Adil Mokhammad
+
+* Build instructions
+
+Build is done with the =GNU Make= program. C and C++ compilers are *required*(currently tested only with =GCC=). =cd= into repository and run =make=. This will produce directory =bin= with binaries in it.
+To build successfully following libraries are *required*:
+- =SDL2=
+- =freetype=
+Currently we use =pkg-config= to detect these libraries. When running *Vulkan* driver should be installed.
