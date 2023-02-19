@@ -340,14 +340,6 @@ EngineAddLogger(Log_Function func, int level, void* udata)
   g_num_loggers++;
 }
 
-#define LOG_MSG(level, ...) EngineLog(level, __FILE__, __LINE__, __VA_ARGS__)
-#define LOG_TRACE(...)  LOG_MSG(0, __VA_ARGS__)
-#define LOG_DEBUG(...)  LOG_MSG(1, __VA_ARGS__)
-#define LOG_INFO(...)   LOG_MSG(2, __VA_ARGS__)
-#define LOG_WARN(...)   LOG_MSG(3, __VA_ARGS__)
-#define LOG_ERROR(...)  LOG_MSG(4, __VA_ARGS__)
-#define LOG_FATAL(...)  LOG_MSG(5, __VA_ARGS__)
-
 
 /// Type info
 

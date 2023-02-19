@@ -8,3 +8,5 @@ To build successfully following libraries are *required*:
 - =SDL2=
 - =freetype=
 Currently we use =pkg-config= to detect these libraries. When running *Vulkan* driver should be installed.
+
+*NOTE*: as engine is in active development it's build process is only tested on my Arch Linux machine.

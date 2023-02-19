@@ -143,14 +143,14 @@ EngineInit(const Engine_Startup_Info* info)
   // entity 1
   Voxel_Grid* vox = AddComponent(&g_context->ecs, grid_1, &vox_type_info);
   Transform* transform = AddComponent(&g_context->ecs, grid_1, &transform_type_info);
-  LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "../assets/3x3x3.vox");
+  LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "../data/3x3x3.vox");
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(3.1f, 2.6f, 1.0f);
   transform->scale = 0.9f;
   // entity 2
   vox = AddComponent(&g_context->ecs, grid_2, &vox_type_info);
   transform = AddComponent(&g_context->ecs, grid_2, &transform_type_info);
-  LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "../assets/chr_beau.vox");
+  LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "../data/chr_beau.vox");
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
   transform->scale = 0.09f;
@@ -222,6 +222,14 @@ EngineUpdateAndRender()
   g_context->curr_time = PlatformGetTicks();
   const float dt = (g_context->curr_time - g_context->prev_time) / 1000.0f;
 
+  // get file notifications
+  const char* changed_files[256];
+  size_t num_changed = PlatformDataDirectoryModified(changed_files, ARR_SIZE(changed_files));
+  for (size_t i = 0; i < num_changed; i++) {
+    // TODO: detect if voxel models, fonts or bitmaps are changed and reload them
+    LOG_INFO("file changed: %s", changed_files[i]);
+  }
+
   // update camera position, rotation etc.
   Camera* camera = &g_context->camera;
   CameraUpdate(camera, dt, g_window->swapchain_extent.width, g_window->swapchain_extent.height);
@@ -261,7 +269,7 @@ EngineUpdateAndRender()
   uint32_t num_text_vertices;
 
   if (g_window->frame_counter == 0) {
-    LoadToFontAtlas(&g_context->font_atlas, cmd, "../assets/arial.ttf", 32);
+    LoadToFontAtlas(&g_context->font_atlas, cmd, "../data/arial.ttf", 32);
   } else {
     Vec2 pos = { -0.94f, 0.0f };
     Vec2 text_size = { 0.004f, 0.004f };
@@ -365,6 +373,7 @@ EngineKeyPressed(PlatformKeyCode key)
   switch (key)
     {
 
+      // 'escape' escapes
     case PlatformKey_ESCAPE:
       PlatformWantToQuit();
       break;

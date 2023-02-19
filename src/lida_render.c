@@ -53,6 +53,14 @@ typedef struct {
 
 } Shadow_Pass;
 
+// this will help us to do hot resource reloading
+typedef struct {
+
+  struct { VkObjectType type; uint64_t handle; } objs[32];
+  uint32_t left;
+
+} Deletion_Queue;
+
 
 /// Functions primarily by this module
 

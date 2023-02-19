@@ -140,6 +140,9 @@ void PlatformWantToQuit();
 // NOTE: this function can return just an empty string, it made for convenience
 const char* PlatformGetError();
 
+// get list of files from data directory that were modified.
+// This helps to do fancy things like hot resource reloading, hot code reloading etc.
+size_t PlatformDataDirectoryModified(const char** filenames, size_t buff_size);
 
 
 /// Common hooks provided by the engine
@@ -171,6 +174,14 @@ typedef struct {
 
 // log a message using engine's builtin logger
 void EngineLog(int level, const char* file, int line, const char* fmt, ...);
+
+#define LOG_MSG(level, ...) EngineLog(level, __FILE__, __LINE__, __VA_ARGS__)
+#define LOG_TRACE(...)  LOG_MSG(0, __VA_ARGS__)
+#define LOG_DEBUG(...)  LOG_MSG(1, __VA_ARGS__)
+#define LOG_INFO(...)   LOG_MSG(2, __VA_ARGS__)
+#define LOG_WARN(...)   LOG_MSG(3, __VA_ARGS__)
+#define LOG_ERROR(...)  LOG_MSG(4, __VA_ARGS__)
+#define LOG_FATAL(...)  LOG_MSG(5, __VA_ARGS__)
 
 // add a logger. Platform must add a logger otherwise engine will be
 // silent and won't produce any log messages.
