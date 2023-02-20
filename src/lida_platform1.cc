@@ -11,6 +11,8 @@
 #define OGT_VOX_IMPLEMENTATION
 #include "lib/ogt_vox.h"
 
+#include "lib/stb_sprintf.h"
+
 #ifdef __linux__
 #include <unistd.h>
 // for command line argument parsing
@@ -31,6 +33,7 @@ static struct {
 } window;
 
 static struct {
+  char path[64];
   // see https://www.linuxjournal.com/article/8478 for more detail
   int fd;
   int wd;
@@ -46,7 +49,8 @@ static char doc[] = "lida engine";
 static char args_doc[] = "";
 
 static argp_option arg_options[] = {
-  { "debug-layers", 'd', "BOOLEAN", 0, "Enable vulkan validation layers", 0 },
+  { "data", 'd', "DIRECTORY", 0, "Data directory where all assets are stored. This must come without '/' at the end.", 0 },
+  { "debug-layers", 'l', "BOOLEAN", 0, "Enable vulkan validation layers", 0 },
   { "msaa", 's', "INTEGER", 0, "Number of MSAA samples", 0 },
   { "width", 'w', "INTEGER", 0, "Window width in pixels", 0 },
   { "height", 'h', "INTEGER", 0, "Window height in pixels", 0 },
@@ -59,6 +63,8 @@ static error_t parse_opt(int key, char* arg, struct argp_state* state);
 extern "C" int
 main(int argc, char** argv)
 {
+  stbsp_sprintf(data_dir.path, "../data");
+
   EngineAddLogger(sdl_logger, 0, NULL);
 
   window.w = 1080;
@@ -166,6 +172,10 @@ parse_opt(int key, char* arg, struct argp_state* state)
   switch (key)
     {
     case 'd':
+      stbsp_sprintf(data_dir.path, "%s", arg);
+      break;
+
+    case 'l':
       info->enable_debug_layers = atoi(arg);
       break;
 
@@ -264,7 +274,9 @@ PlatformShowCursor()
 void*
 PlatformLoadEntireFile(const char* path, size_t* buff_size)
 {
-  return SDL_LoadFile(path, buff_size);
+  char real_path[128];
+  stbsp_snprintf(real_path, sizeof(real_path), "%s/%s", data_dir.path, path);
+  return SDL_LoadFile(real_path, buff_size);
 }
 
 void

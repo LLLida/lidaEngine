@@ -281,6 +281,15 @@ DestroyEntity(ECS* ecs, EID entity)
   ecs->num_dead++;
 }
 
+INTERNAL int
+IsEntityValid(ECS* ecs, EID entity)
+{
+  uint32_t* entities = ecs->entities->ptr;
+  return
+    (entity < ecs->num_entities) &&
+    ((entities[entity] & ENTITY_DEAD_MASK) == 0);
+}
+
 INTERNAL void*
 GetComponent(ECS* ecs, EID entity, const Type_Info* type)
 {
@@ -336,3 +345,6 @@ ComponentIDs(ECS* ecs, const Type_Info* type)
   EID* entities = set_##__LINE__->dense->ptr;\
   (void)entities;\
   for (uint32_t i = 0; i < set_##__LINE__->size; i++)
+
+#define DECLARE_COMPONENT(type) GLOBAL Type_Info type_info_##type
+#define REGISTER_COMPONENT(type, hash_func, compare_func) type_info_##type = TYPE_INFO(type, hash_func, compare_func)

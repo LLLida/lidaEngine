@@ -47,6 +47,7 @@ typedef struct {
   Vec3 position;
   float scale;
 } Transform;
+DECLARE_COMPONENT(Transform);
 
 enum {
   CAMERA_PRESSED_FORWARD = (1<<0),

@@ -1,5 +1,6 @@
 BUILDIR := bin
 EXECUTABLE := $(BUILDIR)/tst
+DATADIR := data
 
 CC ?= gcc
 CXX ?= g++
@@ -29,7 +30,7 @@ CFLAGS += -fsanitize=address -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address -fno-omit-frame-pointer -lrt
 
 SHADERS := $(wildcard shaders/*.comp) $(wildcard shaders/*.vert) $(wildcard shaders/*.frag)
-SPIRVS := $(addprefix $(BUILDIR)/, $(SHADERS:shaders/%=%.spv))
+SPIRVS := $(addprefix $(DATADIR)/, $(SHADERS:shaders/%=%.spv))
 
 SOURCES := $(wildcard src/*.c)
 HEADERS := $(wildcard src/*.h) $(wildcard src/lib/*.h)
@@ -44,6 +45,7 @@ clean:
 
 directories:
 	@mkdir -p $(BUILDIR)
+	@mkdir -p $(DATADIR)
 
 $(EXECUTABLE): $(OBJS)
 	$(CC) $(LDFLAGS) $^  -o $@
@@ -61,9 +63,9 @@ define compile_shader =
 	$(GLSLANG) $(1) -V -o $(2)
 endef
 
-$(BUILDIR)/%.comp.spv: shaders/%.comp
+$(DATADIR)/%.comp.spv: shaders/%.comp
 	$(call compile_shader,$^,$@)
-$(BUILDIR)/%.vert.spv: shaders/%.vert
+$(DATADIR)/%.vert.spv: shaders/%.vert
 	$(call compile_shader,$^,$@)
-$(BUILDIR)/%.frag.spv: shaders/%.frag
+$(DATADIR)/%.frag.spv: shaders/%.frag
 	$(call compile_shader,$^,$@)

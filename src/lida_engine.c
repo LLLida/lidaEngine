@@ -23,11 +23,12 @@
 #include "lida_base.c"
 #include "lida_device.c"
 #include "lida_window.c"
+#include "lida_ecs.c"
 #include "lida_algebra.c"
 #include "lida_render.c"
 #include "lida_voxel.c"
-#include "lida_ecs.c"
 #include "lida_ui.c"
+#include "lida_asset.c"
 
 typedef struct {
 
@@ -39,6 +40,7 @@ typedef struct {
   Font_Atlas font_atlas;
   Camera camera;
   Voxel_Drawer vox_drawer;
+  Asset_Manager asset_manager;
   VkPipelineLayout rect_pipeline_layout;
   VkPipeline rect_pipeline;
   VkPipelineLayout triangle_pipeline_layout;
@@ -61,9 +63,6 @@ enum {
 };
 
 GLOBAL Engine_Context* g_context;
-
-GLOBAL Type_Info vox_type_info;
-GLOBAL Type_Info transform_type_info;
 
 GLOBAL EID grid_1;
 GLOBAL EID grid_2;
@@ -108,6 +107,8 @@ EngineInit(const Engine_Startup_Info* info)
   CreateShadowPass(&g_context->shadow_pass, &g_context->forward_pass,
                    1024, 1024);
 
+  InitAssetManager(&g_context->asset_manager);
+
   CreateRectPipeline();
   CreateTrianglePipeline();
   CreateVoxelPipeline();
@@ -133,31 +134,38 @@ EngineInit(const Engine_Startup_Info* info)
 
   CreateVoxelDrawer(&g_context->vox_drawer, 128*1024, 32);
 
-  vox_type_info = TYPE_INFO(Voxel_Grid, NULL, NULL);
-  transform_type_info = TYPE_INFO(Transform, NULL, NULL);
+  REGISTER_COMPONENT(Voxel_Grid, NULL, NULL);
+  REGISTER_COMPONENT(Transform, NULL, NULL);
 
   // create some entities
   grid_1 = CreateEntity(&g_context->ecs);
   grid_2 = CreateEntity(&g_context->ecs);
 
   // entity 1
-  Voxel_Grid* vox = AddComponent(&g_context->ecs, grid_1, &vox_type_info);
-  Transform* transform = AddComponent(&g_context->ecs, grid_1, &transform_type_info);
-  LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "../data/3x3x3.vox");
+  Voxel_Grid* vox;
+  AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
+                        grid_1, "3x3x3.vox");
+  // Voxel_Grid* vox = AddComponent(&g_context->ecs, grid_1, &type_info_Voxel_Grid);
+  Transform* transform = AddComponent(&g_context->ecs, grid_1, &type_info_Transform);
+  // LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "3x3x3.vox");
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(3.1f, 2.6f, 1.0f);
   transform->scale = 0.9f;
+  // AddAsset(&g_context->asset_manager, grid_1, "3x3x3.vox");
   // entity 2
-  vox = AddComponent(&g_context->ecs, grid_2, &vox_type_info);
-  transform = AddComponent(&g_context->ecs, grid_2, &transform_type_info);
-  LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "../data/chr_beau.vox");
+  AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
+                        grid_2, "chr_beau.vox");
+  // vox = AddComponent(&g_context->ecs, grid_2, &type_info_Voxel_Grid);
+  transform = AddComponent(&g_context->ecs, grid_2, &type_info_Transform);
+  // LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "chr_beau.vox");
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
   transform->scale = 0.09f;
+  // AddAsset(&g_context->asset_manager, grid_2, "chr_beau.vox");
   // floor
   EID floor = CreateEntity(&g_context->ecs);
-  vox = AddComponent(&g_context->ecs, floor, &vox_type_info);
-  transform = AddComponent(&g_context->ecs, floor, &transform_type_info);
+  vox = AddComponent(&g_context->ecs, floor, &type_info_Voxel_Grid);
+  transform = AddComponent(&g_context->ecs, floor, &type_info_Transform);
   // manually write voxels
   AllocateVoxelGrid(&g_context->vox_allocator, vox, 128, 1, 128);
   // арбузовое счастье
@@ -172,12 +180,15 @@ EngineInit(const Engine_Startup_Info* info)
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(0.0f, -4.0f, 0.0f);
   transform->scale = 1.0f;
+
+  // TODO: this line is for testing asset manager
+  AddAsset(&g_context->asset_manager, 0, "file.txt", NULL, NULL, NULL);
 }
 
 void
 EngineFree()
 {
-  FOREACH_COMPONENT(&g_context->ecs, Voxel_Grid, &vox_type_info) {
+  FOREACH_COMPONENT(&g_context->ecs, Voxel_Grid, &type_info_Voxel_Grid) {
     FreeVoxelGrid(&g_context->vox_allocator, &components[i]);
   }
 
@@ -203,6 +214,8 @@ EngineFree()
   vkDestroyPipeline(g_device->logical_device, g_context->triangle_pipeline, NULL);
   vkDestroyPipeline(g_device->logical_device, g_context->rect_pipeline, NULL);
 
+  // FreeAssetManager(&g_context->asset_manager);
+
   DestroyShadowPass(&g_context->shadow_pass);
 
   DestroyForwardPass(&g_context->forward_pass);
@@ -222,12 +235,9 @@ EngineUpdateAndRender()
   g_context->curr_time = PlatformGetTicks();
   const float dt = (g_context->curr_time - g_context->prev_time) / 1000.0f;
 
-  // get file notifications
-  const char* changed_files[256];
-  size_t num_changed = PlatformDataDirectoryModified(changed_files, ARR_SIZE(changed_files));
-  for (size_t i = 0; i < num_changed; i++) {
-    // TODO: detect if voxel models, fonts or bitmaps are changed and reload them
-    LOG_INFO("file changed: %s", changed_files[i]);
+  // get file notifications every 32 frame
+  if ((g_window->frame_counter & 31) == 31) {
+    UpdateAssets(&g_context->asset_manager, &g_context->ecs);
   }
 
   // update camera position, rotation etc.
@@ -260,8 +270,8 @@ EngineUpdateAndRender()
 
   NewVoxelDrawerFrame(&g_context->vox_drawer);
 
-  FOREACH_COMPONENT(&g_context->ecs, Voxel_Grid, &vox_type_info) {
-    Transform* transform = GetComponent(&g_context->ecs, entities[i], &transform_type_info);
+  FOREACH_COMPONENT(&g_context->ecs, Voxel_Grid, &type_info_Voxel_Grid) {
+    Transform* transform = GetComponent(&g_context->ecs, entities[i], &type_info_Transform);
     PushMeshToVoxelDrawer(&g_context->vox_drawer, &components[i], transform);
   }
 
@@ -269,7 +279,7 @@ EngineUpdateAndRender()
   uint32_t num_text_vertices;
 
   if (g_window->frame_counter == 0) {
-    LoadToFontAtlas(&g_context->font_atlas, cmd, "../data/arial.ttf", 32);
+    LoadToFontAtlas(&g_context->font_atlas, cmd, "arial.ttf", 32);
   } else {
     Vec2 pos = { -0.94f, 0.0f };
     Vec2 text_size = { 0.004f, 0.004f };

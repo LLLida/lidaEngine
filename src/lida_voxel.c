@@ -18,6 +18,7 @@ typedef struct {
   uint32_t palette[256];
 
 } Voxel_Grid;
+DECLARE_COMPONENT(Voxel_Grid);
 
 // 16 bytes
 typedef struct {
