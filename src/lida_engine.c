@@ -136,10 +136,6 @@ EngineInit(const Engine_Startup_Info* info)
   REGISTER_COMPONENT(Transform, NULL, NULL);
   REGISTER_COMPONENT(Pipeline_Program, NULL, NULL);
 
-  // CreateRectPipeline();
-  // CreateTrianglePipeline();
-  // CreateVoxelPipeline();
-  // CreateShadowPipeline();
   g_context->rect_pipeline = CreateEntity(&g_context->ecs);
   g_context->triangle_pipeline = CreateEntity(&g_context->ecs);
   g_context->voxel_pipeline = CreateEntity(&g_context->ecs);
@@ -167,23 +163,17 @@ EngineInit(const Engine_Startup_Info* info)
   Voxel_Grid* vox;
   AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
                         grid_1, "3x3x3.vox");
-  // Voxel_Grid* vox = AddComponent(&g_context->ecs, grid_1, &type_info_Voxel_Grid);
   Transform* transform = AddComponent(&g_context->ecs, grid_1, &type_info_Transform);
-  // LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "3x3x3.vox");
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(3.1f, 2.6f, 1.0f);
   transform->scale = 0.9f;
-  // AddAsset(&g_context->asset_manager, grid_1, "3x3x3.vox");
   // entity 2
   AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
                         grid_2, "chr_beau.vox");
-  // vox = AddComponent(&g_context->ecs, grid_2, &type_info_Voxel_Grid);
   transform = AddComponent(&g_context->ecs, grid_2, &type_info_Transform);
-  // LoadVoxelGridFromFile(&g_context->vox_allocator, vox, "chr_beau.vox");
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
   transform->scale = 0.09f;
-  // AddAsset(&g_context->asset_manager, grid_2, "chr_beau.vox");
   // floor
   EID floor = CreateEntity(&g_context->ecs);
   vox = AddComponent(&g_context->ecs, floor, &type_info_Voxel_Grid);
@@ -237,10 +227,6 @@ EngineFree()
 
   DestroyFontAtlas(&g_context->font_atlas);
 
-  // vkDestroyPipeline(g_device->logical_device, g_context->shadow_pipeline, NULL);
-  // vkDestroyPipeline(g_device->logical_device, g_context->voxel_pipeline, NULL);
-  // vkDestroyPipeline(g_device->logical_device, g_context->triangle_pipeline, NULL);
-  // vkDestroyPipeline(g_device->logical_device, g_context->rect_pipeline, NULL);
   {
     FOREACH_COMPONENT(&g_context->ecs, Pipeline_Program, &type_info_Pipeline_Program) {
       vkDestroyPipeline(g_device->logical_device, components[i].pipeline, NULL);
@@ -336,11 +322,9 @@ EngineUpdateAndRender()
   {
     Pipeline_Program* prog = GetComponent(&g_context->ecs, g_context->shadow_pipeline, &type_info_Pipeline_Program);
     ds_set = g_context->shadow_pass.scene_data_set;
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->shadow_pipeline_layout,
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->layout,
                         0, 1, &ds_set, 0, NULL);
     vkCmdSetDepthBias(cmd, 1.0f, 0.0f, 2.0f);
-    // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->shadow_pipeline);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
     DrawVoxels(&g_context->vox_drawer, cmd);
   }
@@ -362,16 +346,13 @@ EngineUpdateAndRender()
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             // g_context->triangle_pipeline_layout, 0, 1, &ds_set, 0, NULL);
                             prog->layout, 0, 1, &ds_set, 0, NULL);
-    // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->triangle_pipeline);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
     // 1st draw
-    // vkCmdPushConstants(cmd, g_context->triangle_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT,
     vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT,
                        0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     // 2nd draw
     colors[2] = VEC4_CREATE(0.1f, 0.3f, 1.0f, 0.0f);
-    // vkCmdPushConstants(cmd, g_context->triangle_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT,
     vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT,
                        0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
@@ -379,12 +360,9 @@ EngineUpdateAndRender()
     prog = GetComponent(&g_context->ecs, g_context->voxel_pipeline, &type_info_Pipeline_Program);
     VkDescriptorSet ds_sets[] = { ds_set, g_context->shadow_pass.shadow_set };
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            // g_context->voxel_pipeline_layout, 0, ARR_SIZE(ds_sets), ds_sets, 0, NULL);
                             prog->layout, 0, ARR_SIZE(ds_sets), ds_sets, 0, NULL);
-    // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->voxel_pipeline);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
     for (uint32_t i = 0; i < 6; i++) {
-      // vkCmdPushConstants(cmd, g_context->voxel_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
       vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
       DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i);
     }
@@ -404,9 +382,6 @@ EngineUpdateAndRender()
     default:
       Assert(0);
     }
-    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-    //                         g_context->rect_pipeline_layout, 0, 1, &ds_set, 0, NULL);
-    // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->rect_pipeline);
     Pipeline_Program* prog = GetComponent(&g_context->ecs, g_context->rect_pipeline, &type_info_Pipeline_Program);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             prog->layout, 0, 1, &ds_set, 0, NULL);
@@ -553,8 +528,6 @@ void CreateRectPipeline(Pipeline_Desc* description)
   };
   static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
   *description = (Pipeline_Desc) {
-    // .vertex_shader = "rect.vert.spv",
-    // .fragment_shader = "rect.frag.spv",
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_NONE,
@@ -580,8 +553,6 @@ void CreateTrianglePipeline(Pipeline_Desc* description)
   static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 
   *description = (Pipeline_Desc) {
-    // .vertex_shader = "triangle.vert.spv",
-    // .fragment_shader = "triangle.frag.spv",
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_NONE,
@@ -610,8 +581,6 @@ void CreateVoxelPipeline(Pipeline_Desc* description)
   static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 
   *description = (Pipeline_Desc) {
-    // .vertex_shader = "voxel.vert.spv",
-    // .fragment_shader = "voxel.frag.spv",
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_FRONT_BIT,
@@ -638,8 +607,6 @@ void CreateShadowPipeline(Pipeline_Desc* description)
 {
   static VkDynamicState dynamic_state = VK_DYNAMIC_STATE_DEPTH_BIAS;
   *description = (Pipeline_Desc) {
-    // .vertex_shader = "shadow_voxel.vert.spv",
-    // .fragment_shader = NULL,
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_BACK_BIT,

@@ -120,7 +120,7 @@ GetAssetByName(Asset_Manager* am, const char* name)
   return (EID)-1;
 }
 
-// 0 returned on success
+// 0 is returned on success
 INTERNAL int
 AddAsset(Asset_Manager* am, EID entity, const char* name,
          const Type_Info* type, Asset_Reload_Func reload_func, void* udata)

@@ -1665,7 +1665,6 @@ CreatePipelineLayout(const Shader_Reflect** shader_templates, size_t count)
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to create pipeline layout with error %s", ToString_VkResult(err));
   } else {
-    LOG_INFO("created pipeline layout!");
     // add pipeline layout to cache if succeeded
     FHT_Insert(&g_device->pipeline_layout_cache, &g_device->pipeline_layout_info_type, &layout_info);
   }
