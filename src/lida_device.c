@@ -1451,6 +1451,47 @@ LoadShader(const char* path, const Shader_Reflect** reflect)
   return ret;
 }
 
+INTERNAL VkResult
+ForceUpdateShader(const char* path)
+{
+  size_t buffer_size = 0;
+  uint32_t* buffer = PlatformLoadEntireFile(path, &buffer_size);
+  if (!buffer) {
+    LOG_ERROR("failed to load shader from file '%s' with error '%s'", path, PlatformGetError());
+    return VK_ERROR_UNKNOWN;
+  }
+  VkShaderModuleCreateInfo module_info = {
+    .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+    .codeSize = buffer_size,
+    .pCode = buffer,
+  };
+  VkShaderModule ret = VK_NULL_HANDLE;
+  VkResult err = vkCreateShaderModule(g_device->logical_device, &module_info,
+                                      NULL, &ret);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create shader module with error %s", ToString_VkResult(err));
+    return err;
+  }
+  err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT, (uint64_t)ret, path);
+  if (err != VK_SUCCESS) {
+    LOG_WARN("failed to mark shader module '%s' with error %s", path, ToString_VkResult(err));
+  }
+  // Insert shader to cache if succeeded
+  Shader_Info* shader_info = FHT_Search(&g_device->shader_cache, &g_device->shader_info_type,
+                                        &(Shader_Info) { .name = path });
+  if (shader_info == NULL) {
+    LOG_ERROR("shader '%s' was not created before", path);
+    vkDestroyShaderModule(g_device->logical_device, ret, NULL);
+    return VK_ERROR_UNKNOWN;
+  }
+  // destroy old shader module
+  vkDestroyShaderModule(g_device->logical_device, shader_info->module, NULL);
+  shader_info->module = ret;
+  ReflectSPIRV(buffer, buffer_size / sizeof(uint32_t), &shader_info->reflect);
+  PlatformFreeFile(buffer);
+  return VK_SUCCESS;
+}
+
 INTERNAL int
 Compare_DSLB(const void* l, const void* r)
 {
@@ -1586,7 +1627,7 @@ CollectShaderReflects(const Shader_Reflect** shaders, size_t count)
 INTERNAL VkPipelineLayout
 CreatePipelineLayout(const Shader_Reflect** shader_templates, size_t count)
 {
-  // NOTE: I didn't figure out a good way to mark pipeline layout.
+  // NOTE: I didn't figure out a good way to debug mark pipeline layout.
   // Leaving it unmarked
   const Shader_Reflect* shader;
   Pipeline_Layout_Info layout_info = { .num_sets = 0, .num_ranges = 0 };
@@ -1624,6 +1665,7 @@ CreatePipelineLayout(const Shader_Reflect** shader_templates, size_t count)
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to create pipeline layout with error %s", ToString_VkResult(err));
   } else {
+    LOG_INFO("created pipeline layout!");
     // add pipeline layout to cache if succeeded
     FHT_Insert(&g_device->pipeline_layout_cache, &g_device->pipeline_layout_info_type, &layout_info);
   }

@@ -729,18 +729,26 @@ PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint
     { 0, sizeof(Voxel_Vertex), VK_VERTEX_INPUT_RATE_VERTEX },
     { 1, sizeof(Transform), VK_VERTEX_INPUT_RATE_INSTANCE }
   };
-  GLOBAL VkVertexInputAttributeDescription g_attributes[5] = {
-    { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Voxel_Vertex, position) }
+  GLOBAL VkVertexInputAttributeDescription g_attributes1[5] = {
+    { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Voxel_Vertex, position) },
+    { 1, 0, VK_FORMAT_R32_UINT, offsetof(Voxel_Vertex, color) },
+    { 2, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Transform, rotation) },
+    { 3, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Transform, position) },
+    { 4, 1, VK_FORMAT_R32_SFLOAT, offsetof(Transform, scale) },
   };
-  using_colors &= 1;
+  GLOBAL VkVertexInputAttributeDescription g_attributes2[4] = {
+    { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Voxel_Vertex, position) },
+    { 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Transform, rotation) },
+    { 2, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Transform, position) },
+    { 3, 1, VK_FORMAT_R32_SFLOAT, offsetof(Transform, scale) },
+  };
   if (using_colors) {
-    g_attributes[1] = (VkVertexInputAttributeDescription) { 1, 0, VK_FORMAT_R32_UINT, offsetof(Voxel_Vertex, color) };
+    *attributes = g_attributes1;
+    *num_attributes = ARR_SIZE(g_attributes1);
+  } else {
+    *attributes = g_attributes2;
+    *num_attributes = ARR_SIZE(g_attributes2);
   }
-  g_attributes[1 + using_colors] = (VkVertexInputAttributeDescription) { 1 + (uint32_t)using_colors, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Transform, rotation) };
-  g_attributes[2 + using_colors] = (VkVertexInputAttributeDescription) { 2 + (uint32_t)using_colors, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Transform, position) };
-  g_attributes[3 + using_colors] = (VkVertexInputAttributeDescription) { 3 + (uint32_t)using_colors, 1, VK_FORMAT_R32_SFLOAT, offsetof(Transform, scale) };
-  *attributes = g_attributes;
   *bindings = g_bindings;
-  *num_attributes = ARR_SIZE(g_attributes) - 1 + (using_colors > 0);
   *num_bindings = ARR_SIZE(g_bindings);
 }

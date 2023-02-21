@@ -18,4 +18,5 @@ void main() {
   // const float exposure = 0.05;
   // outColor = vec4(tone_map(hdr, exposure), 1.0);
   outColor = texture(in_attachment, uv);
+  // outColor.r += 0.5;
 }

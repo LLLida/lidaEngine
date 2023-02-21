@@ -340,11 +340,13 @@ ComponentIDs(ECS* ecs, const Type_Info* type)
   return set->dense->ptr;
 }
 
-#define FOREACH_COMPONENT(ecs, type, type_info) Sparse_Set* set_##__LINE__ = GetSparseSet(ecs, type_info); \
-  type* components = set_##__LINE__->packed->ptr;\
-  EID* entities = set_##__LINE__->dense->ptr;\
+// TODO: figure out how we can append __LINE__ to set's name so we can
+// call multipli FOREACH_COMPONENT()s in 1 scope
+#define FOREACH_COMPONENT(ecs, type, type_info) Sparse_Set* set = GetSparseSet(ecs, type_info); \
+  type* components = set->packed->ptr;\
+  EID* entities = set->dense->ptr;\
   (void)entities;\
-  for (uint32_t i = 0; i < set_##__LINE__->size; i++)
+  for (uint32_t i = 0; i < set->size; i++)
 
 #define DECLARE_COMPONENT(type) GLOBAL Type_Info type_info_##type
 #define REGISTER_COMPONENT(type, hash_func, compare_func) type_info_##type = TYPE_INFO(type, hash_func, compare_func)

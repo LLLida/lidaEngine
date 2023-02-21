@@ -40,15 +40,20 @@ typedef struct {
   Font_Atlas font_atlas;
   Camera camera;
   Voxel_Drawer vox_drawer;
+  Deletion_Queue deletion_queue;
   Asset_Manager asset_manager;
-  VkPipelineLayout rect_pipeline_layout;
-  VkPipeline rect_pipeline;
-  VkPipelineLayout triangle_pipeline_layout;
-  VkPipeline triangle_pipeline;
-  VkPipelineLayout voxel_pipeline_layout;
-  VkPipeline voxel_pipeline;
-  VkPipelineLayout shadow_pipeline_layout;
-  VkPipeline shadow_pipeline;
+  // VkPipelineLayout rect_pipeline_layout;
+  // VkPipeline rect_pipeline;
+  // VkPipelineLayout triangle_pipeline_layout;
+  // VkPipeline triangle_pipeline;
+  // VkPipelineLayout voxel_pipeline_layout;
+  // VkPipeline voxel_pipeline;
+  // VkPipelineLayout shadow_pipeline_layout;
+  // VkPipeline shadow_pipeline;
+  EID rect_pipeline;
+  EID triangle_pipeline;
+  EID voxel_pipeline;
+  EID shadow_pipeline;
   uint32_t prev_time;
   uint32_t curr_time;
   int mouse_mode;
@@ -70,10 +75,10 @@ GLOBAL EID grid_2;
 
 /// Engine general functions
 
-INTERNAL void CreateRectPipeline();
-INTERNAL void CreateTrianglePipeline();
-INTERNAL void CreateVoxelPipeline();
-INTERNAL void CreateShadowPipeline();
+INTERNAL void CreateRectPipeline(Pipeline_Desc* description);
+INTERNAL void CreateTrianglePipeline(Pipeline_Desc* description);
+INTERNAL void CreateVoxelPipeline(Pipeline_Desc* description);
+INTERNAL void CreateShadowPipeline(Pipeline_Desc* description);
 
 void
 EngineInit(const Engine_Startup_Info* info)
@@ -109,11 +114,6 @@ EngineInit(const Engine_Startup_Info* info)
 
   InitAssetManager(&g_context->asset_manager);
 
-  CreateRectPipeline();
-  CreateTrianglePipeline();
-  CreateVoxelPipeline();
-  CreateShadowPipeline();
-
   CreateFontAtlas(&g_context->font_atlas, 512, 128);
 
   g_context->camera.z_near = 0.01f;
@@ -132,10 +132,32 @@ EngineInit(const Engine_Startup_Info* info)
 
   CreateECS(&g_context->entity_allocator, &g_context->ecs, 8, 8);
 
-  CreateVoxelDrawer(&g_context->vox_drawer, 128*1024, 32);
-
   REGISTER_COMPONENT(Voxel_Grid, NULL, NULL);
   REGISTER_COMPONENT(Transform, NULL, NULL);
+  REGISTER_COMPONENT(Pipeline_Program, NULL, NULL);
+
+  // CreateRectPipeline();
+  // CreateTrianglePipeline();
+  // CreateVoxelPipeline();
+  // CreateShadowPipeline();
+  g_context->rect_pipeline = CreateEntity(&g_context->ecs);
+  g_context->triangle_pipeline = CreateEntity(&g_context->ecs);
+  g_context->voxel_pipeline = CreateEntity(&g_context->ecs);
+  g_context->shadow_pipeline = CreateEntity(&g_context->ecs);
+  AddPipelineProgramComponent(&g_context->ecs, &g_context->asset_manager, g_context->rect_pipeline,
+                              "rect.vert.spv", "rect.frag.spv",
+                              &CreateRectPipeline, &g_context->deletion_queue);
+  AddPipelineProgramComponent(&g_context->ecs, &g_context->asset_manager, g_context->triangle_pipeline,
+                              "triangle.vert.spv", "triangle.frag.spv",
+                              &CreateTrianglePipeline, &g_context->deletion_queue);
+  AddPipelineProgramComponent(&g_context->ecs, &g_context->asset_manager, g_context->voxel_pipeline,
+                              "voxel.vert.spv", "voxel.frag.spv",
+                              &CreateVoxelPipeline, &g_context->deletion_queue);
+  AddPipelineProgramComponent(&g_context->ecs, &g_context->asset_manager, g_context->shadow_pipeline,
+                              "shadow_voxel.vert.spv", NULL,
+                              &CreateShadowPipeline, &g_context->deletion_queue);
+
+  CreateVoxelDrawer(&g_context->vox_drawer, 128*1024, 32);
 
   // create some entities
   grid_1 = CreateEntity(&g_context->ecs);
@@ -183,16 +205,22 @@ EngineInit(const Engine_Startup_Info* info)
 
   // TODO: this line is for testing asset manager
   AddAsset(&g_context->asset_manager, 0, "file.txt", NULL, NULL, NULL);
+
+  g_context->deletion_queue.left = 0;
+  g_context->deletion_queue.count = 0;
+
+  // create pipelines
+  BatchCreatePipelines(&g_context->ecs);
 }
 
 void
 EngineFree()
 {
-  FOREACH_COMPONENT(&g_context->ecs, Voxel_Grid, &type_info_Voxel_Grid) {
-    FreeVoxelGrid(&g_context->vox_allocator, &components[i]);
+  {
+    FOREACH_COMPONENT(&g_context->ecs, Voxel_Grid, &type_info_Voxel_Grid) {
+      FreeVoxelGrid(&g_context->vox_allocator, &components[i]);
+    }
   }
-
-  DestroyECS(&g_context->ecs);
 
   if (ReleaseAllocator(&g_context->vox_allocator)) {
     LOG_WARN("vox: memory leak detected");
@@ -209,10 +237,17 @@ EngineFree()
 
   DestroyFontAtlas(&g_context->font_atlas);
 
-  vkDestroyPipeline(g_device->logical_device, g_context->shadow_pipeline, NULL);
-  vkDestroyPipeline(g_device->logical_device, g_context->voxel_pipeline, NULL);
-  vkDestroyPipeline(g_device->logical_device, g_context->triangle_pipeline, NULL);
-  vkDestroyPipeline(g_device->logical_device, g_context->rect_pipeline, NULL);
+  // vkDestroyPipeline(g_device->logical_device, g_context->shadow_pipeline, NULL);
+  // vkDestroyPipeline(g_device->logical_device, g_context->voxel_pipeline, NULL);
+  // vkDestroyPipeline(g_device->logical_device, g_context->triangle_pipeline, NULL);
+  // vkDestroyPipeline(g_device->logical_device, g_context->rect_pipeline, NULL);
+  {
+    FOREACH_COMPONENT(&g_context->ecs, Pipeline_Program, &type_info_Pipeline_Program) {
+      vkDestroyPipeline(g_device->logical_device, components[i].pipeline, NULL);
+    }
+  }
+
+  DestroyECS(&g_context->ecs);
 
   // FreeAssetManager(&g_context->asset_manager);
 
@@ -235,10 +270,17 @@ EngineUpdateAndRender()
   g_context->curr_time = PlatformGetTicks();
   const float dt = (g_context->curr_time - g_context->prev_time) / 1000.0f;
 
-  // get file notifications every 32 frame
-  if ((g_window->frame_counter & 31) == 31) {
-    UpdateAssets(&g_context->asset_manager, &g_context->ecs);
-  }
+  switch (g_window->frame_counter & 31)
+    {
+    case 31:
+      // get file notifications every 32 frame
+      UpdateAssets(&g_context->asset_manager, &g_context->ecs);
+      break;
+
+    case 30:
+      UpdateDeletionQueue(&g_context->deletion_queue);
+      break;
+    }
 
   // update camera position, rotation etc.
   Camera* camera = &g_context->camera;
@@ -292,11 +334,14 @@ EngineUpdateAndRender()
   // render to shadow map
   BeginShadowPass(&g_context->shadow_pass, cmd);
   {
+    Pipeline_Program* prog = GetComponent(&g_context->ecs, g_context->shadow_pipeline, &type_info_Pipeline_Program);
     ds_set = g_context->shadow_pass.scene_data_set;
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->shadow_pipeline_layout,
-                            0, 1, &ds_set, 0, NULL);
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->shadow_pipeline_layout,
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->layout,
+                        0, 1, &ds_set, 0, NULL);
     vkCmdSetDepthBias(cmd, 1.0f, 0.0f, 2.0f);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->shadow_pipeline);
+    // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->shadow_pipeline);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
     DrawVoxels(&g_context->vox_drawer, cmd);
   }
   vkCmdEndRenderPass(cmd);
@@ -312,26 +357,35 @@ EngineUpdateAndRender()
   BeginForwardPass(&g_context->forward_pass, cmd, clear_color);
   {
     // draw triangles
+    Pipeline_Program* prog = GetComponent(&g_context->ecs, g_context->triangle_pipeline, &type_info_Pipeline_Program);
     ds_set = g_context->forward_pass.scene_data_set;
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            g_context->triangle_pipeline_layout, 0, 1, &ds_set, 0, NULL);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->triangle_pipeline);
+                            // g_context->triangle_pipeline_layout, 0, 1, &ds_set, 0, NULL);
+                            prog->layout, 0, 1, &ds_set, 0, NULL);
+    // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->triangle_pipeline);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
     // 1st draw
-    vkCmdPushConstants(cmd, g_context->triangle_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT,
+    // vkCmdPushConstants(cmd, g_context->triangle_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT,
+    vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT,
                        0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     // 2nd draw
     colors[2] = VEC4_CREATE(0.1f, 0.3f, 1.0f, 0.0f);
-    vkCmdPushConstants(cmd, g_context->triangle_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT,
+    // vkCmdPushConstants(cmd, g_context->triangle_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT,
+    vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT,
                        0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     // draw voxels
+    prog = GetComponent(&g_context->ecs, g_context->voxel_pipeline, &type_info_Pipeline_Program);
     VkDescriptorSet ds_sets[] = { ds_set, g_context->shadow_pass.shadow_set };
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            g_context->voxel_pipeline_layout, 0, ARR_SIZE(ds_sets), ds_sets, 0, NULL);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->voxel_pipeline);
+                            // g_context->voxel_pipeline_layout, 0, ARR_SIZE(ds_sets), ds_sets, 0, NULL);
+                            prog->layout, 0, ARR_SIZE(ds_sets), ds_sets, 0, NULL);
+    // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->voxel_pipeline);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
     for (uint32_t i = 0; i < 6; i++) {
-      vkCmdPushConstants(cmd, g_context->voxel_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
+      // vkCmdPushConstants(cmd, g_context->voxel_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
+      vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
       DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i);
     }
   }
@@ -350,9 +404,13 @@ EngineUpdateAndRender()
     default:
       Assert(0);
     }
+    // vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+    //                         g_context->rect_pipeline_layout, 0, 1, &ds_set, 0, NULL);
+    // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->rect_pipeline);
+    Pipeline_Program* prog = GetComponent(&g_context->ecs, g_context->rect_pipeline, &type_info_Pipeline_Program);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            g_context->rect_pipeline_layout, 0, 1, &ds_set, 0, NULL);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, g_context->rect_pipeline);
+                            prog->layout, 0, 1, &ds_set, 0, NULL);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
     vkCmdDraw(cmd, 4, 1, 0, 0);
 
     // draw text
@@ -486,16 +544,17 @@ EngineMouseMotion(int x, int y, int xrel, int yrel)
 
 /// pipeline creation
 
-void CreateRectPipeline()
+void CreateRectPipeline(Pipeline_Desc* description)
 {
-  VkPipelineColorBlendAttachmentState colorblend_attachment = {
+  // TODO: get rid of static here
+  static VkPipelineColorBlendAttachmentState colorblend_attachment = {
     .blendEnable = VK_FALSE,
     .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
   };
-  VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-  Pipeline_Desc pipeline_desc = {
-    .vertex_shader = "rect.vert.spv",
-    .fragment_shader = "rect.frag.spv",
+  static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+  *description = (Pipeline_Desc) {
+    // .vertex_shader = "rect.vert.spv",
+    // .fragment_shader = "rect.frag.spv",
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_NONE,
@@ -510,21 +569,19 @@ void CreateRectPipeline()
     .subpass = 0,
     .marker = "blit-3D-scene-fullscreen"
   };
-
-  CreateGraphicsPipelines(&g_context->rect_pipeline, 1, &pipeline_desc, &g_context->rect_pipeline_layout);
 }
 
-void CreateTrianglePipeline()
+void CreateTrianglePipeline(Pipeline_Desc* description)
 {
-  VkPipelineColorBlendAttachmentState colorblend_attachment = {
+  static VkPipelineColorBlendAttachmentState colorblend_attachment = {
     .blendEnable = VK_FALSE,
     .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
   };
-  VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+  static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 
-  Pipeline_Desc pipeline_desc = {
-    .vertex_shader = "triangle.vert.spv",
-    .fragment_shader = "triangle.frag.spv",
+  *description = (Pipeline_Desc) {
+    // .vertex_shader = "triangle.vert.spv",
+    // .fragment_shader = "triangle.frag.spv",
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_NONE,
@@ -542,20 +599,19 @@ void CreateTrianglePipeline()
     .subpass = 0,
     .marker = "draw-triangle-pipeline"
   };
-  CreateGraphicsPipelines(&g_context->triangle_pipeline, 1, &pipeline_desc, &g_context->triangle_pipeline_layout);
 }
 
-void CreateVoxelPipeline()
+void CreateVoxelPipeline(Pipeline_Desc* description)
 {
-  VkPipelineColorBlendAttachmentState colorblend_attachment = {
+  static VkPipelineColorBlendAttachmentState colorblend_attachment = {
     .blendEnable = VK_FALSE,
     .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
   };
-  VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+  static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 
-  Pipeline_Desc pipeline_desc = {
-    .vertex_shader = "voxel.vert.spv",
-    .fragment_shader = "voxel.frag.spv",
+  *description = (Pipeline_Desc) {
+    // .vertex_shader = "voxel.vert.spv",
+    // .fragment_shader = "voxel.frag.spv",
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_FRONT_BIT,
@@ -573,18 +629,17 @@ void CreateVoxelPipeline()
     .subpass = 0,
     .marker = "forward/voxel-pipeline"
   };
-  PipelineVoxelVertices(&pipeline_desc.vertex_attributes, &pipeline_desc.vertex_attribute_count,
-                        &pipeline_desc.vertex_bindings, &pipeline_desc.vertex_binding_count,
+  PipelineVoxelVertices(&description->vertex_attributes, &description->vertex_attribute_count,
+                        &description->vertex_bindings, &description->vertex_binding_count,
                         1);
-  CreateGraphicsPipelines(&g_context->voxel_pipeline, 1, &pipeline_desc, &g_context->voxel_pipeline_layout);
 }
 
-void CreateShadowPipeline()
+void CreateShadowPipeline(Pipeline_Desc* description)
 {
-  VkDynamicState dynamic_state = VK_DYNAMIC_STATE_DEPTH_BIAS;
-  Pipeline_Desc pipeline_desc = {
-    .vertex_shader = "shadow_voxel.vert.spv",
-    .fragment_shader = NULL,
+  static VkDynamicState dynamic_state = VK_DYNAMIC_STATE_DEPTH_BIAS;
+  *description = (Pipeline_Desc) {
+    // .vertex_shader = "shadow_voxel.vert.spv",
+    // .fragment_shader = NULL,
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_BACK_BIT,
@@ -601,10 +656,8 @@ void CreateShadowPipeline()
     .subpass = 0,
     .marker = "voxels-to-shadow-map",
   };
-  PipelineVoxelVertices(&pipeline_desc.vertex_attributes, &pipeline_desc.vertex_attribute_count,
-                        &pipeline_desc.vertex_bindings, &pipeline_desc.vertex_binding_count,
+  PipelineVoxelVertices(&description->vertex_attributes, &description->vertex_attribute_count,
+                        &description->vertex_bindings, &description->vertex_binding_count,
                         0);
-  ShadowPassViewport(&g_context->shadow_pass, &pipeline_desc.viewport, &pipeline_desc.scissor);
-
-  CreateGraphicsPipelines(&g_context->shadow_pipeline, 1, &pipeline_desc, &g_context->shadow_pipeline_layout);
+  ShadowPassViewport(&g_context->shadow_pass, &description->viewport, &description->scissor);
 }

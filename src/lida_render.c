@@ -56,8 +56,9 @@ typedef struct {
 // this will help us to do hot resource reloading
 typedef struct {
 
-  struct { VkObjectType type; uint64_t handle; } objs[32];
+  struct { uint64_t handle; VkObjectType type; uint64_t frame; } objs[32];
   uint32_t left;
+  uint32_t count;
 
 } Deletion_Queue;
 
@@ -763,4 +764,52 @@ ShadowPassViewport(Shadow_Pass* pass, VkViewport** p_viewport, VkRect2D** p_scis
   rect.extent.height = pass->extent.height;
   *p_viewport = &viewport;
   *p_scissor = &rect;
+}
+
+INTERNAL int
+AddForDeletion(Deletion_Queue* dq, uint64_t handle, VkObjectType type)
+{
+  const size_t max = ARR_SIZE(dq->objs);
+  if (dq->count == max) {
+    LOG_WARN("deletion queue is out of space");
+    return -1;
+  }
+  size_t id = (dq->left+dq->count) % max;
+  dq->objs[id].handle = handle;
+  dq->objs[id].type = type;
+  dq->objs[id].frame = g_window->frame_counter;
+  dq->count++;
+  return 0;
+}
+
+INTERNAL void
+UpdateDeletionQueue(Deletion_Queue* dq)
+{
+  const size_t max = ARR_SIZE(dq->objs);
+  while (dq->count > 0) {
+    size_t id = dq->left % max;
+    if (dq->objs[id].frame + 2 > g_window->frame_counter)
+      break;
+    switch (dq->objs[id].type)
+      {
+#define CASE(upper, camel) case VK_OBJECT_TYPE_##upper:\
+        vkDestroy##camel (g_device->logical_device, (Vk##camel)dq->objs[id].handle, NULL);\
+        break
+
+        CASE(PIPELINE, Pipeline);
+        CASE(IMAGE, Image);
+        CASE(IMAGE_VIEW, ImageView);
+        CASE(FRAMEBUFFER, Framebuffer);
+        CASE(BUFFER, Buffer);
+
+#undef CASE
+
+      default:
+        LOG_WARN("deletion queue: undefined type object %d", dq->objs[id].type);
+        break;
+
+      }
+    dq->left = (dq->left+1) % max;
+    dq->count--;
+  }
 }
