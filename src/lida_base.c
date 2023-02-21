@@ -113,6 +113,7 @@ struct Allocation {
   Allocation* left;
   Allocation* right;
   // TODO: debug information: function from where this allocation made, when it was made etc.
+  const char* tag;
 
 };
 
@@ -179,7 +180,7 @@ FixFragmentation(Allocator* allocator)
 // O(1) common case
 // O(N) worst case, relocation happens
 INTERNAL Allocation*
-DoAllocation(Allocator* allocator, uint32_t size)
+DoAllocation(Allocator* allocator, uint32_t size, const char* tag)
 {
   Assert(size > 0);
   if (allocator->effective_size + size > allocator->alloc_offset) {
@@ -208,6 +209,7 @@ DoAllocation(Allocator* allocator, uint32_t size)
     ret->left->right = ret;
   }
   ret->right = NULL;
+  ret->tag = tag;
   allocator->num_allocations++;
   allocator->effective_size += size;
   allocator->offset += size;
@@ -258,7 +260,7 @@ ChangeAllocationSize(Allocator* allocator, Allocation* allocation, uint32_t new_
   Assert(new_size > 0);
   // TODO: checks for failures
   if (allocation == NULL) {
-    return DoAllocation(allocator, new_size);
+    return DoAllocation(allocator, new_size, allocation->tag);
   }
   if (new_size <= allocation->size) {
     allocator->effective_size -= allocation->size - new_size;
@@ -281,10 +283,19 @@ ChangeAllocationSize(Allocator* allocator, Allocation* allocation, uint32_t new_
     return allocation;
   }
   // worst case: make a new allocation
-  Allocation* new_allocation = DoAllocation(allocator, new_size);
+  Allocation* new_allocation = DoAllocation(allocator, new_size, allocation->tag);
   memcpy(new_allocation->ptr, allocation->ptr, allocation->size);
   FreeAllocation(allocator, allocation);
   return new_allocation;
+}
+
+INTERNAL void
+DebugListAllocations(Allocator* allocator)
+{
+  LOG_DEBUG("Listing allocations:");
+  for (Allocation* it = allocator->first_allocation; it; it = it->right) {
+    LOG_DEBUG(" %s: ptr=%p, size=%u", it->tag, it->ptr, it->size);
+  }
 }
 
 

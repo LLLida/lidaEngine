@@ -109,7 +109,7 @@ INTERNAL int
 ReallocateVoxelGrid(Allocator* allocator, Voxel_Grid* grid, uint32_t w, uint32_t h, uint32_t d)
 {
   Allocation* old_data = grid->data;
-  grid->data = DoAllocation(allocator, w*h*d);
+  grid->data = DoAllocation(allocator, w*h*d, "voxel-grid");
   if (grid->data == NULL) {
     grid->data = old_data;
     LOG_WARN("out of memory");

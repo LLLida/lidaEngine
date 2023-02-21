@@ -204,14 +204,6 @@ EngineFree()
     }
   }
 
-  if (ReleaseAllocator(&g_context->vox_allocator)) {
-    LOG_WARN("vox: memory leak detected");
-  }
-
-  if (ReleaseAllocator(&g_context->entity_allocator)) {
-    LOG_WARN("entity: memory leak detected");
-  }
-
   // wait until commands from previous frames are ended so we can safely destroy GPU resources
   vkDeviceWaitIdle(g_device->logical_device);
 
@@ -226,6 +218,15 @@ EngineFree()
   }
 
   DestroyECS(&g_context->ecs);
+
+  if (ReleaseAllocator(&g_context->vox_allocator)) {
+    LOG_WARN("vox: memory leak detected");
+  }
+
+  if (ReleaseAllocator(&g_context->entity_allocator)) {
+    LOG_WARN("entity: memory leak detected");
+    DebugListAllocations(&g_context->entity_allocator);
+  }
 
   // FreeAssetManager(&g_context->asset_manager);
 

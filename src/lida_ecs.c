@@ -57,7 +57,11 @@ SetSparseSetMaxID(Allocator* allocator, Sparse_Set* set, EID id)
   if (id <= set->max_id)
     return 1;
   Allocation* old = set->sparse;
-  set->sparse = ChangeAllocationSize(allocator, set->sparse, sizeof(uint32_t) * id);
+  if (old) {
+    set->sparse = ChangeAllocationSize(allocator, set->sparse, sizeof(uint32_t) * id);
+  } else {
+    set->sparse = DoAllocation(allocator, sizeof(uint32_t)*id, set->type_info->name);
+  }
   LOG_TRACE("%s: sparse=%p", set->type_info->name, set->sparse->ptr);
   if (set->sparse == NULL) {
     set->sparse = old;
@@ -74,13 +78,21 @@ ReserveSparseSet(Allocator* allocator, Sparse_Set* set, uint32_t capacity)
   if (capacity <= set->size)
     return 1;
   Allocation* old = set->packed;
-  set->packed = ChangeAllocationSize(allocator, set->packed, capacity * set->type_info->size);
+  if (old) {
+    set->packed = ChangeAllocationSize(allocator, set->packed, capacity * set->type_info->size);
+  } else {
+    set->packed = DoAllocation(allocator, capacity * set->type_info->size, set->type_info->name);
+  }
   if (set->packed == NULL) {
     set->packed = old;
     return -1;
   }
   old = set->dense;
-  set->dense = ChangeAllocationSize(allocator, set->dense, capacity * sizeof(EID));
+  if (old) {
+    set->dense = ChangeAllocationSize(allocator, set->dense, capacity * sizeof(EID));
+  } else {
+    set->dense = DoAllocation(allocator, capacity * sizeof(EID), set->type_info->name);
+  }
   if (set->dense == NULL) {
     set->dense = old;
     LOG_WARN("entity component system: out of memory");
@@ -176,7 +188,7 @@ GetSparseSet(ECS* ecs, const Type_Info* type_info)
   uint32_t old_num = ecs->num_pools;
   // TODO: pick a better grow policy
   ecs->num_pools = ecs->num_pools * 2;
-  ecs->pools = DoAllocation(ecs->allocator, ecs->num_pools);
+  ecs->pools = DoAllocation(ecs->allocator, ecs->num_pools, "ecs-pools");
   if (ecs->pools == NULL) {
     // out of memory
     ecs->num_pools = old_num;
@@ -214,8 +226,8 @@ CreateECS(Allocator* allocator, ECS* ecs, uint32_t init_num_types, uint32_t init
   ecs->num_entities = 0;
   ecs->num_pools = NearestPow2(init_num_types);
   ecs->max_entities = init_num_entities;
-  ecs->entities = DoAllocation(allocator, init_num_entities * sizeof(EID));
-  ecs->pools = DoAllocation(allocator, ecs->num_pools * sizeof(Sparse_Set));
+  ecs->entities = DoAllocation(allocator, init_num_entities * sizeof(EID), "ecs-entities");
+  ecs->pools = DoAllocation(allocator, ecs->num_pools * sizeof(Sparse_Set), "ecs-pools");
   if (ecs->entities == NULL || ecs->pools == NULL) {
     LOG_FATAL("entity component system: out of memory at initialization");
     return;
