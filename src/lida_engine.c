@@ -42,14 +42,6 @@ typedef struct {
   Voxel_Drawer vox_drawer;
   Deletion_Queue deletion_queue;
   Asset_Manager asset_manager;
-  // VkPipelineLayout rect_pipeline_layout;
-  // VkPipeline rect_pipeline;
-  // VkPipelineLayout triangle_pipeline_layout;
-  // VkPipeline triangle_pipeline;
-  // VkPipelineLayout voxel_pipeline_layout;
-  // VkPipeline voxel_pipeline;
-  // VkPipelineLayout shadow_pipeline_layout;
-  // VkPipeline shadow_pipeline;
   EID rect_pipeline;
   EID triangle_pipeline;
   EID voxel_pipeline;
