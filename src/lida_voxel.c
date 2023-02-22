@@ -279,10 +279,19 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Voxel_Vertex* vertices, int 
   // TODO: my dream is to make this function execute fast, processing
   // 4 or 8 voxels at same time
   Voxel_Vertex* begin = vertices;
+  float inv_size;
+  // TODO: we currently have no Min() function defined... shame
+  if (grid->width <= grid->height && grid->height <= grid->depth) {
+    inv_size = 1.0f / (float)grid->width;
+  } else if (grid->height <= grid->width && grid->width <= grid->depth) {
+    inv_size = 1.0f / (float)grid->height;
+  } else {
+    inv_size = 1.0f / (float)grid->depth;
+  }
   Vec3 half_size = {
-    grid->width * 0.5f,
-    grid->height * 0.5f,
-    grid->depth * 0.5f
+    inv_size * 0.5f * (float)grid->width,
+    inv_size * 0.5f * (float)grid->height,
+    inv_size * 0.5f * (float)grid->depth,
   };
   const uint32_t dims[3] = { grid->width, grid->height, grid->depth };
   const int d = face >> 1;
@@ -347,7 +356,9 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Voxel_Vertex* vertices, int 
                               (int)start_pos[1] + (int)offset[1] * (int)vox_positions[face*6 + vert_index].y,
                               (int)start_pos[2] + (int)offset[2] * (int)vox_positions[face*6 + vert_index].z };
           vert_pos[d] += face & 1;
-          vertices[vert_index].position = VEC3_SUB(VEC3_CREATE((float)vert_pos[0], (float)vert_pos[1], (float)vert_pos[2]), half_size);
+          vertices[vert_index].position.x = vert_pos[0] * inv_size - half_size.x;
+          vertices[vert_index].position.y = vert_pos[1] * inv_size - half_size.y;
+          vertices[vert_index].position.z = vert_pos[2] * inv_size - half_size.z;
           vertices[vert_index].color = grid->palette[start_voxel];
         }
         vertices += 6;

@@ -66,11 +66,11 @@ LoadVertex(Font* font, const Vec2* pos_, const Vec2* size, const Vec4* color, ch
 {
   Glyph_Info* glyph = &font->glyphs[(int)c];
   Vec2 pos;
-  pos.x = pos_->x + glyph->bearing.x * size->x;
-  pos.y = pos_->y - glyph->bearing.y * size->y;
+  pos.x = pos_->x + glyph->bearing.x * size->x / (float)font->pixel_size;
+  pos.y = pos_->y - glyph->bearing.y * size->y / (float)font->pixel_size;
   Vec2 offset;
-  offset.x = size->x * glyph->width;
-  offset.y = size->y * glyph->height;
+  offset.x = size->x * glyph->width / (float)font->pixel_size;
+  offset.y = size->y * glyph->height / (float)font->pixel_size;
   const Vec2 muls[] = {
     { 0.0f, 0.0f },
     { 1.0f, 0.0f },
@@ -81,8 +81,8 @@ LoadVertex(Font* font, const Vec2* pos_, const Vec2* size, const Vec4* color, ch
   for (int i = 0; i < 4; i++) {
     vertices[i].pos.x = pos.x + offset.x*muls[i].x;
     vertices[i].pos.y = pos.y + offset.y*muls[i].y;
-    vertices[i].uv.x = glyph->offset.x + glyph->size.x*muls[i].x;
-    vertices[i].uv.y = glyph->offset.y + glyph->size.y*muls[i].y;
+    vertices[i].uv.x = glyph->offset.x + glyph->size.x * muls[i].x;
+    vertices[i].uv.y = glyph->offset.y + glyph->size.y * muls[i].y;
     memcpy(&vertices[i].color, color, sizeof(Vec4));
   }
   const int indices[6] = { /*1st triangle*/0, 1, 3, /*2nd triangle*/3, 2, 0 };
@@ -355,6 +355,7 @@ LoadToFontAtlas(Font_Atlas* atlas, VkCommandBuffer cmd, const char* font_name, u
     atlas->fonts[0].glyphs[c].offset.x = rects[i].x / (float)atlas->extent.width;
     atlas->fonts[0].glyphs[c].offset.y = (rects[i].y + atlas->lines) / (float)atlas->extent.height;
   }
+  atlas->fonts[0].pixel_size = pixel_size;
   FT_Done_Face(face);
   // record commands to GPU...
   VkImageMemoryBarrier barrier = {
@@ -414,8 +415,8 @@ AddTextToFontAtlas(Font_Atlas* atlas, const char* text, uint32_t font_id, const 
   Vec2 pos = *pos_;
   while (*text) {
     LoadVertex(font, &pos, size, color, *text, vertices);
-    pos.x += font->glyphs[(int)*text].advance.x * size->x;
-    pos.y += font->glyphs[(int)*text].advance.y * size->y;
+    pos.x += font->glyphs[(int)*text].advance.x * size->x / (float)font->pixel_size;
+    pos.y += font->glyphs[(int)*text].advance.y * size->y / (float)font->pixel_size;
     vertices += 6;
     text++;
   }

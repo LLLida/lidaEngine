@@ -158,14 +158,14 @@ EngineInit(const Engine_Startup_Info* info)
   Transform* transform = AddComponent(&g_context->ecs, grid_1, &type_info_Transform);
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(3.1f, 2.6f, 1.0f);
-  transform->scale = 0.9f;
+  transform->scale = 3.0f;
   // entity 2
   AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
                         grid_2, "chr_beau.vox");
   transform = AddComponent(&g_context->ecs, grid_2, &type_info_Transform);
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
-  transform->scale = 0.09f;
+  transform->scale = 0.9f;
   // floor
   EID floor = CreateEntity(&g_context->ecs);
   vox = AddComponent(&g_context->ecs, floor, &type_info_Voxel_Grid);
@@ -302,8 +302,8 @@ EngineUpdateAndRender()
   if (g_window->frame_counter == 0) {
     LoadToFontAtlas(&g_context->font_atlas, cmd, "arial.ttf", 32);
   } else {
-    Vec2 pos = { -0.94f, 0.0f };
-    Vec2 text_size = { 0.004f, 0.004f };
+    Vec2 pos = { 0.04f, 0.4f };
+    Vec2 text_size = { 0.05f, 0.05f };
     Vec4 color = { 1.0f, 0.3f, 0.24f, 0.95f };
     num_text_vertices = AddTextToFontAtlas(&g_context->font_atlas, "Banana", 0, &text_size, &color, &pos);
   }
