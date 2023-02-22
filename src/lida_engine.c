@@ -37,6 +37,7 @@ typedef struct {
   ECS ecs;
   Forward_Pass forward_pass;
   Shadow_Pass shadow_pass;
+  Bitmap_Renderer bitmap_renderer;
   Font_Atlas font_atlas;
   Camera camera;
   Voxel_Drawer vox_drawer;
@@ -106,7 +107,8 @@ EngineInit(const Engine_Startup_Info* info)
 
   InitAssetManager(&g_context->asset_manager);
 
-  CreateFontAtlas(&g_context->font_atlas, 512, 128);
+  CreateBitmapRenderer(&g_context->bitmap_renderer);
+  CreateFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, 512, 128);
 
   g_context->camera.z_near = 0.01f;
   g_context->camera.position = VEC3_CREATE(0.0f, 0.0f, -2.0f);
@@ -210,6 +212,7 @@ EngineFree()
   DestroyVoxelDrawer(&g_context->vox_drawer);
 
   DestroyFontAtlas(&g_context->font_atlas);
+  DestroyBitmapRenderer(&g_context->bitmap_renderer);
 
   {
     FOREACH_COMPONENT(&g_context->ecs, Pipeline_Program, &type_info_Pipeline_Program) {
@@ -257,6 +260,7 @@ EngineUpdateAndRender()
       break;
 
     case 30:
+      // destroy objects needed to be destroyed
       UpdateDeletionQueue(&g_context->deletion_queue);
       break;
     }
@@ -297,15 +301,15 @@ EngineUpdateAndRender()
   }
 
   VkCommandBuffer cmd = BeginCommands();
-  uint32_t num_text_vertices;
 
   if (g_window->frame_counter == 0) {
-    LoadToFontAtlas(&g_context->font_atlas, cmd, "arial.ttf", 32);
+    LoadToFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, cmd, "arial.ttf", 32);
   } else {
+    NewBitmapFrame(&g_context->bitmap_renderer);
     Vec2 pos = { 0.04f, 0.4f };
     Vec2 text_size = { 0.05f, 0.05f };
     Vec4 color = { 1.0f, 0.3f, 0.24f, 0.95f };
-    num_text_vertices = AddTextToFontAtlas(&g_context->font_atlas, "Banana", 0, &text_size, &color, &pos);
+    AddTextToFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, "Banana", 0, &text_size, &color, &pos);
   }
 
   VkDescriptorSet ds_set;
@@ -382,7 +386,7 @@ EngineUpdateAndRender()
     vkCmdDraw(cmd, 4, 1, 0, 0);
 
     // draw text
-    DrawFontAtlasText(&g_context->font_atlas, cmd, num_text_vertices);
+    DrawBitmaps(&g_context->bitmap_renderer, cmd);
   }
   vkCmdEndRenderPass(cmd);
 

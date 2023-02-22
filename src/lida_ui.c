@@ -45,57 +45,37 @@ typedef struct {
   Video_Memory gpu_memory;
   Video_Memory cpu_memory;
   VkBuffer vertex_buffer;
-  VkImage image;
-  VkImageView image_view;
   VkExtent2D extent;
-  VkDescriptorSet descriptor_set;
   VkPipelineLayout pipeline_layout;
   VkPipeline pipeline;
   uint32_t max_vertices;
   Bitmap_Vertex* vertices_mapped;
+  Bitmap_Vertex* current_vertex;
+  struct {
+    VkDescriptorSet set;
+    uint32_t first_vertex;
+    uint32_t num_vertices;
+  } draws[128];
+  uint32_t num_draws;
+
+} Bitmap_Renderer;
+
+typedef struct {
+
+  VkImage image;
+  VkImageView image_view;
+  VkExtent2D extent;
+  VkDescriptorSet descriptor_set;
   uint32_t lines;
   Font fonts[4];
 
 } Font_Atlas;
 
 
-/// internal functions
-
-INTERNAL void
-LoadVertex(Font* font, const Vec2* pos_, const Vec2* size, const Vec4* color, char c, Bitmap_Vertex* dst)
-{
-  Glyph_Info* glyph = &font->glyphs[(int)c];
-  Vec2 pos;
-  pos.x = pos_->x + glyph->bearing.x * size->x / (float)font->pixel_size;
-  pos.y = pos_->y - glyph->bearing.y * size->y / (float)font->pixel_size;
-  Vec2 offset;
-  offset.x = size->x * glyph->width / (float)font->pixel_size;
-  offset.y = size->y * glyph->height / (float)font->pixel_size;
-  const Vec2 muls[] = {
-    { 0.0f, 0.0f },
-    { 1.0f, 0.0f },
-    { 0.0f, 1.0f },
-    { 1.0f, 1.0f }
-  };
-  Bitmap_Vertex vertices[4];
-  for (int i = 0; i < 4; i++) {
-    vertices[i].pos.x = pos.x + offset.x*muls[i].x;
-    vertices[i].pos.y = pos.y + offset.y*muls[i].y;
-    vertices[i].uv.x = glyph->offset.x + glyph->size.x * muls[i].x;
-    vertices[i].uv.y = glyph->offset.y + glyph->size.y * muls[i].y;
-    memcpy(&vertices[i].color, color, sizeof(Vec4));
-  }
-  const int indices[6] = { /*1st triangle*/0, 1, 3, /*2nd triangle*/3, 2, 0 };
-  for (size_t i = 0; i < ARR_SIZE(indices); i++) {
-    memcpy(dst++, &vertices[indices[i]], sizeof(Bitmap_Vertex));
-  }
-}
-
-
 /// public functions
 
 INTERNAL VkResult
-CreateFontAtlas(Font_Atlas* atlas, uint32_t width, uint32_t height)
+CreateBitmapRenderer(Bitmap_Renderer* renderer)
 {
   if (g_ft_library == NULL) {
     FT_Error error = FT_Init_FreeType(&g_ft_library);
@@ -104,59 +84,17 @@ CreateFontAtlas(Font_Atlas* atlas, uint32_t width, uint32_t height)
                 FT_Error_String(error));
     }
   }
-
-  atlas->extent = (VkExtent2D) { width, height };
-  atlas->lines = 0;
   // NOTE: 4 megabytes may be too much for font bitmaps
   VkDeviceSize font_bytes = 4 * 1024 * 1024;
-  VkResult err = AllocateVideoMemory(&atlas->gpu_memory, font_bytes, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, UINT32_MAX,
+  VkResult err = AllocateVideoMemory(&renderer->gpu_memory, font_bytes, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, UINT32_MAX,
                                      "font/main-memory");
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to allocate memory for fonts with error '%s'", ToString_VkResult(err));
     return err;
   }
-  // create image
-  VkImageCreateInfo image_info = {
-    .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-    .imageType = VK_IMAGE_TYPE_2D,
-    .format = VK_FORMAT_R8G8B8A8_UNORM,
-    .extent = {width, height, 1},
-    .mipLevels = 1,
-    .arrayLayers = 1,
-    .samples = VK_SAMPLE_COUNT_1_BIT,
-    .tiling = VK_IMAGE_TILING_OPTIMAL,
-    .usage = VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-  };
-  err = CreateImage(&atlas->image, &image_info, "font/atlas-image");
-  if (err != VK_SUCCESS) {
-    LOG_ERROR("failed to create font atlas image with error '%s'", ToString_VkResult(err));
-    return err;
-  }
-  VkMemoryRequirements image_requirements;
-  vkGetImageMemoryRequirements(g_device->logical_device, atlas->image, &image_requirements);
-  err = ImageBindToMemory(&atlas->gpu_memory, atlas->image,
-                          &image_requirements);
-  if (err != VK_SUCCESS) {
-    LOG_ERROR("failed to bind font atlas image to memory with error '%s'",
-              ToString_VkResult(err));
-    return err;
-  }
-  VkImageViewCreateInfo image_view_info = {
-    .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-    .image = atlas->image,
-    .viewType = VK_IMAGE_VIEW_TYPE_2D,
-    .format = image_info.format,
-    .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-  };
-  err = CreateImageView(&atlas->image_view, &image_view_info, "font/atlas-image-view");
-  if (err != VK_SUCCESS) {
-    LOG_ERROR("failed to create image view with error %s", ToString_VkResult(err));
-    return err;
-  }
   // create vertex buffer
-  atlas->max_vertices = 64 * 1024;
-  err = CreateBuffer(&atlas->vertex_buffer, atlas->max_vertices * sizeof(Bitmap_Vertex),
+  renderer->max_vertices = 64 * 1024;
+  err = CreateBuffer(&renderer->vertex_buffer, renderer->max_vertices * sizeof(Bitmap_Vertex),
                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                      "font/vertex-staging-buffer");
   if (err != VK_SUCCESS) {
@@ -164,8 +102,8 @@ CreateFontAtlas(Font_Atlas* atlas, uint32_t width, uint32_t height)
     return err;
   }
   VkMemoryRequirements requirements;
-  vkGetBufferMemoryRequirements(g_device->logical_device, atlas->vertex_buffer, &requirements);
-  err = AllocateVideoMemory(&atlas->cpu_memory, requirements.size,
+  vkGetBufferMemoryRequirements(g_device->logical_device, renderer->vertex_buffer, &requirements);
+  err = AllocateVideoMemory(&renderer->cpu_memory, requirements.size,
                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, requirements.memoryTypeBits,
                             "font/staging-memory");
   if (err != VK_SUCCESS) {
@@ -174,40 +112,13 @@ CreateFontAtlas(Font_Atlas* atlas, uint32_t width, uint32_t height)
     return err;
   }
   // bind vertex buffer to memory
-  err = BufferBindToMemory(&atlas->cpu_memory, atlas->vertex_buffer, &requirements,
-                           (void**)&atlas->vertices_mapped, NULL);
+  err = BufferBindToMemory(&renderer->cpu_memory, renderer->vertex_buffer, &requirements,
+                           (void**)&renderer->vertices_mapped, NULL);
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to bind vertex buffer to memory with error '%s'",
               ToString_VkResult(err));
     return err;
   }
-  // allocate descriptor set
-  VkDescriptorSetLayoutBinding binding = {
-    .binding = 0,
-    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-    .descriptorCount = 1,
-    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-  };
-  err = AllocateDescriptorSets(&binding, 1, &atlas->descriptor_set, 1, 0, "font/descriptor-set");
-  if (err != VK_SUCCESS) {
-    LOG_ERROR("failed to allocate descriptor set with error '%s'",
-              ToString_VkResult(err));
-    return err;
-  }
-  VkDescriptorImageInfo ds_image_info = {
-    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE),
-    .imageView = atlas->image_view,
-    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-  };
-  VkWriteDescriptorSet write_set = {
-    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-    .dstSet = atlas->descriptor_set,
-    .dstBinding = 0,
-    .descriptorCount = 1,
-    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-    .pImageInfo = &ds_image_info,
-  };
-  UpdateDescriptorSets(&write_set, 1);
   // create pipeline
   VkVertexInputBindingDescription input_binding = { 0, sizeof(Bitmap_Vertex), VK_VERTEX_INPUT_RATE_VERTEX };
   VkVertexInputAttributeDescription input_attributes[3];
@@ -246,7 +157,7 @@ CreateFontAtlas(Font_Atlas* atlas, uint32_t width, uint32_t height)
     .subpass = 0,
     .marker = "text-render"
   };
-  err = CreateGraphicsPipelines(&atlas->pipeline, 1, &pipeline_desc, &atlas->pipeline_layout);
+  err = CreateGraphicsPipelines(&renderer->pipeline, 1, &pipeline_desc, &renderer->pipeline_layout);
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to create graphics pipeline with error '%s'",
               ToString_VkResult(err));
@@ -256,20 +167,121 @@ CreateFontAtlas(Font_Atlas* atlas, uint32_t width, uint32_t height)
 }
 
 INTERNAL void
+DestroyBitmapRenderer(Bitmap_Renderer* renderer)
+{
+  vkDestroyPipeline(g_device->logical_device, renderer->pipeline, NULL);
+  vkDestroyBuffer(g_device->logical_device, renderer->vertex_buffer, NULL);
+  FreeVideoMemory(&renderer->cpu_memory);
+  FreeVideoMemory(&renderer->gpu_memory);
+}
+
+// naming could be better...
+INTERNAL void
+NewBitmapFrame(Bitmap_Renderer* renderer)
+{
+  renderer->current_vertex = renderer->vertices_mapped;
+  renderer->num_draws = 0;
+}
+
+INTERNAL void
+DrawBitmaps(Bitmap_Renderer* renderer, VkCommandBuffer cmd)
+{
+  if (renderer->num_draws == 0)
+    return;
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipeline);
+  VkDeviceSize offset = 0;
+  vkCmdBindVertexBuffers(cmd, 0, 1, &renderer->vertex_buffer, &offset);
+  for (uint32_t i = 0; i < renderer->num_draws; i++) {
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipeline_layout,
+                            0, 1, &renderer->draws[i].set,
+                            0, NULL);
+    vkCmdDraw(cmd, renderer->draws[i].num_vertices, 1, renderer->draws[i].first_vertex, 0);
+  }
+}
+
+INTERNAL VkResult
+CreateFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, uint32_t width, uint32_t height)
+{
+  atlas->extent = (VkExtent2D) { width, height };
+  atlas->lines = 0;
+  // create image
+  VkImageCreateInfo image_info = {
+    .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+    .imageType = VK_IMAGE_TYPE_2D,
+    .format = VK_FORMAT_R8G8B8A8_UNORM,
+    .extent = {width, height, 1},
+    .mipLevels = 1,
+    .arrayLayers = 1,
+    .samples = VK_SAMPLE_COUNT_1_BIT,
+    .tiling = VK_IMAGE_TILING_OPTIMAL,
+    .usage = VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+  };
+  VkResult err = CreateImage(&atlas->image, &image_info, "font/atlas-image");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create font atlas image with error '%s'", ToString_VkResult(err));
+    return err;
+  }
+  VkMemoryRequirements image_requirements;
+  vkGetImageMemoryRequirements(g_device->logical_device, atlas->image, &image_requirements);
+  err = ImageBindToMemory(&renderer->gpu_memory, atlas->image,
+                          &image_requirements);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to bind font atlas image to memory with error '%s'",
+              ToString_VkResult(err));
+    return err;
+  }
+  VkImageViewCreateInfo image_view_info = {
+    .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+    .image = atlas->image,
+    .viewType = VK_IMAGE_VIEW_TYPE_2D,
+    .format = image_info.format,
+    .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+  };
+  err = CreateImageView(&atlas->image_view, &image_view_info, "font/atlas-image-view");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create image view with error %s", ToString_VkResult(err));
+    return err;
+  }
+  // allocate descriptor set
+  VkDescriptorSetLayoutBinding binding = {
+    .binding = 0,
+    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .descriptorCount = 1,
+    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+  };
+  err = AllocateDescriptorSets(&binding, 1, &atlas->descriptor_set, 1, 0, "font/descriptor-set");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to allocate descriptor set with error '%s'",
+              ToString_VkResult(err));
+    return err;
+  }
+  VkDescriptorImageInfo ds_image_info = {
+    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE),
+    .imageView = atlas->image_view,
+    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+  };
+  VkWriteDescriptorSet write_set = {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .dstSet = atlas->descriptor_set,
+    .dstBinding = 0,
+    .descriptorCount = 1,
+    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .pImageInfo = &ds_image_info,
+  };
+  UpdateDescriptorSets(&write_set, 1);
+  return err;
+}
+
+INTERNAL void
 DestroyFontAtlas(Font_Atlas* atlas)
 {
-  vkDestroyPipeline(g_device->logical_device, atlas->pipeline, NULL);
-
   vkDestroyImageView(g_device->logical_device, atlas->image_view, NULL);
   vkDestroyImage(g_device->logical_device, atlas->image, NULL);
-  vkDestroyBuffer(g_device->logical_device, atlas->vertex_buffer, NULL);
-
-  FreeVideoMemory(&atlas->cpu_memory);
-  FreeVideoMemory(&atlas->gpu_memory);
 }
 
 INTERNAL uint32_t
-LoadToFontAtlas(Font_Atlas* atlas, VkCommandBuffer cmd, const char* font_name, uint32_t pixel_size)
+LoadToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cmd, const char* font_name, uint32_t pixel_size)
 {
   // load font, process it with Freetype and then send updated data to GPU
   FT_Face face;
@@ -323,7 +335,8 @@ LoadToFontAtlas(Font_Atlas* atlas, VkCommandBuffer cmd, const char* font_name, u
   }
   PersistentRelease(rect_nodes);
   // load glyphs to staging buffer
-  uint8_t* tmp = (uint8_t*)atlas->vertices_mapped;
+  // TODO: use real staging buffer
+  uint8_t* tmp = (uint8_t*)renderer->vertices_mapped;
   uint32_t max_height = 0;
   for (uint32_t i = 0; i < 128-32; i++) {
     int c = rects[i].id;
@@ -382,7 +395,7 @@ LoadToFontAtlas(Font_Atlas* atlas, VkCommandBuffer cmd, const char* font_name, u
     .imageOffset = (VkOffset3D) {0, atlas->lines, 0},
     .imageExtent = (VkExtent3D) {atlas->extent.width, atlas->extent.height-atlas->lines, 1}
   };
-  vkCmdCopyBufferToImage(cmd, atlas->vertex_buffer, atlas->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+  vkCmdCopyBufferToImage(cmd, renderer->vertex_buffer, atlas->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                          1, &copy_info);
   barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
   barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
@@ -406,31 +419,47 @@ ResetFontAtlas(Font_Atlas* atlas)
   atlas->lines = 0;
 }
 
-INTERNAL uint32_t
-AddTextToFontAtlas(Font_Atlas* atlas, const char* text, uint32_t font_id, const Vec2* size, const Vec4* color, const Vec2* pos_)
+INTERNAL void
+AddTextToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, const char* text, uint32_t font_id, const Vec2* size, const Vec4* color, const Vec2* pos_)
 {
   Font* font = &atlas->fonts[font_id];
-  // TODO: remember vertices position
-  Bitmap_Vertex* vertices = atlas->vertices_mapped;
-  Vec2 pos = *pos_;
+  Vec2 pos_glyph = *pos_;
+  renderer->draws[renderer->num_draws].set = atlas->descriptor_set;
+  renderer->draws[renderer->num_draws].first_vertex = renderer->current_vertex - renderer->vertices_mapped;
+  Vec2 scale;
+  scale.x = size->x / (float)font->pixel_size;
+  scale.y = size->y / (float)font->pixel_size;
   while (*text) {
-    LoadVertex(font, &pos, size, color, *text, vertices);
-    pos.x += font->glyphs[(int)*text].advance.x * size->x / (float)font->pixel_size;
-    pos.y += font->glyphs[(int)*text].advance.y * size->y / (float)font->pixel_size;
-    vertices += 6;
+    Glyph_Info* glyph = &font->glyphs[(int)*text];
+    Vec2 pos;
+    pos.x = pos_glyph.x + glyph->bearing.x * scale.x;
+    pos.y = pos_glyph.y - glyph->bearing.y * scale.y;
+    Vec2 offset;
+    offset.x = glyph->width * scale.x;
+    offset.y = glyph->height * scale.y;
+    const Vec2 muls[] = {
+      { 0.0f, 0.0f },
+      { 1.0f, 0.0f },
+      { 0.0f, 1.0f },
+      { 1.0f, 1.0f }
+    };
+    Bitmap_Vertex vertices[4];
+    for (int i = 0; i < 4; i++) {
+      vertices[i].pos.x = pos.x + offset.x*muls[i].x;
+      vertices[i].pos.y = pos.y + offset.y*muls[i].y;
+      vertices[i].uv.x = glyph->offset.x + glyph->size.x * muls[i].x;
+      vertices[i].uv.y = glyph->offset.y + glyph->size.y * muls[i].y;
+      memcpy(&vertices[i].color, color, sizeof(Vec4));
+    }
+    const int indices[6] = { /*1st triangle*/0, 1, 3, /*2nd triangle*/3, 2, 0 };
+    for (size_t i = 0; i < ARR_SIZE(indices); i++) {
+      memcpy(renderer->current_vertex++, &vertices[indices[i]], sizeof(Bitmap_Vertex));
+    }
+
+    pos_glyph.x += font->glyphs[(int)*text].advance.x * scale.x;
+    pos_glyph.y += font->glyphs[(int)*text].advance.y * scale.y;
     text++;
   }
-  return vertices - atlas->vertices_mapped;
-}
-
-INTERNAL void
-DrawFontAtlasText(Font_Atlas* atlas, VkCommandBuffer cmd, uint32_t num_vertices)
-{
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, atlas->pipeline);
-  VkDeviceSize offset = 0;
-  vkCmdBindVertexBuffers(cmd, 0, 1, &atlas->vertex_buffer, &offset);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, atlas->pipeline_layout,
-                          0, 1, &atlas->descriptor_set,
-                          0, NULL);
-  vkCmdDraw(cmd, num_vertices, 1, 0, 0);
+  renderer->draws[renderer->num_draws].num_vertices = (renderer->current_vertex - renderer->vertices_mapped) - renderer->draws[renderer->num_draws].first_vertex;
+  renderer->num_draws++;
 }
