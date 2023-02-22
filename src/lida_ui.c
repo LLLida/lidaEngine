@@ -42,20 +42,29 @@ typedef struct {
 
 typedef struct {
 
+  VkDescriptorSet set;
+  uint32_t first_vertex;
+  uint32_t first_index;
+  uint32_t num_indices;
+
+} Bitmap_Draw;
+
+typedef struct {
+
   Video_Memory gpu_memory;
   Video_Memory cpu_memory;
   VkBuffer vertex_buffer;
+  VkBuffer index_buffer;
   VkExtent2D extent;
   VkPipelineLayout pipeline_layout;
   VkPipeline pipeline;
   uint32_t max_vertices;
+  uint32_t max_indices;
   Bitmap_Vertex* vertices_mapped;
-  Bitmap_Vertex* current_vertex;
-  struct {
-    VkDescriptorSet set;
-    uint32_t first_vertex;
-    uint32_t num_vertices;
-  } draws[128];
+  size_t vertex_count;
+  uint32_t* indices_mapped;
+  uint32_t* current_index;
+  Bitmap_Draw draws[128];
   uint32_t num_draws;
 
 } Bitmap_Renderer;
@@ -84,38 +93,54 @@ CreateBitmapRenderer(Bitmap_Renderer* renderer)
                 FT_Error_String(error));
     }
   }
-  // NOTE: 4 megabytes may be too much for font bitmaps
-  VkDeviceSize font_bytes = 4 * 1024 * 1024;
-  VkResult err = AllocateVideoMemory(&renderer->gpu_memory, font_bytes, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, UINT32_MAX,
-                                     "font/main-memory");
+  VkDeviceSize bitmap_bytes = 4 * 1024 * 1024;
+  VkResult err = AllocateVideoMemory(&renderer->gpu_memory, bitmap_bytes, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, UINT32_MAX,
+                                     "bitmap/main-memory");
   if (err != VK_SUCCESS) {
-    LOG_ERROR("failed to allocate memory for fonts with error '%s'", ToString_VkResult(err));
+    LOG_ERROR("failed to allocate memory for bitmaps with error '%s'", ToString_VkResult(err));
     return err;
   }
   // create vertex buffer
   renderer->max_vertices = 64 * 1024;
   err = CreateBuffer(&renderer->vertex_buffer, renderer->max_vertices * sizeof(Bitmap_Vertex),
                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                     "font/vertex-staging-buffer");
+                     "bitmap/vertex-staging-buffer");
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to create buffer vertex buffer with error '%s'", ToString_VkResult(err));
     return err;
   }
+  // create index buffer
+  // for each 4 vertices we will have 6 indices, 6/4 = 3/2
+  renderer->max_indices = renderer->max_vertices * 3 / 2;
+  err = CreateBuffer(&renderer->index_buffer, renderer->max_vertices * sizeof(uint32_t),
+                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                     "bitmap/index-buffer");
+  VkMemoryRequirements buffer_requirements[2];
+  vkGetBufferMemoryRequirements(g_device->logical_device, renderer->vertex_buffer, &buffer_requirements[0]);
+  vkGetBufferMemoryRequirements(g_device->logical_device, renderer->index_buffer, &buffer_requirements[1]);
   VkMemoryRequirements requirements;
-  vkGetBufferMemoryRequirements(g_device->logical_device, renderer->vertex_buffer, &requirements);
+  MergeMemoryRequirements(buffer_requirements, ARR_SIZE(buffer_requirements), &requirements);
   err = AllocateVideoMemory(&renderer->cpu_memory, requirements.size,
                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, requirements.memoryTypeBits,
-                            "font/staging-memory");
+                            "bitmap/staging-memory");
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to allocate memory for vertex buffer with error '%s'",
               ToString_VkResult(err));
     return err;
   }
   // bind vertex buffer to memory
-  err = BufferBindToMemory(&renderer->cpu_memory, renderer->vertex_buffer, &requirements,
+  err = BufferBindToMemory(&renderer->cpu_memory, renderer->vertex_buffer, &buffer_requirements[0],
                            (void**)&renderer->vertices_mapped, NULL);
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to bind vertex buffer to memory with error '%s'",
+              ToString_VkResult(err));
+    return err;
+  }
+  // bind index buffer to memory
+  err = BufferBindToMemory(&renderer->cpu_memory, renderer->index_buffer, &buffer_requirements[1],
+                           (void**)&renderer->indices_mapped, NULL);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to bind index buffer to memory with error '%s'",
               ToString_VkResult(err));
     return err;
   }
@@ -170,6 +195,7 @@ INTERNAL void
 DestroyBitmapRenderer(Bitmap_Renderer* renderer)
 {
   vkDestroyPipeline(g_device->logical_device, renderer->pipeline, NULL);
+  vkDestroyBuffer(g_device->logical_device, renderer->index_buffer, NULL);
   vkDestroyBuffer(g_device->logical_device, renderer->vertex_buffer, NULL);
   FreeVideoMemory(&renderer->cpu_memory);
   FreeVideoMemory(&renderer->gpu_memory);
@@ -179,23 +205,26 @@ DestroyBitmapRenderer(Bitmap_Renderer* renderer)
 INTERNAL void
 NewBitmapFrame(Bitmap_Renderer* renderer)
 {
-  renderer->current_vertex = renderer->vertices_mapped;
+  renderer->vertex_count = 0;
   renderer->num_draws = 0;
+  renderer->current_index = renderer->indices_mapped;
 }
 
 INTERNAL void
-DrawBitmaps(Bitmap_Renderer* renderer, VkCommandBuffer cmd)
+RenderBitmaps(Bitmap_Renderer* renderer, VkCommandBuffer cmd)
 {
   if (renderer->num_draws == 0)
     return;
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipeline);
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(cmd, 0, 1, &renderer->vertex_buffer, &offset);
+  vkCmdBindIndexBuffer(cmd, renderer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
   for (uint32_t i = 0; i < renderer->num_draws; i++) {
+    Bitmap_Draw* draw = &renderer->draws[i];
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipeline_layout,
-                            0, 1, &renderer->draws[i].set,
+                            0, 1, &draw->set,
                             0, NULL);
-    vkCmdDraw(cmd, renderer->draws[i].num_vertices, 1, renderer->draws[i].first_vertex, 0);
+    vkCmdDrawIndexed(cmd, draw->num_indices, 1, draw->first_index, draw->first_vertex, 0);
   }
 }
 
@@ -420,16 +449,21 @@ ResetFontAtlas(Font_Atlas* atlas)
 }
 
 INTERNAL void
-AddTextToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, const char* text, uint32_t font_id, const Vec2* size, const Vec4* color, const Vec2* pos_)
+DrawText(Bitmap_Renderer* renderer, Font_Atlas* atlas, const char* text, uint32_t font_id, const Vec2* size, const Vec4* color, const Vec2* pos_)
 {
   Font* font = &atlas->fonts[font_id];
   Vec2 pos_glyph = *pos_;
-  renderer->draws[renderer->num_draws].set = atlas->descriptor_set;
-  renderer->draws[renderer->num_draws].first_vertex = renderer->current_vertex - renderer->vertices_mapped;
+  Bitmap_Draw* draw = &renderer->draws[renderer->num_draws];
+  *draw = (Bitmap_Draw) {
+    .set = atlas->descriptor_set,
+    .first_vertex = renderer->vertex_count,
+    .first_index = renderer->current_index - renderer->indices_mapped
+  };
   Vec2 scale;
   scale.x = size->x / (float)font->pixel_size;
   scale.y = size->y / (float)font->pixel_size;
   while (*text) {
+    // upload 6 indices and 4 vertices to buffer
     Glyph_Info* glyph = &font->glyphs[(int)*text];
     Vec2 pos;
     pos.x = pos_glyph.x + glyph->bearing.x * scale.x;
@@ -443,23 +477,25 @@ AddTextToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, const char* tex
       { 0.0f, 1.0f },
       { 1.0f, 1.0f }
     };
-    Bitmap_Vertex vertices[4];
-    for (int i = 0; i < 4; i++) {
-      vertices[i].pos.x = pos.x + offset.x*muls[i].x;
-      vertices[i].pos.y = pos.y + offset.y*muls[i].y;
-      vertices[i].uv.x = glyph->offset.x + glyph->size.x * muls[i].x;
-      vertices[i].uv.y = glyph->offset.y + glyph->size.y * muls[i].y;
-      memcpy(&vertices[i].color, color, sizeof(Vec4));
-    }
     const int indices[6] = { /*1st triangle*/0, 1, 3, /*2nd triangle*/3, 2, 0 };
-    for (size_t i = 0; i < ARR_SIZE(indices); i++) {
-      memcpy(renderer->current_vertex++, &vertices[indices[i]], sizeof(Bitmap_Vertex));
+    for (int i = 0; i < 6; i++) {
+      *(renderer->current_index++) = renderer->vertex_count + indices[i] - draw->first_vertex;
     }
+    for (int i = 0; i < 4; i++) {
+      renderer->vertices_mapped[renderer->vertex_count] = (Bitmap_Vertex) {
+        .pos.x = pos.x + offset.x * muls[i].x,
+        .pos.y = pos.y + offset.y * muls[i].y,
+        .uv.x = glyph->offset.x + glyph->size.x * muls[i].x,
+        .uv.y = glyph->offset.y + glyph->size.y * muls[i].y,
+        .color = *color,
+      };
+      renderer->vertex_count++;
+    }
+    draw->num_indices += 6;
 
     pos_glyph.x += font->glyphs[(int)*text].advance.x * scale.x;
     pos_glyph.y += font->glyphs[(int)*text].advance.y * scale.y;
     text++;
   }
-  renderer->draws[renderer->num_draws].num_vertices = (renderer->current_vertex - renderer->vertices_mapped) - renderer->draws[renderer->num_draws].first_vertex;
   renderer->num_draws++;
 }

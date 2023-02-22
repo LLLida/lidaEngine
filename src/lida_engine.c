@@ -309,7 +309,11 @@ EngineUpdateAndRender()
     Vec2 pos = { 0.04f, 0.4f };
     Vec2 text_size = { 0.05f, 0.05f };
     Vec4 color = { 1.0f, 0.3f, 0.24f, 0.95f };
-    AddTextToFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, "Banana", 0, &text_size, &color, &pos);
+    DrawText(&g_context->bitmap_renderer, &g_context->font_atlas, "Banana", 0, &text_size, &color, &pos);
+    pos = (Vec2) { 0.04f, 0.7f };
+    text_size = (Vec2) { 0.05f, 0.05f };
+    color = (Vec4) { 1.0f, 0.3f, 0.24f, 0.95f };
+    DrawText(&g_context->bitmap_renderer, &g_context->font_atlas, "Nice!", 0, &text_size, &color, &pos);
   }
 
   VkDescriptorSet ds_set;
@@ -386,7 +390,7 @@ EngineUpdateAndRender()
     vkCmdDraw(cmd, 4, 1, 0, 0);
 
     // draw text
-    DrawBitmaps(&g_context->bitmap_renderer, cmd);
+    RenderBitmaps(&g_context->bitmap_renderer, cmd);
   }
   vkCmdEndRenderPass(cmd);
 
