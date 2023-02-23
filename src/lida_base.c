@@ -59,7 +59,7 @@ InitMemoryChunk(Memory_Chunk* chunk, void* ptr, size_t size)
 INTERNAL void*
 MemoryAllocateLeft(Memory_Chunk* chunk, uint32_t size)
 {
-  Assert(chunk->left + size < chunk->size && "out of memory");
+  Assert(chunk->left + size < chunk->right && "out of memory");
   uint8_t* start = (uint8_t*)chunk->ptr + chunk->left;
   void* ATTRIBUTE_ALIGNED(8) bytes = start + MEM_ALIGN_OFF(start, 8);
   chunk->left += size + MEM_ALIGN_OFF(start, 8);

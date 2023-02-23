@@ -30,6 +30,7 @@
 #include "lida_ui.c"
 #include "lida_asset.c"
 #include "lida_input.c"
+#include "lida_config.c"
 
 typedef struct {
 
@@ -99,7 +100,7 @@ EngineInit(const Engine_Startup_Info* info)
   CreateWindow(info->window_vsync);
 
   g_context = PersistentAllocate(sizeof(Engine_Context));
-#define INIT_ALLOCATOR(alloc, mb) InitAllocator(&g_context->alloc, MemoryAllocateRight(&g_persistent_memory, mb * 1024 * 1024), mb*1024*1024)
+#define INIT_ALLOCATOR(alloc, mb) InitAllocator(&g_context->alloc, MemoryAllocateRight(&g_persistent_memory, mb * 1024 * 1024), 1024*1024*mb)
   INIT_ALLOCATOR(vox_allocator, 4);
   INIT_ALLOCATOR(entity_allocator, 1);
 
@@ -140,6 +141,8 @@ EngineInit(const Engine_Startup_Info* info)
   REGISTER_COMPONENT(Transform, NULL, NULL);
   REGISTER_COMPONENT(Pipeline_Program, NULL, NULL);
   REGISTER_COMPONENT(Font, NULL, NULL);
+  // NOTE: Config_Entry is not a component, but who cares
+  REGISTER_COMPONENT(Config_Entry, HashConfigEntry, CompareConfigEntries);
 
   g_context->rect_pipeline = CreateEntity(&g_context->ecs);
   g_context->triangle_pipeline = CreateEntity(&g_context->ecs);
@@ -200,9 +203,6 @@ EngineInit(const Engine_Startup_Info* info)
   transform->position = VEC3_CREATE(0.0f, -4.0f, 0.0f);
   transform->scale = 1.0f;
 
-  // TODO: this line is for testing asset manager
-  AddAsset(&g_context->asset_manager, 0, "file.txt", NULL, NULL, NULL);
-
   g_context->deletion_queue.left = 0;
   g_context->deletion_queue.count = 0;
 
@@ -214,6 +214,32 @@ EngineInit(const Engine_Startup_Info* info)
 
   // create pipelines
   BatchCreatePipelines(&g_context->ecs);
+
+  #if 1
+  // NOTE: testing parseINI()
+  Fixed_Hash_Table vars;
+  FHT_Init(&vars,
+           PersistentAllocate(FHT_CALC_SIZE(&type_info_Config_Entry, 256)),
+           256, &type_info_Config_Entry);
+  char buff[2048];
+  ParseConfig("variables.ini", &vars, buff, sizeof(buff));
+  FHT_Iterator it;
+  FHT_FOREACH(&vars, &type_info_Config_Entry, &it) {
+    Config_Entry* entry = FHT_IteratorGet(&it);
+    switch (entry->type) {
+    case CONFIG_INTEGER:
+      LOG_WARN("int %s = %d", entry->name, entry->value.int_);
+      break;
+    case CONFIG_FLOAT:
+      LOG_WARN("float %s = %f", entry->name, entry->value.float_);
+      break;
+    case CONFIG_STRING:
+      LOG_WARN("string %s = %s", entry->name, entry->value.str);
+      break;
+    }
+  }
+  PersistentRelease(vars.ptr);
+  #endif
 }
 
 void
