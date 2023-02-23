@@ -37,8 +37,11 @@ typedef struct {
 
   Glyph_Info glyphs[128];
   uint32_t pixel_size;
+  VkDescriptorSet ds_set;
+  void* udata;
 
 } Font;
+DECLARE_COMPONENT(Font);
 
 typedef struct {
 
@@ -76,7 +79,6 @@ typedef struct {
   VkExtent2D extent;
   VkDescriptorSet descriptor_set;
   uint32_t lines;
-  Font fonts[4];
 
 } Font_Atlas;
 
@@ -310,7 +312,7 @@ DestroyFontAtlas(Font_Atlas* atlas)
 }
 
 INTERNAL uint32_t
-LoadToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cmd, const char* font_name, uint32_t pixel_size)
+LoadToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cmd, Font* font, const char* font_name, uint32_t pixel_size)
 {
   // load font, process it with Freetype and then send updated data to GPU
   FT_Face face;
@@ -339,14 +341,14 @@ LoadToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cm
       LOG_WARN("freetype: failed to load char '%c' with error(%d) %s", (char)i, err, FT_Error_String(err));
       continue;
     }
-    atlas->fonts[0].glyphs[i].advance.x = glyph_slot->advance.x >> 6;
-    atlas->fonts[0].glyphs[i].advance.y = glyph_slot->advance.y >> 6;
-    atlas->fonts[0].glyphs[i].bearing.x = glyph_slot->bitmap_left;
-    atlas->fonts[0].glyphs[i].bearing.y = glyph_slot->bitmap_top;
-    atlas->fonts[0].glyphs[i].width = glyph_slot->bitmap.width;
-    atlas->fonts[0].glyphs[i].height = glyph_slot->bitmap.rows;
-    atlas->fonts[0].glyphs[i].size.x = glyph_slot->bitmap.width / (float)atlas->extent.width;
-    atlas->fonts[0].glyphs[i].size.y = glyph_slot->bitmap.rows / (float)atlas->extent.height;
+    font->glyphs[i].advance.x = glyph_slot->advance.x >> 6;
+    font->glyphs[i].advance.y = glyph_slot->advance.y >> 6;
+    font->glyphs[i].bearing.x = glyph_slot->bitmap_left;
+    font->glyphs[i].bearing.y = glyph_slot->bitmap_top;
+    font->glyphs[i].width = glyph_slot->bitmap.width;
+    font->glyphs[i].height = glyph_slot->bitmap.rows;
+    font->glyphs[i].size.x = glyph_slot->bitmap.width / (float)atlas->extent.width;
+    font->glyphs[i].size.y = glyph_slot->bitmap.rows / (float)atlas->extent.height;
     rects[i-32].id = i;
     rects[i-32].w = glyph_slot->bitmap.width;
     rects[i-32].h = glyph_slot->bitmap.rows;
@@ -394,10 +396,11 @@ LoadToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cm
         data[pos + 2] = 255;
         data[pos + 3] = glyph_slot->bitmap.buffer[y * glyph_slot->bitmap.width + x];
       }
-    atlas->fonts[0].glyphs[c].offset.x = rects[i].x / (float)atlas->extent.width;
-    atlas->fonts[0].glyphs[c].offset.y = (rects[i].y + atlas->lines) / (float)atlas->extent.height;
+    font->glyphs[c].offset.x = rects[i].x / (float)atlas->extent.width;
+    font->glyphs[c].offset.y = (rects[i].y + atlas->lines) / (float)atlas->extent.height;
   }
-  atlas->fonts[0].pixel_size = pixel_size;
+  font->pixel_size = pixel_size;
+  font->ds_set = atlas->descriptor_set;
   FT_Done_Face(face);
   // record commands to GPU...
   VkImageMemoryBarrier barrier = {
@@ -449,13 +452,12 @@ ResetFontAtlas(Font_Atlas* atlas)
 }
 
 INTERNAL void
-DrawText(Bitmap_Renderer* renderer, Font_Atlas* atlas, const char* text, uint32_t font_id, const Vec2* size, const Vec4* color, const Vec2* pos_)
+DrawText(Bitmap_Renderer* renderer, Font* font, const char* text, const Vec2* size, const Vec4* color, const Vec2* pos_)
 {
-  Font* font = &atlas->fonts[font_id];
   Vec2 pos_glyph = *pos_;
   Bitmap_Draw* draw = &renderer->draws[renderer->num_draws];
   *draw = (Bitmap_Draw) {
-    .set = atlas->descriptor_set,
+    .set = font->ds_set,
     .first_vertex = renderer->vertex_count,
     .first_index = renderer->current_index - renderer->indices_mapped
   };

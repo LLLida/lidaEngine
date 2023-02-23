@@ -86,6 +86,16 @@ PipelineProgram_ReloadFunc(void* component, const char* path, void* data)
   }
 }
 
+// INTERNAL void
+// Font_ReloadFunc(void* component, const char* path, void* data)
+// {
+//   // NOTE: we don't reuse font atlas space. We may easily run out of space.
+//   Font* font = component;
+//   Font_Atlas* atlas = font->udata;
+//   Bitmap_Renderer* renderer = data;
+//   LoadToFontAtlas(renderer, atlas, cmd, font, path, font->pixel_size);
+// }
+
 
 /// public functions
 
@@ -217,3 +227,13 @@ BatchCreatePipelines(ECS* ecs)
   }
   return VK_SUCCESS;
 }
+
+// INTERNAL Font*
+// AddFontComponent(ECS* ecs, Asset_Manager* am, Bitmap_Renderer* br, Font_Atlas* fa, VkCommandBuffer cmd,
+//                  EID entity, const char* path, uint32_t pixel_size)
+// {
+//   Font* font = AddComponent(ecs, entity, &type_info_Font);
+//   LoadToFontAtlas(br, fa, cmd, entity, path, pixel_size);
+//   font->udata = fa;
+//   AddAsset(am, entity, path, &type_info_Font, &Font_ReloadFunc, br);
+// }

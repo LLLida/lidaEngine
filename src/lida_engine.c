@@ -46,10 +46,16 @@ typedef struct {
   Asset_Manager asset_manager;
   Keymap root_keymap;
   Keymap camera_keymap;
+
+  // pipelines
   EID rect_pipeline;
   EID triangle_pipeline;
   EID voxel_pipeline;
   EID shadow_pipeline;
+
+  // fonts
+  EID arial_font;
+
   uint32_t prev_time;
   uint32_t curr_time;
   int render_mode;
@@ -133,6 +139,7 @@ EngineInit(const Engine_Startup_Info* info)
   REGISTER_COMPONENT(Voxel_Grid, NULL, NULL);
   REGISTER_COMPONENT(Transform, NULL, NULL);
   REGISTER_COMPONENT(Pipeline_Program, NULL, NULL);
+  REGISTER_COMPONENT(Font, NULL, NULL);
 
   g_context->rect_pipeline = CreateEntity(&g_context->ecs);
   g_context->triangle_pipeline = CreateEntity(&g_context->ecs);
@@ -152,6 +159,8 @@ EngineInit(const Engine_Startup_Info* info)
                               &CreateShadowPipeline, &g_context->deletion_queue);
 
   CreateVoxelDrawer(&g_context->vox_drawer, 128*1024, 32);
+
+  g_context->arial_font = CreateEntity(&g_context->ecs);
 
   // create some entities
   grid_1 = CreateEntity(&g_context->ecs);
@@ -313,17 +322,20 @@ EngineUpdateAndRender()
   VkCommandBuffer cmd = BeginCommands();
 
   if (g_window->frame_counter == 0) {
-    LoadToFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, cmd, "arial.ttf", 32);
+    // LoadToFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, cmd, "arial.ttf", 32);
+    Font* font = AddComponent(&g_context->ecs, g_context->arial_font, &type_info_Font);
+    LoadToFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, cmd, font, "Consolas.ttf", 32);
   } else {
     NewBitmapFrame(&g_context->bitmap_renderer);
     Vec2 pos = { 0.04f, 0.4f };
     Vec2 text_size = { 0.05f, 0.05f };
     Vec4 color = { 1.0f, 0.3f, 0.24f, 0.95f };
-    DrawText(&g_context->bitmap_renderer, &g_context->font_atlas, "Banana", 0, &text_size, &color, &pos);
+    Font* font = GetComponent(&g_context->ecs, g_context->arial_font, &type_info_Font);
+    DrawText(&g_context->bitmap_renderer, font, "Banana", &text_size, &color, &pos);
     pos = (Vec2) { 0.04f, 0.7f };
     text_size = (Vec2) { 0.05f, 0.05f };
     color = (Vec4) { 1.0f, 0.3f, 0.24f, 0.95f };
-    DrawText(&g_context->bitmap_renderer, &g_context->font_atlas, "Nice!", 0, &text_size, &color, &pos);
+    DrawText(&g_context->bitmap_renderer, font, "Nice!", &text_size, &color, &pos);
   }
 
   VkDescriptorSet ds_set;
