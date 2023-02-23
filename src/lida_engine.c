@@ -331,12 +331,6 @@ EngineUpdateAndRender()
   }
   vkCmdEndRenderPass(cmd);
 
-  Vec4 colors[] = {
-    VEC4_CREATE(1.0f, 0.2f, 0.2f, 1.0f),
-    VEC4_CREATE(0.0f, 0.9f, 0.4f, 1.0f),
-    VEC4_CREATE(0.2f, 0.35f, 0.76f, 1.0f),
-    VEC4_CREATE(0.0f, 0.0f, 0.0f, 0.0f)
-  };
   // render to offscreen buffer
   float clear_color[4] = { 0.08f, 0.2f, 0.25f, 1.0f };
   BeginForwardPass(&g_context->forward_pass, cmd, clear_color);
@@ -349,11 +343,19 @@ EngineUpdateAndRender()
                             prog->layout, 0, 1, &ds_set, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
     // 1st draw
+    Vec4 colors[] = {
+      VEC4_CREATE(1.0f, 0.2f, 0.2f, 1.0f),
+      VEC4_CREATE(0.0f, 0.9f, 0.4f, 1.0f),
+      VEC4_CREATE(0.2f, 0.35f, 0.76f, 1.0f),
+      VEC4_CREATE(0.0f, 0.0f, 0.0f, 0.0f)
+    };
     vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT,
                        0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     // 2nd draw
+    colors[1] = VEC4_CREATE(1.0f, 0.2f, 0.6f, 0.0f);
     colors[2] = VEC4_CREATE(0.1f, 0.3f, 1.0f, 0.0f);
+    colors[3] = VEC4_CREATE(-1.0f, 4.0f, 6.7f, 0.0f);
     vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT,
                        0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);

@@ -54,6 +54,7 @@ static argp_option arg_options[] = {
   { "msaa", 's', "INTEGER", 0, "Number of MSAA samples", 0 },
   { "width", 'w', "INTEGER", 0, "Window width in pixels", 0 },
   { "height", 'h', "INTEGER", 0, "Window height in pixels", 0 },
+  { "vsync", 'v', "BOOLEAN", 0, "Whether vsync is enabled", 0 },
   { "resizable", 'r', "BOOLEAN", 0, "Whether window is resizable", 0 },
   { "gpu", 'g', "INDEX", 0, "Index of GPU to use", 0 },
   { },
@@ -199,6 +200,10 @@ parse_opt(int key, char* arg, struct argp_state* state)
       break;
     case 'h':
       window.h = atoi(arg);
+      break;
+
+    case 'v':
+      info->window_vsync = atoi(arg);
       break;
 
     case 'r':
