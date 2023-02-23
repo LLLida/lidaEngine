@@ -48,6 +48,8 @@ typedef struct {
   Keymap root_keymap;
   Keymap camera_keymap;
 
+  Config_File* config;
+
   // pipelines
   EID rect_pipeline;
   EID triangle_pipeline;
@@ -104,6 +106,21 @@ EngineInit(const Engine_Startup_Info* info)
   INIT_ALLOCATOR(vox_allocator, 4);
   INIT_ALLOCATOR(entity_allocator, 1);
 
+  CreateECS(&g_context->entity_allocator, &g_context->ecs, 8, 8);
+
+  REGISTER_COMPONENT(Voxel_Grid, NULL, NULL);
+  REGISTER_COMPONENT(Transform, NULL, NULL);
+  REGISTER_COMPONENT(Pipeline_Program, NULL, NULL);
+  REGISTER_COMPONENT(Font, NULL, NULL);
+  REGISTER_COMPONENT(Config_File, NULL, NULL);
+  // NOTE: Config_Entry is not a component, but who cares
+  REGISTER_COMPONENT(Config_Entry, HashConfigEntry, CompareConfigEntries);
+
+  InitAssetManager(&g_context->asset_manager);
+
+  g_context->config = CreateConfig(&g_context->ecs, &g_context->asset_manager,
+                                   CreateEntity(&g_context->ecs), "variables.ini");
+
   int options[] = { 1, 2, 4, 8, 16, 32 };
   VkSampleCountFlagBits values[] = { VK_SAMPLE_COUNT_1_BIT, VK_SAMPLE_COUNT_2_BIT, VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_8_BIT, VK_SAMPLE_COUNT_16_BIT, VK_SAMPLE_COUNT_32_BIT };
   VkSampleCountFlagBits msaa_samples = VK_SAMPLE_COUNT_4_BIT;
@@ -116,10 +133,12 @@ EngineInit(const Engine_Startup_Info* info)
                     g_window->swapchain_extent.width, g_window->swapchain_extent.height,
                     msaa_samples);
 
-  CreateShadowPass(&g_context->shadow_pass, &g_context->forward_pass,
-                   1024, 1024);
-
-  InitAssetManager(&g_context->asset_manager);
+  {
+    // TODO: check for null
+    int dim = *GetVar_Int(g_context->config, "Render.shadow_map_dim");
+    CreateShadowPass(&g_context->shadow_pass, &g_context->forward_pass,
+                     dim, dim);
+  }
 
   CreateBitmapRenderer(&g_context->bitmap_renderer);
   CreateFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, 512, 128);
@@ -134,15 +153,6 @@ EngineInit(const Engine_Startup_Info* info)
 
   g_context->prev_time = PlatformGetTicks();
   g_context->curr_time = g_context->prev_time;
-
-  CreateECS(&g_context->entity_allocator, &g_context->ecs, 8, 8);
-
-  REGISTER_COMPONENT(Voxel_Grid, NULL, NULL);
-  REGISTER_COMPONENT(Transform, NULL, NULL);
-  REGISTER_COMPONENT(Pipeline_Program, NULL, NULL);
-  REGISTER_COMPONENT(Font, NULL, NULL);
-  // NOTE: Config_Entry is not a component, but who cares
-  REGISTER_COMPONENT(Config_Entry, HashConfigEntry, CompareConfigEntries);
 
   g_context->rect_pipeline = CreateEntity(&g_context->ecs);
   g_context->triangle_pipeline = CreateEntity(&g_context->ecs);
@@ -214,32 +224,6 @@ EngineInit(const Engine_Startup_Info* info)
 
   // create pipelines
   BatchCreatePipelines(&g_context->ecs);
-
-  #if 1
-  // NOTE: testing parseINI()
-  Fixed_Hash_Table vars;
-  FHT_Init(&vars,
-           PersistentAllocate(FHT_CALC_SIZE(&type_info_Config_Entry, 256)),
-           256, &type_info_Config_Entry);
-  char buff[2048];
-  ParseConfig("variables.ini", &vars, buff, sizeof(buff));
-  FHT_Iterator it;
-  FHT_FOREACH(&vars, &type_info_Config_Entry, &it) {
-    Config_Entry* entry = FHT_IteratorGet(&it);
-    switch (entry->type) {
-    case CONFIG_INTEGER:
-      LOG_WARN("int %s = %d", entry->name, entry->value.int_);
-      break;
-    case CONFIG_FLOAT:
-      LOG_WARN("float %s = %f", entry->name, entry->value.float_);
-      break;
-    case CONFIG_STRING:
-      LOG_WARN("string %s = %s", entry->name, entry->value.str);
-      break;
-    }
-  }
-  PersistentRelease(vars.ptr);
-  #endif
 }
 
 void
@@ -361,7 +345,8 @@ EngineUpdateAndRender()
     pos = (Vec2) { 0.04f, 0.7f };
     text_size = (Vec2) { 0.05f, 0.05f };
     color = (Vec4) { 1.0f, 0.3f, 0.24f, 0.95f };
-    DrawText(&g_context->bitmap_renderer, font, "Nice!", &text_size, &color, &pos);
+    DrawText(&g_context->bitmap_renderer, font,
+             GetVar_String(g_context->config, "Misc.some_string"), &text_size, &color, &pos);
   }
 
   VkDescriptorSet ds_set;
@@ -373,7 +358,9 @@ EngineUpdateAndRender()
     ds_set = g_context->shadow_pass.scene_data_set;
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->layout,
                         0, 1, &ds_set, 0, NULL);
-    vkCmdSetDepthBias(cmd, 1.0f, 0.0f, 2.0f);
+    float depth_bias_constant = *GetVar_Float(g_context->config, "Render.depth_bias_constant");
+    float depth_bias_slope = *GetVar_Float(g_context->config, "Render.depth_bias_slope");
+    vkCmdSetDepthBias(cmd, depth_bias_constant, 0.0f, depth_bias_slope);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
     DrawVoxels(&g_context->vox_drawer, cmd);
   }

@@ -631,7 +631,8 @@ FHT_Init(Fixed_Hash_Table* ht, void* ptr, size_t max_elements, const Type_Info* 
   ht->max = NearestPow2(max_elements);
   ht->size = 0;
   for (size_t i = 0; i < ht->max; i++) {
-    *FHT_GET_PSL(ht, type, i) = UINT32_MAX;
+    uint32_t* psl = FHT_GET_PSL(ht, type, i);
+    *psl = UINT32_MAX;
   }
 }
 
@@ -731,6 +732,16 @@ FHT_Remove(Fixed_Hash_Table* ht, const Type_Info* type, const void* elem)
     ht->size--;
   }
   return curr;
+}
+
+// clear all hash table elements
+INTERNAL void
+FHT_Clear(Fixed_Hash_Table* ht, Type_Info* type)
+{
+  ht->size = 0;
+  for (size_t i = 0; i < ht->max; i++) {
+    *FHT_GET_PSL(ht, type, i) = UINT32_MAX;
+  }
 }
 
 // iterates over fixed hash table
