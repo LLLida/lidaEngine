@@ -29,6 +29,7 @@
 #include "lida_voxel.c"
 #include "lida_ui.c"
 #include "lida_asset.c"
+#include "lida_input.c"
 
 typedef struct {
 
@@ -43,13 +44,14 @@ typedef struct {
   Voxel_Drawer vox_drawer;
   Deletion_Queue deletion_queue;
   Asset_Manager asset_manager;
+  Keymap root_keymap;
+  Keymap camera_keymap;
   EID rect_pipeline;
   EID triangle_pipeline;
   EID voxel_pipeline;
   EID shadow_pipeline;
   uint32_t prev_time;
   uint32_t curr_time;
-  int mouse_mode;
   int render_mode;
 
 } Engine_Context;
@@ -67,6 +69,11 @@ GLOBAL EID grid_2;
 
 
 /// Engine general functions
+
+INTERNAL void RootKeymap_Pressed(PlatformKeyCode key, void* udata);
+INTERNAL void CameraKeymap_Pressed(PlatformKeyCode key, void* udata);
+INTERNAL void CameraKeymap_Released(PlatformKeyCode key, void* udata);
+INTERNAL void CameraKeymap_Mouse(int x, int y, int xrel, int yrel, void* udata);
 
 INTERNAL void CreateRectPipeline(Pipeline_Desc* description);
 INTERNAL void CreateTrianglePipeline(Pipeline_Desc* description);
@@ -117,9 +124,6 @@ EngineInit(const Engine_Startup_Info* info)
   g_context->camera.fovy = RADIANS(45.0f);
   g_context->camera.rotation_speed = 0.005f;
   g_context->camera.movement_speed = 1.0f;
-
-  PlatformHideCursor();
-  g_context->mouse_mode = 1;
 
   g_context->prev_time = PlatformGetTicks();
   g_context->curr_time = g_context->prev_time;
@@ -192,6 +196,12 @@ EngineInit(const Engine_Startup_Info* info)
 
   g_context->deletion_queue.left = 0;
   g_context->deletion_queue.count = 0;
+
+  // keybindings
+  g_context->root_keymap = (Keymap) { &RootKeymap_Pressed, NULL, NULL, NULL };
+  g_context->camera_keymap = (Keymap) { &CameraKeymap_Pressed, &CameraKeymap_Released,
+                                        &CameraKeymap_Mouse, &g_context->camera };
+  BindKeymap(&g_context->root_keymap);
 
   // create pipelines
   BatchCreatePipelines(&g_context->ecs);
@@ -415,10 +425,30 @@ EngineUpdateAndRender()
 void
 EngineKeyPressed(PlatformKeyCode key)
 {
-  Camera* camera = &g_context->camera;
+  KeyPressed(key);
+}
+
+void
+EngineKeyReleased(PlatformKeyCode key)
+{
+  KeyReleased(key);
+}
+
+void
+EngineMouseMotion(int x, int y, int xrel, int yrel)
+{
+  MouseMotion(x, y, xrel, yrel);
+}
+
+
+/// keymaps
+
+void
+RootKeymap_Pressed(PlatformKeyCode key, void* udata)
+{
+  (void)udata;
   switch (key)
     {
-
       // 'escape' escapes
     case PlatformKey_ESCAPE:
       PlatformWantToQuit();
@@ -427,16 +457,6 @@ EngineKeyPressed(PlatformKeyCode key)
       // '1' prints FPS
     case PlatformKey_1:
       LOG_INFO("FPS=%f", g_window->frames_per_second);
-      break;
-      // '3' toggles mouse control
-    case PlatformKey_3:
-      if (g_context->mouse_mode) {
-        g_context->mouse_mode = 0;
-        PlatformShowCursor();
-      } else {
-        g_context->mouse_mode = 1;
-        PlatformHideCursor();
-      }
       break;
       // '4' toggles render mode
     case PlatformKey_4:
@@ -448,7 +468,25 @@ EngineKeyPressed(PlatformKeyCode key)
         uint32_t s = FixFragmentation(&g_context->vox_allocator);
         LOG_INFO("just saved %u bytes", s);
       } break;
+      // ALT-C goes to camera mode
+    case PlatformKey_C:
+      if (modkey_alt) {
+        BindKeymap(&g_context->camera_keymap);
+        PlatformHideCursor();
+      }
+      break;
 
+    default:
+      break;
+    }
+}
+
+void
+CameraKeymap_Pressed(PlatformKeyCode key, void* udata)
+{
+  Camera* camera = udata;
+  switch (key)
+    {
       // camera movement
     case PlatformKey_W:
       CameraPressed(camera, CAMERA_PRESSED_FORWARD);
@@ -469,21 +507,25 @@ EngineKeyPressed(PlatformKeyCode key)
       CameraPressed(camera, CAMERA_PRESSED_UP);
       break;
 
-    default:
+      // Escape goes to developer mode
+    case PlatformKey_ESCAPE:
+      UnbindKeymap();
+      PlatformShowCursor();
       break;
 
+    default:
+      break;
     }
 }
 
 void
-EngineKeyReleased(PlatformKeyCode key)
+CameraKeymap_Released(PlatformKeyCode key, void* udata)
 {
-  Camera* camera = &g_context->camera;
-
+  Camera* camera = udata;
   switch (key)
     {
 
-      // camera movement
+    // camera movement
     case PlatformKey_W:
       CameraUnpressed(camera, CAMERA_PRESSED_FORWARD);
       break;
@@ -510,13 +552,12 @@ EngineKeyReleased(PlatformKeyCode key)
 }
 
 void
-EngineMouseMotion(int x, int y, int xrel, int yrel)
+CameraKeymap_Mouse(int x, int y, int xrel, int yrel, void* udata)
 {
+  Camera* camera = udata;
   (void)x;
   (void)y;
-  if (g_context->mouse_mode) {
-    CameraRotate(&g_context->camera, yrel, xrel, 0.0f);
-  }
+  CameraRotate(camera, yrel, xrel, 0.0f);
 }
 
 
