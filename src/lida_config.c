@@ -187,7 +187,7 @@ ParseConfig(const char* filename, Config_File* config)
           }
           // insert to hash table
           // TODO: check if hash table is out of space
-          FHT_Insert(&config->vars, &type_info_CVar, &entry);
+          FHT_Insert(&config->vars, GET_TYPE_INFO(CVar), &entry);
         }
       }
     }
@@ -203,7 +203,7 @@ ConfigFile_ReloadFunc(void* component, const char* path, void* udata)
 {
   (void)udata;
   Config_File* config = component;
-  FHT_Clear(&config->vars, &type_info_CVar);
+  FHT_Clear(&config->vars, GET_TYPE_INFO(CVar));
   ParseConfig(path, config);
 }
 
@@ -213,8 +213,8 @@ CreateConfig(ECS* ecs, Asset_Manager* am, EID entity, const char* name)
   Config_File* config = AddComponent(ecs, Config_File, entity);
   const int max_vars = 32;
   FHT_Init(&config->vars,
-           config->buff+sizeof(config->buff) - FHT_CALC_SIZE(&type_info_CVar, max_vars),
-           max_vars, &type_info_CVar);
+           config->buff+sizeof(config->buff) - FHT_CALC_SIZE(GET_TYPE_INFO(CVar), max_vars),
+           max_vars, GET_TYPE_INFO(CVar));
   ParseConfig(name, config);
   AddAsset(am, entity, name, &g_sparse_set_Config_File,
            ConfigFile_ReloadFunc, NULL);
@@ -224,7 +224,7 @@ CreateConfig(ECS* ecs, Asset_Manager* am, EID entity, const char* name)
 INTERNAL int*
 GetVar_Int(Config_File* config, const char* var)
 {
-  CVar* entry = FHT_Search(&config->vars, &type_info_CVar, &var);
+  CVar* entry = FHT_Search(&config->vars, GET_TYPE_INFO(CVar), &var);
   if (entry) {
     if (entry->type == CONFIG_INTEGER) {
       return &entry->value.int_;
@@ -237,7 +237,7 @@ GetVar_Int(Config_File* config, const char* var)
 INTERNAL float*
 GetVar_Float(Config_File* config, const char* var)
 {
-  CVar* entry = FHT_Search(&config->vars, &type_info_CVar, &var);
+  CVar* entry = FHT_Search(&config->vars, GET_TYPE_INFO(CVar), &var);
   if (entry) {
     if (entry->type == CONFIG_FLOAT) {
       return &entry->value.float_;
@@ -250,7 +250,7 @@ GetVar_Float(Config_File* config, const char* var)
 INTERNAL const char*
 GetVar_String(Config_File* config, const char* var)
 {
-  CVar* entry = FHT_Search(&config->vars, &type_info_CVar, &var);
+  CVar* entry = FHT_Search(&config->vars, GET_TYPE_INFO(CVar), &var);
   if (entry) {
     if (entry->type == CONFIG_STRING) {
       return entry->value.str;

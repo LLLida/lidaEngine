@@ -353,6 +353,8 @@ EngineAddLogger(Log_Function func, int level, void* udata)
 
 
 /// Type info
+// We basically provide some kind of type reflection system.
+// Because it's C we have to everything by ourselves. It works good though.
 
 typedef uint32_t(*Hash_Function)(const void* obj);
 typedef int(*Compare_Function)(const void* lhs, const void* rhs);
@@ -641,7 +643,7 @@ FHT_Init(Fixed_Hash_Table* ht, void* ptr, size_t max_elements, const Type_Info* 
 }
 
 // NOTE: because of how robin-hood hashing works, contents of elem
-// become invalidated after call to this function
+// become invalidated after call to this function. (it's used as temp buffer)
 INTERNAL void*
 FHT_Insert(Fixed_Hash_Table* ht, const Type_Info* type, void* elem)
 {
@@ -824,6 +826,7 @@ INTERNAL uint32_t
 Random(Random_State* rng)
 {
   uint64_t oldstate = rng->state;
+  // yo, this number is crazy! I wonder how they got it.
   rng->state = oldstate * 6364136223846793005ULL + (rng->inc|1);
   uint32_t xorshifted = ((oldstate >> 18u) ^ oldstate) >> 27u;
   uint32_t rot = oldstate >> 59u;
