@@ -370,6 +370,10 @@ typedef struct {
 
 #define TYPE_INFO(type, hash_func, cmp_func) (Type_Info) { .name = #type, .type_hash = HashString64(#type), .size = sizeof(type), .alignment = alignof(type), .hash = hash_func, .cmp = cmp_func }
 
+#define DECLARE_TYPE(type) GLOBAL Type_Info type_info_##type
+#define GET_TYPE_INFO(type) &type_info_##type
+#define REGISTER_TYPE(type, hash_func, cmp_func) type_info_##type = TYPE_INFO(type, hash_func, cmp_func)
+
 
 /// Some useful algorithms
 

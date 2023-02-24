@@ -74,6 +74,14 @@ GLOBAL Engine_Context* g_context;
 GLOBAL EID grid_1;
 GLOBAL EID grid_2;
 
+// simple X macro to do operation on all components
+#define X_ALL_COMPONENTS()                      \
+  X(Voxel_Grid);                                \
+  X(Transform);                                 \
+  X(Pipeline_Program);                          \
+  X(Font);                                      \
+  X(Config_File)
+
 
 /// Engine general functions
 
@@ -104,15 +112,13 @@ EngineInit(const Engine_Startup_Info* info)
   INIT_ALLOCATOR(vox_allocator, 4);
   INIT_ALLOCATOR(entity_allocator, 1);
 
-  CreateECS(&g_context->entity_allocator, &g_context->ecs, 8, 8);
+  REGISTER_TYPE(CVar, HashConfigEntry, CompareConfigEntries);
 
-  REGISTER_COMPONENT(Voxel_Grid, NULL, NULL);
-  REGISTER_COMPONENT(Transform, NULL, NULL);
-  REGISTER_COMPONENT(Pipeline_Program, NULL, NULL);
-  REGISTER_COMPONENT(Font, NULL, NULL);
-  REGISTER_COMPONENT(Config_File, NULL, NULL);
-  // NOTE: CVar is not a component, but who cares
-  REGISTER_COMPONENT(CVar, HashConfigEntry, CompareConfigEntries);
+  CreateECS(&g_context->entity_allocator, &g_context->ecs, 8);
+
+#define X(a) REGISTER_COMPONENT(a)
+  X_ALL_COMPONENTS();
+#undef X
 
   InitAssetManager(&g_context->asset_manager);
 
@@ -181,21 +187,21 @@ EngineInit(const Engine_Startup_Info* info)
   Voxel_Grid* vox;
   AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
                         grid_1, "3x3x3.vox");
-  Transform* transform = AddComponent(&g_context->ecs, grid_1, &type_info_Transform);
+  Transform* transform = AddComponent(&g_context->ecs, Transform, grid_1);
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(3.1f, 2.6f, 1.0f);
   transform->scale = 3.0f;
   // entity 2
   AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
                         grid_2, "chr_beau.vox");
-  transform = AddComponent(&g_context->ecs, grid_2, &type_info_Transform);
+  transform = AddComponent(&g_context->ecs, Transform, grid_2);
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
   transform->scale = 0.9f;
   // floor
   EID floor = CreateEntity(&g_context->ecs);
-  vox = AddComponent(&g_context->ecs, floor, &type_info_Voxel_Grid);
-  transform = AddComponent(&g_context->ecs, floor, &type_info_Transform);
+  vox = AddComponent(&g_context->ecs, Voxel_Grid, floor);
+  transform = AddComponent(&g_context->ecs, Transform, floor);
   // manually write voxels
   AllocateVoxelGrid(&g_context->vox_allocator, vox, 128, 1, 128);
   // арбузовое счастье
@@ -228,7 +234,7 @@ void
 EngineFree()
 {
   {
-    FOREACH_COMPONENT(&g_context->ecs, Voxel_Grid, &type_info_Voxel_Grid) {
+    FOREACH_COMPONENT(Voxel_Grid) {
       FreeVoxelGrid(&g_context->vox_allocator, &components[i]);
     }
   }
@@ -242,10 +248,14 @@ EngineFree()
   DestroyBitmapRenderer(&g_context->bitmap_renderer);
 
   {
-    FOREACH_COMPONENT(&g_context->ecs, Pipeline_Program, &type_info_Pipeline_Program) {
+    FOREACH_COMPONENT(Pipeline_Program) {
       vkDestroyPipeline(g_device->logical_device, components[i].pipeline, NULL);
     }
   }
+
+#define X(a) UNREGISTER_COMPONENT(&g_context->ecs, a)
+  X_ALL_COMPONENTS();
+#undef X
 
   DestroyECS(&g_context->ecs);
 
@@ -283,7 +293,7 @@ EngineUpdateAndRender()
     {
     case 31:
       // get file notifications every 32 frame
-      UpdateAssets(&g_context->asset_manager, &g_context->ecs);
+      UpdateAssets(&g_context->asset_manager);
       break;
 
     case 30:
@@ -322,8 +332,8 @@ EngineUpdateAndRender()
 
   NewVoxelDrawerFrame(&g_context->vox_drawer);
 
-  FOREACH_COMPONENT(&g_context->ecs, Voxel_Grid, &type_info_Voxel_Grid) {
-    Transform* transform = GetComponent(&g_context->ecs, entities[i], &type_info_Transform);
+  FOREACH_COMPONENT(Voxel_Grid) {
+    Transform* transform = GetComponent(Transform, entities[i]);
     PushMeshToVoxelDrawer(&g_context->vox_drawer, &components[i], transform);
   }
 
@@ -331,14 +341,14 @@ EngineUpdateAndRender()
 
   if (g_window->frame_counter == 0) {
     // LoadToFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, cmd, "arial.ttf", 32);
-    Font* font = AddComponent(&g_context->ecs, g_context->arial_font, &type_info_Font);
+    Font* font = AddComponent(&g_context->ecs, Font, g_context->arial_font);
     LoadToFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, cmd, font, "Consolas.ttf", 32);
   } else {
     NewBitmapFrame(&g_context->bitmap_renderer);
     Vec2 pos = { 0.04f, 0.4f };
     Vec2 text_size = { 0.05f, 0.05f };
     uint32_t color = PACK_COLOR(220, 119, 0, 205);
-    Font* font = GetComponent(&g_context->ecs, g_context->arial_font, &type_info_Font);
+    Font* font = GetComponent(Font, g_context->arial_font);
     DrawText(&g_context->bitmap_renderer, font, "Banana", &text_size, color, &pos);
     pos = (Vec2) { 0.04f, 0.7f };
     text_size = (Vec2) { 0.05f, 0.05f };
@@ -359,7 +369,7 @@ EngineUpdateAndRender()
   // render to shadow map
   BeginShadowPass(&g_context->shadow_pass, cmd);
   {
-    Pipeline_Program* prog = GetComponent(&g_context->ecs, g_context->shadow_pipeline, &type_info_Pipeline_Program);
+    Pipeline_Program* prog = GetComponent(Pipeline_Program, g_context->shadow_pipeline);
     ds_set = g_context->shadow_pass.scene_data_set;
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->layout,
                         0, 1, &ds_set, 0, NULL);
@@ -376,7 +386,7 @@ EngineUpdateAndRender()
   BeginForwardPass(&g_context->forward_pass, cmd, clear_color);
   {
     // draw triangles
-    Pipeline_Program* prog = GetComponent(&g_context->ecs, g_context->triangle_pipeline, &type_info_Pipeline_Program);
+    Pipeline_Program* prog = GetComponent(Pipeline_Program, g_context->triangle_pipeline);
     ds_set = g_context->forward_pass.scene_data_set;
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             // g_context->triangle_pipeline_layout, 0, 1, &ds_set, 0, NULL);
@@ -400,7 +410,7 @@ EngineUpdateAndRender()
                        0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     // draw voxels
-    prog = GetComponent(&g_context->ecs, g_context->voxel_pipeline, &type_info_Pipeline_Program);
+    prog = GetComponent(Pipeline_Program, g_context->voxel_pipeline);
     VkDescriptorSet ds_sets[] = { ds_set, g_context->shadow_pass.shadow_set };
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             prog->layout, 0, ARR_SIZE(ds_sets), ds_sets, 0, NULL);
@@ -425,7 +435,7 @@ EngineUpdateAndRender()
     default:
       Assert(0);
     }
-    Pipeline_Program* prog = GetComponent(&g_context->ecs, g_context->rect_pipeline, &type_info_Pipeline_Program);
+    Pipeline_Program* prog = GetComponent(Pipeline_Program, g_context->rect_pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             prog->layout, 0, 1, &ds_set, 0, NULL);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);

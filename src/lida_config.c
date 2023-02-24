@@ -20,7 +20,7 @@ typedef struct {
 
 } CVar;
 
-DECLARE_COMPONENT(CVar);
+DECLARE_TYPE(CVar);
 
 typedef struct {
 
@@ -210,13 +210,13 @@ ConfigFile_ReloadFunc(void* component, const char* path, void* udata)
 INTERNAL Config_File*
 CreateConfig(ECS* ecs, Asset_Manager* am, EID entity, const char* name)
 {
-  Config_File* config = AddComponent(ecs, entity, &type_info_Config_File);
+  Config_File* config = AddComponent(ecs, Config_File, entity);
   const int max_vars = 32;
   FHT_Init(&config->vars,
            config->buff+sizeof(config->buff) - FHT_CALC_SIZE(&type_info_CVar, max_vars),
            max_vars, &type_info_CVar);
   ParseConfig(name, config);
-  AddAsset(am, entity, name, &type_info_Config_File,
+  AddAsset(am, entity, name, &g_sparse_set_Config_File,
            ConfigFile_ReloadFunc, NULL);
   return config;
 }

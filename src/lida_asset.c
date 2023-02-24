@@ -10,7 +10,7 @@ typedef struct {
 
   const char* name;
   EID id;
-  const Type_Info* type;
+  const Sparse_Set* set;
   Asset_Reload_Func reload_func;
   void* udata;
 
@@ -133,13 +133,13 @@ GetAssetByName(Asset_Manager* am, const char* name)
 // 0 is returned on success
 INTERNAL int
 AddAsset(Asset_Manager* am, EID entity, const char* name,
-         const Type_Info* type, Asset_Reload_Func reload_func, void* udata)
+         const Sparse_Set* storage, Asset_Reload_Func reload_func, void* udata)
 {
   Asset_ID* asset = FHT_Insert(&am->asset_ids, &am->asset_id_type_info,
                                &(Asset_ID) { .name = name });
   if (asset) {
     asset->id = entity;
-    asset->type = type;
+    asset->set = storage;
     asset->reload_func = reload_func;
     asset->udata = udata;
     return 0;
@@ -148,7 +148,7 @@ AddAsset(Asset_Manager* am, EID entity, const char* name,
 }
 
 INTERNAL void
-UpdateAssets(Asset_Manager* am, ECS* ecs)
+UpdateAssets(Asset_Manager* am)
 {
   const char* changed_files[256];
   size_t num_changed = PlatformDataDirectoryModified(changed_files, ARR_SIZE(changed_files));
@@ -158,7 +158,7 @@ UpdateAssets(Asset_Manager* am, ECS* ecs)
                                  &(Asset_ID) { .name = changed_files[i] });
     if (asset && asset->reload_func) {
       // reload asset
-      asset->reload_func(GetComponent(ecs, asset->id, asset->type),
+      asset->reload_func(SearchSparseSet(asset->set, asset->id),
                          asset->name,
                          asset->udata);
       LOG_TRACE("reloaded asset '%s'", asset->name);
@@ -170,9 +170,9 @@ INTERNAL Voxel_Grid*
 AddVoxelGridComponent(ECS* ecs, Asset_Manager* am, Allocator* allocator,
                       EID entity, const char* name)
 {
-  Voxel_Grid* vox = AddComponent(ecs, entity, &type_info_Voxel_Grid);
+  Voxel_Grid* vox = AddComponent(ecs, Voxel_Grid, entity);
   LoadVoxelGridFromFile(allocator, vox, name);
-  AddAsset(am, entity, name, &type_info_Voxel_Grid,
+  AddAsset(am, entity, name, &g_sparse_set_Voxel_Grid,
            VoxelGrid_ReloadFunc, allocator);
   return vox;
 }
@@ -182,26 +182,26 @@ AddPipelineProgramComponent(ECS* ecs, Asset_Manager* am, EID entity,
                             const char* vertex_shader, const char* fragment_shader,
                             Pipeline_Create_Func create_func, Deletion_Queue* dq)
 {
-  Pipeline_Program* prog = AddComponent(ecs, entity, &type_info_Pipeline_Program);
+  Pipeline_Program* prog = AddComponent(ecs, Pipeline_Program, entity);
   prog->create_func = create_func;
   prog->vertex_shader = vertex_shader;
   prog->fragment_shader = fragment_shader;
   // we don't load any shaders or compile them, pipeline creation is deferred and batched
-  AddAsset(am, entity, vertex_shader, &type_info_Pipeline_Program,
+  AddAsset(am, entity, vertex_shader, &g_sparse_set_Pipeline_Program,
            PipelineProgram_ReloadFunc, dq);
   // some pipelines might have no pixel shader
   if (fragment_shader) {
-    AddAsset(am, entity, fragment_shader, &type_info_Pipeline_Program,
+    AddAsset(am, entity, fragment_shader, &g_sparse_set_Pipeline_Program,
              PipelineProgram_ReloadFunc, dq);
   }
   return prog;
 }
 
 INTERNAL VkResult
-BatchCreatePipelines(ECS* ecs)
+BatchCreatePipelines()
 {
-  uint32_t count = ComponentCount(ecs, &type_info_Pipeline_Program);
-  Pipeline_Program* progs = ComponentData(ecs, &type_info_Pipeline_Program);
+  uint32_t count = ComponentCount(Pipeline_Program);
+  Pipeline_Program* progs = ComponentData(Pipeline_Program);
   Pipeline_Desc* descs = PersistentAllocate(count * sizeof(Pipeline_Desc));
   VkPipeline* pipelines = PersistentAllocate(count * sizeof(VkPipeline));
   VkPipelineLayout* layouts = PersistentAllocate(count * sizeof(VkPipelineLayout));

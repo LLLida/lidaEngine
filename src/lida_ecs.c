@@ -2,6 +2,9 @@
 
   Entity component system.
 
+  I think this is one of the fastest and easiest ECS in world. We
+  highly utilize preprocessor capabilities to access components.
+
  */
 
 // entity ID
@@ -25,7 +28,6 @@ typedef struct {
 
   Allocator* allocator;
   Allocation* entities;
-  Allocation* pools;
   uint32_t num_entities;
   uint32_t max_entities;
   uint32_t num_pools;
@@ -103,7 +105,7 @@ ReserveSparseSet(Allocator* allocator, Sparse_Set* set, uint32_t capacity)
 }
 
 INTERNAL void*
-SearchSparseSet(Sparse_Set* set, EID entity)
+SearchSparseSet(const Sparse_Set* set, EID entity)
 {
   uint32_t* sparse = set->sparse->ptr;
   EID* dense = set->dense->ptr;
@@ -164,77 +166,20 @@ EraseFromSparseSet(Sparse_Set* set, EID entity)
 
 // TODO: component sort
 
-INTERNAL Sparse_Set*
-GetSparseSet(ECS* ecs, const Type_Info* type_info)
-{
-  uint32_t id = type_info->type_hash & (ecs->num_pools-1);
-  Sparse_Set* pools = ecs->pools->ptr;
-  for (uint32_t i = 0; i < ecs->num_pools; i++) {
-    Sparse_Set* set = &pools[id];
-    if (set->type_info == NULL) {
-      // insert
-      *set = (Sparse_Set) {
-        .type_info = type_info,
-      };
-      return set;
-    } else if (set->type_info->type_hash == type_info->type_hash) {
-      return set;
-    }
-    // ecs->num_pools is guaranteed to be power of 2
-    id = (id+1) & (ecs->num_pools-1);
-  }
-  // reallocate pools
-  Allocation* old = ecs->pools;
-  uint32_t old_num = ecs->num_pools;
-  // TODO: pick a better grow policy
-  ecs->num_pools = ecs->num_pools * 2;
-  ecs->pools = DoAllocation(ecs->allocator, ecs->num_pools, "ecs-pools");
-  if (ecs->pools == NULL) {
-    // out of memory
-    ecs->num_pools = old_num;
-    ecs->pools = old;
-    return NULL;
-  }
-  Sparse_Set* old_pools = old->ptr;
-  pools = ecs->pools->ptr;
-  for (uint32_t i = 0; i < ecs->num_pools; i++) {
-    pools[i].type_info = NULL;
-  }
-  // insert
-  for (uint32_t i = 0; i < old_num; i++) {
-    if (old_pools[i].type_info) {
-      id = old_pools[i].type_info->type_hash & (ecs->num_pools-1);
-      while (pools[id].type_info) {
-        id = (id+1) & (ecs->num_pools - 1);
-      }
-      memcpy(&pools[id], &old_pools[i], sizeof(Sparse_Set));
-    }
-  }
-  FreeAllocation(ecs->allocator, old);
-  return GetSparseSet(ecs, type_info);
-}
-
 
 /// public functions
 
 INTERNAL void
-CreateECS(Allocator* allocator, ECS* ecs, uint32_t init_num_types, uint32_t init_num_entities)
+CreateECS(Allocator* allocator, ECS* ecs, uint32_t init_num_entities)
 {
-  Assert(init_num_types > 0);
   Assert(init_num_entities > 0);
   ecs->num_dead = 0;
   ecs->num_entities = 0;
-  ecs->num_pools = NearestPow2(init_num_types);
   ecs->max_entities = init_num_entities;
   ecs->entities = DoAllocation(allocator, init_num_entities * sizeof(EID), "ecs-entities");
-  ecs->pools = DoAllocation(allocator, ecs->num_pools * sizeof(Sparse_Set), "ecs-pools");
-  if (ecs->entities == NULL || ecs->pools == NULL) {
+  if (ecs->entities == NULL) {
     LOG_FATAL("entity component system: out of memory at initialization");
     return;
-  }
-  Sparse_Set* pools = ecs->pools->ptr;
-  for (uint32_t i = 0; i < ecs->num_pools; i++) {
-    pools[i].type_info = NULL;
   }
   ecs->allocator = allocator;
 }
@@ -242,12 +187,6 @@ CreateECS(Allocator* allocator, ECS* ecs, uint32_t init_num_types, uint32_t init
 INTERNAL void
 DestroyECS(ECS* ecs)
 {
-  Sparse_Set* pools = ecs->pools->ptr;
-  for (uint32_t i = 0; i < ecs->num_pools; i++)
-    if (pools[i].type_info) {
-      ClearSparseSet(ecs->allocator, &pools[i]);
-    }
-  FreeAllocation(ecs->allocator, ecs->pools);
   FreeAllocation(ecs->allocator, ecs->entities);
 }
 
@@ -282,11 +221,9 @@ DestroyEntity(ECS* ecs, EID entity)
     return;
   }
   uint32_t* entities = ecs->entities->ptr;
-  Sparse_Set* pools = ecs->pools->ptr;
-  for (uint32_t i = 0; entities[entity] > 0; i++) {
-    Sparse_Set* set = &pools[i];
-    if (EraseFromSparseSet(set, entity) == 0)
-      entities[entity]--;
+  if (entities[entity] > 0) {
+    LOG_WARN("entity %u still has %u components, this is a memory leak",
+             entity, entities[entity]);
   }
   entities[entity] = ecs->next_dead;
   ecs->next_dead = entity | ENTITY_DEAD_MASK;
@@ -303,16 +240,8 @@ IsEntityValid(ECS* ecs, EID entity)
 }
 
 INTERNAL void*
-GetComponent(ECS* ecs, EID entity, const Type_Info* type)
+AddComponent_ECS(ECS* ecs, Sparse_Set* set, EID entity)
 {
-  Sparse_Set* set = GetSparseSet(ecs, type);
-  return SearchSparseSet(set, entity);
-}
-
-INTERNAL void*
-AddComponent(ECS* ecs, EID entity, const Type_Info* type)
-{
-  Sparse_Set* set = GetSparseSet(ecs, type);
   void* ret = InsertToSparseSet(ecs->allocator, set, entity);
   if (ret) {
     uint32_t* entities = ecs->entities->ptr;
@@ -322,43 +251,30 @@ AddComponent(ECS* ecs, EID entity, const Type_Info* type)
 }
 
 INTERNAL void
-RemoveComponent(ECS* ecs, EID entity, const Type_Info* type)
+RemoveComponent_ECS(ECS* ecs, Sparse_Set* set, EID entity)
 {
-  Sparse_Set* set = GetSparseSet(ecs, type);
   if (EraseFromSparseSet(set, entity) == 0) {
     uint32_t* entities = ecs->entities->ptr;
     entities[entity]--;
   }
 }
 
-INTERNAL uint32_t
-ComponentCount(ECS* ecs, const Type_Info* type)
-{
-  Sparse_Set* set = GetSparseSet(ecs, type);
-  return set->size;
-}
+#define DECLARE_COMPONENT(type) DECLARE_TYPE(type); \
+  GLOBAL Sparse_Set g_sparse_set_##type
+#define REGISTER_COMPONENT(type) REGISTER_TYPE(type, NULL, NULL);    \
+  g_sparse_set_##type .type_info = GET_TYPE_INFO(type)
+#define UNREGISTER_COMPONENT(ecs, type) ClearSparseSet((ecs)->allocator, &g_sparse_set_##type)
 
-INTERNAL void*
-ComponentData(ECS* ecs, const Type_Info* type)
-{
-  Sparse_Set* set = GetSparseSet(ecs, type);
-  return set->packed->ptr;
-}
-
-INTERNAL EID*
-ComponentIDs(ECS* ecs, const Type_Info* type)
-{
-  Sparse_Set* set = GetSparseSet(ecs, type);
-  return set->dense->ptr;
-}
+#define GetComponent(type, entity) (type*)SearchSparseSet(&g_sparse_set_##type, entity)
+#define AddComponent(ecs, type, entity) (type*)AddComponent_ECS(ecs, &g_sparse_set_##type, entity)
+#define RemoveComponent(ecs, type, entity) RemoveComponent_ECS(ecs, &g_sparse_set_##type, entity)
+#define ComponentCount(type) (g_sparse_set_##type .size)
+#define ComponentData(type) (type*)(g_sparse_set_##type .packed->ptr)
+#define ComponentIDs(type) (EID*)(g_sparse_set_##type .dense->ptr)
 
 // TODO: figure out how we can append __LINE__ to set's name so we can
 // call multipli FOREACH_COMPONENT()s in 1 scope
-#define FOREACH_COMPONENT(ecs, type, type_info) Sparse_Set* set = GetSparseSet(ecs, type_info); \
-  type* components = set->packed->ptr;\
-  EID* entities = set->dense->ptr;\
-  (void)entities;\
-  for (uint32_t i = 0; i < set->size; i++)
-
-#define DECLARE_COMPONENT(type) GLOBAL Type_Info type_info_##type
-#define REGISTER_COMPONENT(type, hash_func, compare_func) type_info_##type = TYPE_INFO(type, hash_func, compare_func)
+#define FOREACH_COMPONENT(type) type* components = ComponentData(type); \
+  EID* entities = ComponentIDs(type);                                   \
+  (void)entities;                                                       \
+  for (uint32_t i = 0; i < ComponentCount(type); i++)
