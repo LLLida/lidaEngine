@@ -11,7 +11,7 @@ const vec2 positions[3] = vec2[](vec2(0.0, -0.5),
 
 layout (location = 0) out vec3 outColor;
 
-#include "common.h"
+#include "global.h"
 
 layout (push_constant) uniform Color {
   vec3 red;

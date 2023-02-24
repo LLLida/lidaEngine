@@ -18,9 +18,16 @@ typedef struct {
 
   Vec2 pos;
   Vec2 uv;
-  Vec4 color;
+  uint32_t color;
 
-} Bitmap_Vertex;
+} Vertex_X2UC;
+
+typedef struct {
+
+  Vec2 pos;
+  uint32_t color;
+
+} Vertex_X2C;
 
 typedef struct {
 
@@ -59,16 +66,21 @@ typedef struct {
   VkBuffer vertex_buffer;
   VkBuffer index_buffer;
   VkExtent2D extent;
-  VkPipelineLayout pipeline_layout;
-  VkPipeline pipeline;
+  VkPipelineLayout pipeline_layouts[2];
+  VkPipeline pipelines[2];
   uint32_t max_vertices;
   uint32_t max_indices;
-  Bitmap_Vertex* vertices_mapped;
-  size_t vertex_count;
   uint32_t* indices_mapped;
-  uint32_t* current_index;
+  // for rendering bitmaps
+  Vertex_X2UC* b_vertices_mapped;
+  size_t b_vertex_count;
+  uint32_t* b_current_index;
   Bitmap_Draw draws[128];
   uint32_t num_draws;
+  // for rendering quads
+  Vertex_X2C* q_current_vertex;
+  size_t q_max_vertex;
+  uint32_t* q_current_index;
 
 } Bitmap_Renderer;
 
@@ -104,7 +116,7 @@ CreateBitmapRenderer(Bitmap_Renderer* renderer)
   }
   // create vertex buffer
   renderer->max_vertices = 64 * 1024;
-  err = CreateBuffer(&renderer->vertex_buffer, renderer->max_vertices * sizeof(Bitmap_Vertex),
+  err = CreateBuffer(&renderer->vertex_buffer, renderer->max_vertices * sizeof(Vertex_X2UC),
                      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                      "bitmap/vertex-staging-buffer");
   if (err != VK_SUCCESS) {
@@ -114,7 +126,7 @@ CreateBitmapRenderer(Bitmap_Renderer* renderer)
   // create index buffer
   // for each 4 vertices we will have 6 indices, 6/4 = 3/2
   renderer->max_indices = renderer->max_vertices * 3 / 2;
-  err = CreateBuffer(&renderer->index_buffer, renderer->max_vertices * sizeof(uint32_t),
+  err = CreateBuffer(&renderer->index_buffer, renderer->max_indices * sizeof(uint32_t),
                      VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                      "bitmap/index-buffer");
   VkMemoryRequirements buffer_requirements[2];
@@ -132,7 +144,7 @@ CreateBitmapRenderer(Bitmap_Renderer* renderer)
   }
   // bind vertex buffer to memory
   err = BufferBindToMemory(&renderer->cpu_memory, renderer->vertex_buffer, &buffer_requirements[0],
-                           (void**)&renderer->vertices_mapped, NULL);
+                           (void**)&renderer->b_vertices_mapped, NULL);
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to bind vertex buffer to memory with error '%s'",
               ToString_VkResult(err));
@@ -147,11 +159,15 @@ CreateBitmapRenderer(Bitmap_Renderer* renderer)
     return err;
   }
   // create pipeline
-  VkVertexInputBindingDescription input_binding = { 0, sizeof(Bitmap_Vertex), VK_VERTEX_INPUT_RATE_VERTEX };
-  VkVertexInputAttributeDescription input_attributes[3];
-  input_attributes[0] = (VkVertexInputAttributeDescription) { 0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Bitmap_Vertex, pos) };
-  input_attributes[1] = (VkVertexInputAttributeDescription) { 1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Bitmap_Vertex, uv) };
-  input_attributes[2] = (VkVertexInputAttributeDescription) { 2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Bitmap_Vertex, color) };
+  VkVertexInputBindingDescription input_binding1 = { 0, sizeof(Vertex_X2UC), VK_VERTEX_INPUT_RATE_VERTEX };
+  VkVertexInputBindingDescription input_binding2 = { 0, sizeof(Vertex_X2C), VK_VERTEX_INPUT_RATE_VERTEX };
+  VkVertexInputAttributeDescription input_attributes1[3];
+  input_attributes1[0] = (VkVertexInputAttributeDescription) { 0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex_X2UC, pos) };
+  input_attributes1[1] = (VkVertexInputAttributeDescription) { 1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex_X2UC, uv) };
+  input_attributes1[2] = (VkVertexInputAttributeDescription) { 2, 0, VK_FORMAT_R32_UINT, offsetof(Vertex_X2UC, color) };
+  VkVertexInputAttributeDescription input_attributes2[2];
+  input_attributes2[0] = (VkVertexInputAttributeDescription) { 0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex_X2C, pos) };
+  input_attributes2[1] = (VkVertexInputAttributeDescription) { 1, 0, VK_FORMAT_R32_UINT, offsetof(Vertex_X2C, color) };
   VkPipelineColorBlendAttachmentState colorblend_attachment = {
     .blendEnable = VK_TRUE,
     .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
@@ -163,13 +179,14 @@ CreateBitmapRenderer(Bitmap_Renderer* renderer)
     .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
   };
   VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-  Pipeline_Desc pipeline_desc = {
+  Pipeline_Desc pipeline_descs[2];
+  pipeline_descs[0] = (Pipeline_Desc) {
     .vertex_shader = "text.vert.spv",
     .fragment_shader = "text.frag.spv",
     .vertex_binding_count = 1,
-    .vertex_bindings = &input_binding,
-    .vertex_attribute_count = ARR_SIZE(input_attributes),
-    .vertex_attributes = input_attributes,
+    .vertex_bindings = &input_binding1,
+    .vertex_attribute_count = ARR_SIZE(input_attributes1),
+    .vertex_attributes = input_attributes1,
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_NONE,
@@ -182,11 +199,32 @@ CreateBitmapRenderer(Bitmap_Renderer* renderer)
     .dynamic_states = dynamic_states,
     .render_pass = g_window->render_pass,
     .subpass = 0,
-    .marker = "text-render"
+    .marker = "bitmap-render"
   };
-  err = CreateGraphicsPipelines(&renderer->pipeline, 1, &pipeline_desc, &renderer->pipeline_layout);
+  pipeline_descs[1] = (Pipeline_Desc) {
+    .vertex_shader = "quad.vert.spv",
+    .fragment_shader = "quad.frag.spv",
+    .vertex_binding_count = 1,
+    .vertex_bindings = &input_binding2,
+    .vertex_attribute_count = ARR_SIZE(input_attributes2),
+    .vertex_attributes = input_attributes2,
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_NONE,
+    .depth_bias_enable = VK_FALSE,
+    .msaa_samples = VK_SAMPLE_COUNT_1_BIT,
+    .blend_logic_enable = VK_FALSE,
+    .attachment_count = 1,
+    .attachments = &colorblend_attachment,
+    .dynamic_state_count = ARR_SIZE(dynamic_states),
+    .dynamic_states = dynamic_states,
+    .render_pass = g_window->render_pass,
+    .subpass = 0,
+    .marker = "quad-render"
+  };
+  err = CreateGraphicsPipelines(renderer->pipelines, 2, pipeline_descs, renderer->pipeline_layouts);
   if (err != VK_SUCCESS) {
-    LOG_ERROR("failed to create graphics pipeline with error '%s'",
+    LOG_ERROR("failed to create graphics pipelines with error '%s'",
               ToString_VkResult(err));
     return err;
   }
@@ -196,7 +234,8 @@ CreateBitmapRenderer(Bitmap_Renderer* renderer)
 INTERNAL void
 DestroyBitmapRenderer(Bitmap_Renderer* renderer)
 {
-  vkDestroyPipeline(g_device->logical_device, renderer->pipeline, NULL);
+  vkDestroyPipeline(g_device->logical_device, renderer->pipelines[1], NULL);
+  vkDestroyPipeline(g_device->logical_device, renderer->pipelines[0], NULL);
   vkDestroyBuffer(g_device->logical_device, renderer->index_buffer, NULL);
   vkDestroyBuffer(g_device->logical_device, renderer->vertex_buffer, NULL);
   FreeVideoMemory(&renderer->cpu_memory);
@@ -207,9 +246,12 @@ DestroyBitmapRenderer(Bitmap_Renderer* renderer)
 INTERNAL void
 NewBitmapFrame(Bitmap_Renderer* renderer)
 {
-  renderer->vertex_count = 0;
+  renderer->b_vertex_count = 0;
   renderer->num_draws = 0;
-  renderer->current_index = renderer->indices_mapped;
+  renderer->b_current_index = renderer->indices_mapped;
+  renderer->q_max_vertex = renderer->max_vertices * sizeof(Vertex_X2UC) / sizeof(Vertex_X2C);
+  renderer->q_current_vertex = (Vertex_X2C*)renderer->b_vertices_mapped + renderer->q_max_vertex;
+  renderer->q_current_index = renderer->indices_mapped + renderer->max_indices;
 }
 
 INTERNAL void
@@ -217,17 +259,31 @@ RenderBitmaps(Bitmap_Renderer* renderer, VkCommandBuffer cmd)
 {
   if (renderer->num_draws == 0)
     return;
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipeline);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipelines[0]);
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(cmd, 0, 1, &renderer->vertex_buffer, &offset);
   vkCmdBindIndexBuffer(cmd, renderer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
   for (uint32_t i = 0; i < renderer->num_draws; i++) {
     Bitmap_Draw* draw = &renderer->draws[i];
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipeline_layout,
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipeline_layouts[0],
                             0, 1, &draw->set,
                             0, NULL);
     vkCmdDrawIndexed(cmd, draw->num_indices, 1, draw->first_index, draw->first_vertex, 0);
   }
+}
+
+INTERNAL void
+RenderQuads(Bitmap_Renderer* renderer, VkCommandBuffer cmd)
+{
+  if (renderer->q_current_vertex == (Vertex_X2C*)renderer->b_vertices_mapped + renderer->q_max_vertex)
+    return;
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipelines[1]);
+  VkDeviceSize offset = 0;
+  vkCmdBindVertexBuffers(cmd, 0, 1, &renderer->vertex_buffer, &offset);
+  vkCmdBindIndexBuffer(cmd, renderer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
+  uint32_t num_indices = (renderer->indices_mapped + renderer->max_indices) - renderer->q_current_index;
+  uint32_t first_index = renderer->q_current_index - renderer->indices_mapped;
+  vkCmdDrawIndexed(cmd, num_indices, 1, first_index, 0, 0);
 }
 
 INTERNAL VkResult
@@ -367,7 +423,7 @@ LoadToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cm
   PersistentRelease(rect_nodes);
   // load glyphs to staging buffer
   // TODO: use real staging buffer
-  uint8_t* tmp = (uint8_t*)renderer->vertices_mapped;
+  uint8_t* tmp = (uint8_t*)renderer->b_vertices_mapped;
   uint32_t max_height = 0;
   for (uint32_t i = 0; i < 128-32; i++) {
     int c = rects[i].id;
@@ -452,14 +508,14 @@ ResetFontAtlas(Font_Atlas* atlas)
 }
 
 INTERNAL void
-DrawText(Bitmap_Renderer* renderer, Font* font, const char* text, const Vec2* size, const Vec4* color, const Vec2* pos_)
+DrawText(Bitmap_Renderer* renderer, Font* font, const char* text, const Vec2* size, uint32_t color, const Vec2* pos_)
 {
   Vec2 pos_glyph = *pos_;
   Bitmap_Draw* draw = &renderer->draws[renderer->num_draws];
   *draw = (Bitmap_Draw) {
     .set = font->ds_set,
-    .first_vertex = renderer->vertex_count,
-    .first_index = renderer->current_index - renderer->indices_mapped
+    .first_vertex = renderer->b_vertex_count,
+    .first_index = renderer->b_current_index - renderer->indices_mapped
   };
   Vec2 scale;
   scale.x = size->x / (float)font->pixel_size;
@@ -481,17 +537,16 @@ DrawText(Bitmap_Renderer* renderer, Font* font, const char* text, const Vec2* si
     };
     const int indices[6] = { /*1st triangle*/0, 1, 3, /*2nd triangle*/3, 2, 0 };
     for (int i = 0; i < 6; i++) {
-      *(renderer->current_index++) = renderer->vertex_count + indices[i] - draw->first_vertex;
+      *(renderer->b_current_index++) = renderer->b_vertex_count + indices[i] - draw->first_vertex;
     }
     for (int i = 0; i < 4; i++) {
-      renderer->vertices_mapped[renderer->vertex_count] = (Bitmap_Vertex) {
+      renderer->b_vertices_mapped[renderer->b_vertex_count++] = (Vertex_X2UC) {
         .pos.x = pos.x + offset.x * muls[i].x,
         .pos.y = pos.y + offset.y * muls[i].y,
         .uv.x = glyph->offset.x + glyph->size.x * muls[i].x,
         .uv.y = glyph->offset.y + glyph->size.y * muls[i].y,
-        .color = *color,
+        .color = color,
       };
-      renderer->vertex_count++;
     }
     draw->num_indices += 6;
 
@@ -500,4 +555,27 @@ DrawText(Bitmap_Renderer* renderer, Font* font, const char* text, const Vec2* si
     text++;
   }
   renderer->num_draws++;
+}
+
+INTERNAL void
+DrawQuad(Bitmap_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t color)
+{
+  const Vec2 muls[] = {
+    { 1.0f, 1.0f },
+    { 0.0f, 1.0f },
+    { 1.0f, 0.0f },
+    { 0.0f, 0.0f }
+  };
+  const int indices[6] = { /*1st triangle*/0, 1, 3, /*2nd triangle*/3, 2, 0 };
+  size_t offset = renderer->q_current_vertex - (Vertex_X2C*)renderer->b_vertices_mapped;
+  for (int i = 0; i < 6; i++) {
+    *(--renderer->q_current_index) = offset - 4 + indices[i];
+  }
+  for (int i = 0; i < 4; i++) {
+    *(--renderer->q_current_vertex) = (Vertex_X2C) {
+      .pos.x = pos->x + size->x * muls[i].x,
+      .pos.y = pos->y + size->y * muls[i].y,
+      .color = color,
+    };
+  }
 }

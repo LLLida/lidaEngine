@@ -3,22 +3,6 @@
 
 #define quat vec4
 
-struct Transform {
-  quat rotation;
-  vec3 position;
-  float scale;
-};
-
-layout (set = 0, binding = 0) uniform SceneInfo {
-  mat4 camera_projview;
-  mat4 camera_projection;
-  mat4 camera_view;
-  mat4 camera_invproj;
-  mat4 light_space_matrix;
-  vec3 sun_dir;
-  float sun_ambient;
-} g;
-
 // multiply two quaternions
 // note: quatMul(q1, q2) != quatMul(q2, q1) - quaternion multiplication is not commutative
 quat quatMul(quat q1, quat q2) {
@@ -39,5 +23,14 @@ vec3 doTransform(vec3 pos, quat rotation, vec3 translation, float scale) {
 }
 
 #define PUSH_CONSTANT layout(push_constant) uniform
+
+vec4 decompress_color(uint color) {
+  // note: this doesn't consider endianness
+  uint a = (color >> 24) & 255;
+  uint b = (color >> 16) & 255;
+  uint g = (color >> 8) & 255;
+  uint r = color & 255;
+  return vec4(r/255.0, g/255.0, b/255.0, a/255.0);
+}
 
 #endif

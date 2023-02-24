@@ -7,7 +7,7 @@ layout (location = 2) in vec4 inColor;
 
 layout (location = 0) out vec4 outColor;
 
-#include "common.h"
+#include "global.h"
 
 layout (set = 1, binding = 0) uniform sampler2D shadow_map;
 #include "shadow.h"

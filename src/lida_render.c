@@ -62,6 +62,9 @@ typedef struct {
 
 } Deletion_Queue;
 
+// we always pass color as uint32_t and decompress it on GPU
+#define PACK_COLOR(r, g, b, a) ((a) << 24) | ((b) << 16) | ((g) << 8) | (r)
+
 
 /// Functions primarily by this module
 

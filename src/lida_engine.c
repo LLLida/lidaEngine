@@ -48,8 +48,6 @@ typedef struct {
   Keymap root_keymap;
   Keymap camera_keymap;
 
-  Config_File* config;
-
   // pipelines
   EID rect_pipeline;
   EID triangle_pipeline;
@@ -113,13 +111,13 @@ EngineInit(const Engine_Startup_Info* info)
   REGISTER_COMPONENT(Pipeline_Program, NULL, NULL);
   REGISTER_COMPONENT(Font, NULL, NULL);
   REGISTER_COMPONENT(Config_File, NULL, NULL);
-  // NOTE: Config_Entry is not a component, but who cares
-  REGISTER_COMPONENT(Config_Entry, HashConfigEntry, CompareConfigEntries);
+  // NOTE: CVar is not a component, but who cares
+  REGISTER_COMPONENT(CVar, HashConfigEntry, CompareConfigEntries);
 
   InitAssetManager(&g_context->asset_manager);
 
-  g_context->config = CreateConfig(&g_context->ecs, &g_context->asset_manager,
-                                   CreateEntity(&g_context->ecs), "variables.ini");
+  g_config = CreateConfig(&g_context->ecs, &g_context->asset_manager,
+                        CreateEntity(&g_context->ecs), "variables.ini");
 
   int options[] = { 1, 2, 4, 8, 16, 32 };
   VkSampleCountFlagBits values[] = { VK_SAMPLE_COUNT_1_BIT, VK_SAMPLE_COUNT_2_BIT, VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_8_BIT, VK_SAMPLE_COUNT_16_BIT, VK_SAMPLE_COUNT_32_BIT };
@@ -135,7 +133,7 @@ EngineInit(const Engine_Startup_Info* info)
 
   {
     // TODO: check for null
-    int dim = *GetVar_Int(g_context->config, "Render.shadow_map_dim");
+    int dim = *GetVar_Int(g_config, "Render.shadow_map_dim");
     CreateShadowPass(&g_context->shadow_pass, &g_context->forward_pass,
                      dim, dim);
   }
@@ -339,14 +337,21 @@ EngineUpdateAndRender()
     NewBitmapFrame(&g_context->bitmap_renderer);
     Vec2 pos = { 0.04f, 0.4f };
     Vec2 text_size = { 0.05f, 0.05f };
-    Vec4 color = { 1.0f, 0.3f, 0.24f, 0.95f };
+    uint32_t color = PACK_COLOR(220, 119, 0, 205);
     Font* font = GetComponent(&g_context->ecs, g_context->arial_font, &type_info_Font);
-    DrawText(&g_context->bitmap_renderer, font, "Banana", &text_size, &color, &pos);
+    DrawText(&g_context->bitmap_renderer, font, "Banana", &text_size, color, &pos);
     pos = (Vec2) { 0.04f, 0.7f };
     text_size = (Vec2) { 0.05f, 0.05f };
-    color = (Vec4) { 1.0f, 0.3f, 0.24f, 0.95f };
+    color = PACK_COLOR(5, 9, 0, 205);
     DrawText(&g_context->bitmap_renderer, font,
-             GetVar_String(g_context->config, "Misc.some_string"), &text_size, &color, &pos);
+             GetVar_String(g_config, "Misc.some_string"), &text_size, color, &pos);
+    pos = (Vec2) { 0.7f, 0.02f };
+    text_size = (Vec2) { 0.05f, 0.1f };
+    color = PACK_COLOR(4, 59, 200, 254);
+    DrawQuad(&g_context->bitmap_renderer, &pos, &text_size, color);
+    pos = (Vec2) { 0.7f, 0.14f };
+    color = PACK_COLOR(4, 200, 59, 130);
+    DrawQuad(&g_context->bitmap_renderer, &pos, &text_size, color);
   }
 
   VkDescriptorSet ds_set;
@@ -358,8 +363,8 @@ EngineUpdateAndRender()
     ds_set = g_context->shadow_pass.scene_data_set;
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->layout,
                         0, 1, &ds_set, 0, NULL);
-    float depth_bias_constant = *GetVar_Float(g_context->config, "Render.depth_bias_constant");
-    float depth_bias_slope = *GetVar_Float(g_context->config, "Render.depth_bias_slope");
+    float depth_bias_constant = *GetVar_Float(g_config, "Render.depth_bias_constant");
+    float depth_bias_slope = *GetVar_Float(g_config, "Render.depth_bias_slope");
     vkCmdSetDepthBias(cmd, depth_bias_constant, 0.0f, depth_bias_slope);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
     DrawVoxels(&g_context->vox_drawer, cmd);
@@ -428,6 +433,8 @@ EngineUpdateAndRender()
 
     // draw text
     RenderBitmaps(&g_context->bitmap_renderer, cmd);
+    // draw quads!
+    RenderQuads(&g_context->bitmap_renderer, cmd);
   }
   vkCmdEndRenderPass(cmd);
 

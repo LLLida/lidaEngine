@@ -26,7 +26,7 @@ typedef struct {
   Vec3 position;
   uint32_t color;
 
-} Voxel_Vertex;
+} Vertex_X3C;
 
 typedef struct {
 
@@ -71,7 +71,7 @@ typedef struct {
   // TODO: use index buffer
   // VkBuffer index_buffer;
 
-  Voxel_Vertex* pVertices;
+  Vertex_X3C* pVertices;
   Transform* pTransforms;
   size_t max_vertices;
   size_t max_draws;
@@ -80,7 +80,7 @@ typedef struct {
   size_t vertex_offset;
   size_t transform_offset;
 
-  Voxel_Vertex* vertex_temp_buffer;
+  Vertex_X3C* vertex_temp_buffer;
   size_t vertex_temp_buffer_size;
 
   struct {
@@ -220,9 +220,9 @@ GetVoxelGridMaxGeneratedVertices(const Voxel_Grid* grid)
 }
 
 INTERNAL uint32_t
-GenerateVoxelGridMeshNaive(const Voxel_Grid* grid, Voxel_Vertex* vertices, int face)
+GenerateVoxelGridMeshNaive(const Voxel_Grid* grid, Vertex_X3C* vertices, int face)
 {
-  Voxel_Vertex* begin = vertices;
+  Vertex_X3C* begin = vertices;
   Vec3 half_size = {
     grid->width *  0.5f,
     grid->height * 0.5f,
@@ -274,11 +274,11 @@ GetInVoxelGridChecked(const Voxel_Grid* grid, uint32_t x, uint32_t y, uint32_t z
 }
 
 INTERNAL uint32_t
-GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Voxel_Vertex* vertices, int face)
+GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int face)
 {
   // TODO: my dream is to make this function execute fast, processing
   // 4 or 8 voxels at same time
-  Voxel_Vertex* begin = vertices;
+  Vertex_X3C* begin = vertices;
   float inv_size;
   // TODO: we currently have no Min() function defined... shame
   if (grid->width <= grid->height && grid->height <= grid->depth) {
@@ -438,7 +438,7 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
   drawer->num_hashes_cached = 0;
   drawer->num_regions_cached = 0;
   // create buffers
-  VkResult err = CreateBuffer(&drawer->vertex_buffer, max_vertices * sizeof(Voxel_Vertex),
+  VkResult err = CreateBuffer(&drawer->vertex_buffer, max_vertices * sizeof(Vertex_X3C),
                               VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/vertex-buffer");
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to create vertex buffer for storing voxel meshes with error %s",
@@ -490,7 +490,7 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
   }
   // allocate vertex temp buffer
   drawer->vertex_temp_buffer_size = 20 * 1024;
-  drawer->vertex_temp_buffer = (Voxel_Vertex*)PersistentAllocate(drawer->vertex_temp_buffer_size * sizeof(Voxel_Vertex));
+  drawer->vertex_temp_buffer = (Vertex_X3C*)PersistentAllocate(drawer->vertex_temp_buffer_size * sizeof(Vertex_X3C));
   //
   drawer->max_draws = max_draws;
   drawer->max_vertices = max_vertices;
@@ -678,7 +678,7 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
         // copy temporary buffer to newly found free region
         memcpy(drawer->pVertices + drawer->vertex_offset,
                drawer->vertex_temp_buffer,
-               command->vertexCount * sizeof(Voxel_Vertex));
+               command->vertexCount * sizeof(Vertex_X3C));
       } else {
         // if there's enough space we can write vertices directly to buffer
         command->vertexCount =
@@ -737,18 +737,18 @@ PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint
                       int using_colors)
 {
   GLOBAL VkVertexInputBindingDescription g_bindings[2] = {
-    { 0, sizeof(Voxel_Vertex), VK_VERTEX_INPUT_RATE_VERTEX },
+    { 0, sizeof(Vertex_X3C), VK_VERTEX_INPUT_RATE_VERTEX },
     { 1, sizeof(Transform), VK_VERTEX_INPUT_RATE_INSTANCE }
   };
   GLOBAL VkVertexInputAttributeDescription g_attributes1[5] = {
-    { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Voxel_Vertex, position) },
-    { 1, 0, VK_FORMAT_R32_UINT, offsetof(Voxel_Vertex, color) },
+    { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex_X3C, position) },
+    { 1, 0, VK_FORMAT_R32_UINT, offsetof(Vertex_X3C, color) },
     { 2, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Transform, rotation) },
     { 3, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Transform, position) },
     { 4, 1, VK_FORMAT_R32_SFLOAT, offsetof(Transform, scale) },
   };
   GLOBAL VkVertexInputAttributeDescription g_attributes2[4] = {
-    { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Voxel_Vertex, position) },
+    { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex_X3C, position) },
     { 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Transform, rotation) },
     { 2, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Transform, position) },
     { 3, 1, VK_FORMAT_R32_SFLOAT, offsetof(Transform, scale) },

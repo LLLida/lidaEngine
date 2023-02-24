@@ -2,7 +2,7 @@
   Configuration through INI files.
  */
 
-enum Config_Entry_Type {
+enum CVar_Type {
   CONFIG_INTEGER,
   CONFIG_FLOAT,
   CONFIG_STRING
@@ -18,9 +18,9 @@ typedef struct {
   } value;
   int type;
 
-} Config_Entry;
+} CVar;
 
-DECLARE_COMPONENT(Config_Entry);
+DECLARE_COMPONENT(CVar);
 
 typedef struct {
 
@@ -30,6 +30,8 @@ typedef struct {
 } Config_File;
 
 DECLARE_COMPONENT(Config_File);
+
+GLOBAL Config_File* g_config;
 
 
 /// private functions
@@ -79,14 +81,14 @@ SkipSpacesLeft(char* s)
 INTERNAL uint32_t
 HashConfigEntry(const void* obj)
 {
-  const Config_Entry* entry = obj;
+  const CVar* entry = obj;
   return HashString32(entry->name);
 }
 
 INTERNAL int
 CompareConfigEntries(const void* lhs, const void* rhs)
 {
-  const Config_Entry* l = lhs, *r = rhs;
+  const CVar* l = lhs, *r = rhs;
   return strcmp(l->name, r->name);
 }
 
@@ -147,7 +149,7 @@ ParseConfig(const char* filename, Config_File* config)
                     lineno, filename);
         } else {
           // allocate a string for name
-          Config_Entry entry;
+          CVar entry;
           entry.name = config->buff + buff_offset;
           buff_offset += stbsp_sprintf(entry.name, "%s.%s", current_section, name) + 1;
           if (buff_offset >= buff_size) {
@@ -185,7 +187,7 @@ ParseConfig(const char* filename, Config_File* config)
           }
           // insert to hash table
           // TODO: check if hash table is out of space
-          FHT_Insert(&config->vars, &type_info_Config_Entry, &entry);
+          FHT_Insert(&config->vars, &type_info_CVar, &entry);
         }
       }
     }
@@ -201,7 +203,7 @@ ConfigFile_ReloadFunc(void* component, const char* path, void* udata)
 {
   (void)udata;
   Config_File* config = component;
-  FHT_Clear(&config->vars, &type_info_Config_Entry);
+  FHT_Clear(&config->vars, &type_info_CVar);
   ParseConfig(path, config);
 }
 
@@ -211,8 +213,8 @@ CreateConfig(ECS* ecs, Asset_Manager* am, EID entity, const char* name)
   Config_File* config = AddComponent(ecs, entity, &type_info_Config_File);
   const int max_vars = 32;
   FHT_Init(&config->vars,
-           config->buff+sizeof(config->buff) - FHT_CALC_SIZE(&type_info_Config_Entry, max_vars),
-           max_vars, &type_info_Config_Entry);
+           config->buff+sizeof(config->buff) - FHT_CALC_SIZE(&type_info_CVar, max_vars),
+           max_vars, &type_info_CVar);
   ParseConfig(name, config);
   AddAsset(am, entity, name, &type_info_Config_File,
            ConfigFile_ReloadFunc, NULL);
@@ -222,7 +224,7 @@ CreateConfig(ECS* ecs, Asset_Manager* am, EID entity, const char* name)
 INTERNAL int*
 GetVar_Int(Config_File* config, const char* var)
 {
-  Config_Entry* entry = FHT_Search(&config->vars, &type_info_Config_Entry, &var);
+  CVar* entry = FHT_Search(&config->vars, &type_info_CVar, &var);
   if (entry) {
     if (entry->type == CONFIG_INTEGER) {
       return &entry->value.int_;
@@ -235,7 +237,7 @@ GetVar_Int(Config_File* config, const char* var)
 INTERNAL float*
 GetVar_Float(Config_File* config, const char* var)
 {
-  Config_Entry* entry = FHT_Search(&config->vars, &type_info_Config_Entry, &var);
+  CVar* entry = FHT_Search(&config->vars, &type_info_CVar, &var);
   if (entry) {
     if (entry->type == CONFIG_FLOAT) {
       return &entry->value.float_;
@@ -248,7 +250,7 @@ GetVar_Float(Config_File* config, const char* var)
 INTERNAL const char*
 GetVar_String(Config_File* config, const char* var)
 {
-  Config_Entry* entry = FHT_Search(&config->vars, &type_info_Config_Entry, &var);
+  CVar* entry = FHT_Search(&config->vars, &type_info_CVar, &var);
   if (entry) {
     if (entry->type == CONFIG_STRING) {
       return entry->value.str;

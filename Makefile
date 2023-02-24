@@ -26,8 +26,9 @@ LDFLAGS += $(shell pkg-config --libs sdl2)
 
 # uncomment if using ASAN
 # NOTE: don't forget to do 'make clean' before build if you changed flags!
-CFLAGS += -fsanitize=address -fno-omit-frame-pointer
-LDFLAGS += -fsanitize=address -fno-omit-frame-pointer -lrt
+# NOTE: renderdoc doesn't work with ASAN enabled
+# CFLAGS += -fsanitize=address -fno-omit-frame-pointer
+# LDFLAGS += -fsanitize=address -fno-omit-frame-pointer -lrt
 
 SHADERS := $(wildcard shaders/*.comp) $(wildcard shaders/*.vert) $(wildcard shaders/*.frag)
 SPIRVS := $(addprefix $(DATADIR)/, $(SHADERS:shaders/%=%.spv))
