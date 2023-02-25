@@ -229,6 +229,9 @@ CreateBitmapRenderer(Bitmap_Renderer* renderer)
               ToString_VkResult(err));
     return err;
   }
+  // NOTE: fixing a horrible bug, that was scaring me 2 days.
+  // without this line of code you would get VK_ERROR_DEVICE_LOST 60% of the time.
+  renderer->q_current_index = renderer->indices_mapped + renderer->max_indices;
   return err;
 }
 
@@ -278,13 +281,13 @@ INTERNAL void
 RenderQuads(Bitmap_Renderer* renderer, VkCommandBuffer cmd)
 {
   PROFILE_FUNCTION();
-  if (renderer->q_current_vertex == (Vertex_X2C*)renderer->b_vertices_mapped + renderer->q_max_vertex)
+  uint32_t num_indices = (renderer->indices_mapped + renderer->max_indices) - renderer->q_current_index;
+  if (num_indices == 0)
     return;
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipelines[1]);
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(cmd, 0, 1, &renderer->vertex_buffer, &offset);
   vkCmdBindIndexBuffer(cmd, renderer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
-  uint32_t num_indices = (renderer->indices_mapped + renderer->max_indices) - renderer->q_current_index;
   uint32_t first_index = renderer->q_current_index - renderer->indices_mapped;
   vkCmdDrawIndexed(cmd, num_indices, 1, first_index, 0, 0);
 }
