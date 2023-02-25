@@ -846,3 +846,126 @@ SeedRandom(Random_State* rng, uint64_t initstate, uint64_t initseq)
 // TODO: various convenience functions: generate range of random
 // numbers, generate a uniformly distributed number, generate float
 // number etc.
+
+
+/// Builtin profiler
+
+#if !defined(PROFILER_DISABLE) && defined(__GNUC__)
+
+#define PROFILE_FUNCTION() Profile_Section profile_section_ __attribute__((cleanup(ProfilerEndSection))); \
+  ProfilerBeginSection(&profile_section_, __func__);
+
+typedef struct {
+
+  const char* name;
+  uint64_t start;
+  uint64_t duration;
+  size_t thread_id;
+
+} Profile_Section;
+
+typedef struct {
+
+  // TODO: number needs tweaking
+  Profile_Section buff[128*1024];
+  uint32_t offset;
+  int enabled;
+
+} Profiler;
+
+GLOBAL Profiler g_profiler;
+
+INTERNAL void
+ProfilerStart()
+{
+  g_profiler.offset = 0;
+  g_profiler.enabled = 1;
+}
+
+// save profile results to a json file
+// NOTE: use chrome://tracing to view it
+INTERNAL void
+ProfilerSaveJSON(const char* filename)
+{
+  // open file
+  void* file = PlatformOpenFileForWrite(filename);
+  if (file == NULL) {
+    LOG_WARN("failed to open file '%s' for saving profile with error %s",
+             filename, PlatformGetError());
+    return;
+  }
+
+  // we need microseconds, not seconds
+  uint64_t frequency = PlatformGetPerformanceFrequency() / 1000000;
+
+  const char* header = "{\"otherData\": {},\"traceEvents\":[{}";
+  PlatformWriteToFile(file, header, strlen(header));
+
+  char buff[512];
+  for (uint32_t i = 0; i < g_profiler.offset; i++) {
+    // some metadata
+    size_t bytes = stbsp_snprintf(buff, sizeof(buff), ",\n{\"cat\":\"function\",\n");
+    PlatformWriteToFile(file, buff, bytes);
+    // duration
+    bytes = stbsp_snprintf(buff, sizeof(buff), "\"dur\" : %lu,\n", g_profiler.buff[i].duration / frequency);
+    PlatformWriteToFile(file, buff, bytes);
+    // name
+    bytes = stbsp_snprintf(buff, sizeof(buff), "\"name\" : \"%s\",\n", g_profiler.buff[i].name);
+    PlatformWriteToFile(file, buff, bytes);
+    // pid
+    bytes = stbsp_snprintf(buff, sizeof(buff), "\"ph\":\"X\", \"pid\":0,\n");
+    PlatformWriteToFile(file, buff, bytes);
+    // thread id
+    bytes = stbsp_snprintf(buff, sizeof(buff), "\"tid\": %lu,", g_profiler.buff[i].thread_id);
+    PlatformWriteToFile(file, buff, bytes);
+    // start
+    bytes = stbsp_snprintf(buff, sizeof(buff), "\"ts\": %lu\n}", g_profiler.buff[i].start / frequency);
+    PlatformWriteToFile(file, buff, bytes);
+  }
+
+  const char* footer = "]}";
+  PlatformWriteToFile(file, footer, strlen(footer));
+
+  // close file
+  PlatformCloseFileForWrite(file);
+}
+
+INTERNAL void
+ProfilerBeginSection(Profile_Section* section, const char* name)
+{
+  if (!g_profiler.enabled)
+    return;
+  if (g_profiler.offset == ARR_SIZE(g_profiler.buff)) {
+    LOG_WARN("profiler is out of space, disabling it");
+    g_profiler.enabled = 0;
+  }
+  section->name = name;
+  section->start = PlatformGetPerformanceCounter();
+  section->thread_id = PlatformThreadId();
+}
+
+INTERNAL void
+ProfilerEndSection(Profile_Section* section)
+{
+  if (!g_profiler.enabled)
+    return;
+  Assert(section->name);
+  section->duration = PlatformGetPerformanceCounter() - section->start;
+  memcpy(&g_profiler.buff[g_profiler.offset], section, sizeof(Profile_Section));
+  g_profiler.offset++;
+}
+
+#else
+
+#define PROFILE_FUNCTION()
+
+INTERNAL void ProfilerStart() {}
+
+INTERNAL void
+ProfilerSaveJSON(const char* file)
+{
+  (void)file;
+  LOG_WARN("either profiler was disabled at compile time or it is not supported");
+}
+
+#endif

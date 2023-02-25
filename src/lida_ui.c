@@ -100,6 +100,7 @@ typedef struct {
 INTERNAL VkResult
 CreateBitmapRenderer(Bitmap_Renderer* renderer)
 {
+  PROFILE_FUNCTION();
   if (g_ft_library == NULL) {
     FT_Error error = FT_Init_FreeType(&g_ft_library);
     if (error != 0) {
@@ -257,6 +258,7 @@ NewBitmapFrame(Bitmap_Renderer* renderer)
 INTERNAL void
 RenderBitmaps(Bitmap_Renderer* renderer, VkCommandBuffer cmd)
 {
+  PROFILE_FUNCTION();
   if (renderer->num_draws == 0)
     return;
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipelines[0]);
@@ -275,6 +277,7 @@ RenderBitmaps(Bitmap_Renderer* renderer, VkCommandBuffer cmd)
 INTERNAL void
 RenderQuads(Bitmap_Renderer* renderer, VkCommandBuffer cmd)
 {
+  PROFILE_FUNCTION();
   if (renderer->q_current_vertex == (Vertex_X2C*)renderer->b_vertices_mapped + renderer->q_max_vertex)
     return;
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipelines[1]);
@@ -289,6 +292,7 @@ RenderQuads(Bitmap_Renderer* renderer, VkCommandBuffer cmd)
 INTERNAL VkResult
 CreateFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, uint32_t width, uint32_t height)
 {
+  PROFILE_FUNCTION();
   atlas->extent = (VkExtent2D) { width, height };
   atlas->lines = 0;
   // create image
@@ -370,6 +374,7 @@ DestroyFontAtlas(Font_Atlas* atlas)
 INTERNAL uint32_t
 LoadToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cmd, Font* font, const char* font_name, uint32_t pixel_size)
 {
+  PROFILE_FUNCTION();
   // load font, process it with Freetype and then send updated data to GPU
   FT_Face face;
   size_t buffer_size = 0;
@@ -385,7 +390,7 @@ LoadToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cm
   if (error != 0) {
     LOG_ERROR("FreeType: failed to load face from file '%s' with error '%s'",
               font_name, FT_Error_String(error));
-    PlatformFreeFile(buffer);
+    PlatformFreeLoadedFile(buffer);
     return UINT32_MAX;
   }
   FT_Set_Pixel_Sizes(face, 0, pixel_size);
@@ -417,7 +422,7 @@ LoadToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cm
   stbrp_setup_heuristic(&rect_packing, STBRP_HEURISTIC_Skyline_default);
   if (stbrp_pack_rects(&rect_packing, rects, ARR_SIZE(rects)-32) == 0) {
     LOG_ERROR("failed to pack glyphs to bitmap :( maybe try to pick smaller font size?");
-    PlatformFreeFile(buffer);
+    PlatformFreeLoadedFile(buffer);
     return UINT32_MAX;
   }
   PersistentRelease(rect_nodes);
@@ -437,7 +442,7 @@ LoadToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cm
     if (max_height > atlas->extent.height) {
       LOG_ERROR("not enough space in font atlas; required extent is at least [%u, %u]",
                 atlas->extent.width, max_height);
-      PlatformFreeFile(buffer);
+      PlatformFreeLoadedFile(buffer);
       return UINT32_MAX;
     }
     // NOTE: we multiply here by 4 because format is RGBA8 - 4 bytes
@@ -497,7 +502,7 @@ LoadToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cm
                        0, NULL,
                        1, &barrier);
   atlas->lines = max_height;
-  PlatformFreeFile(buffer);
+  PlatformFreeLoadedFile(buffer);
   return 0;
 }
 

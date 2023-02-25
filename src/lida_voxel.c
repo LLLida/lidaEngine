@@ -325,6 +325,7 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
 #endif
                             )
 {
+  PROFILE_FUNCTION();
   // TODO: my dream is to make this function execute fast, processing
   // 4 or 8 voxels at same time
   Vertex_X3C* const first_vertex = vertices;
@@ -445,6 +446,7 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
 INTERNAL int
 LoadVoxelGrid(Allocator* allocator, Voxel_Grid* grid, const uint8_t* buffer, uint32_t size)
 {
+  PROFILE_FUNCTION();
   const ogt_vox_scene* scene = ogt_vox_read_scene(buffer, size);
   if (scene == NULL) {
     LOG_WARN("failed to parse voxel model");
@@ -474,6 +476,7 @@ LoadVoxelGrid(Allocator* allocator, Voxel_Grid* grid, const uint8_t* buffer, uin
 INTERNAL int
 LoadVoxelGridFromFile(Allocator* allocator, Voxel_Grid* grid, const char* filename)
 {
+  PROFILE_FUNCTION();
   size_t buff_size;
   uint8_t* buffer = (uint8_t*)PlatformLoadEntireFile(filename, &buff_size);
   if (buffer == NULL) {
@@ -481,7 +484,7 @@ LoadVoxelGridFromFile(Allocator* allocator, Voxel_Grid* grid, const char* filena
     return -1;
   }
   int ret = LoadVoxelGrid(allocator, grid, buffer, buff_size);
-  PlatformFreeFile(buffer);
+  PlatformFreeLoadedFile(buffer);
   return ret;
 }
 
@@ -491,6 +494,7 @@ LoadVoxelGridFromFile(Allocator* allocator, Voxel_Grid* grid, const char* filena
 INTERNAL VkResult
 CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_vertices, uint32_t max_draws)
 {
+  PROFILE_FUNCTION();
   for (int i = 0; i < 2; i++) {
     drawer->frames[i].draws = DoAllocation(allocator, 6 * max_draws * sizeof(VX_Draw_Command),
                                            "voxel-draws");
@@ -608,6 +612,7 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
 INTERNAL void
 DestroyVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator)
 {
+  PROFILE_FUNCTION();
 #if VX_USE_INDICES
   FreeAllocation(allocator, drawer->index_temp_buffer);
   FreeAllocation(allocator, drawer->vertex_temp_buffer);
@@ -685,6 +690,7 @@ UpdateVoxelDrawerCache(Voxel_Drawer* drawer)
 INTERNAL void
 NewVoxelDrawerFrame(Voxel_Drawer* drawer)
 {
+  PROFILE_FUNCTION();
   drawer->frame_id = 1 - drawer->frame_id;
   if (drawer->frame_id == 0)
     drawer->transform_offset = 0;
@@ -746,6 +752,7 @@ VX_FindNearestDraw(Voxel_Drawer* drawer, uint32_t offset)
 INTERNAL void
 PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transform* transform)
 {
+  PROFILE_FUNCTION();
   uint32_t index = drawer->frames[drawer->frame_id].num_meshes;
   // add transform
   memcpy(&drawer->pTransforms[drawer->transform_offset], transform, sizeof(Transform));
@@ -838,6 +845,7 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
 INTERNAL void
 DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
 {
+  PROFILE_FUNCTION();
   VkDeviceSize offsets[] = { 0, 0 };
   VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer };
   vkCmdBindVertexBuffers(cmd, 0, ARR_SIZE(buffers), buffers, offsets);
@@ -871,6 +879,7 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
 INTERNAL void
 DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal_id)
 {
+  PROFILE_FUNCTION();
   VkDeviceSize offsets[] = { 0, 0 };
   VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer };
   vkCmdBindVertexBuffers(cmd, 0, ARR_SIZE(buffers), buffers, offsets);

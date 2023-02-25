@@ -285,9 +285,29 @@ PlatformLoadEntireFile(const char* path, size_t* buff_size)
 }
 
 void
-PlatformFreeFile(void* data)
+PlatformFreeLoadedFile(void* data)
 {
   SDL_free(data);
+}
+
+void*
+PlatformOpenFileForWrite(const char* path)
+{
+  // TODO: prepend data_dir
+  SDL_RWops* file = SDL_RWFromFile(path, "wb");
+  return file;
+}
+
+void
+PlatformWriteToFile(void* file, const void* bytes, size_t sz)
+{
+  SDL_RWwrite((SDL_RWops*)file, bytes, sz, 1);
+}
+
+void
+PlatformCloseFileForWrite(void* file)
+{
+  SDL_RWclose((SDL_RWops*)file);
 }
 
 int

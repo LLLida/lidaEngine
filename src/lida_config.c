@@ -195,7 +195,7 @@ ParseConfig(const char* filename, Config_File* config)
     line = (next) ? (next+1) : NULL;
     lineno++;
   }
-  PlatformFreeFile(file_contents);
+  PlatformFreeLoadedFile(file_contents);
 }
 
 INTERNAL void

@@ -100,6 +100,10 @@ EngineInit(const Engine_Startup_Info* info)
 {
   const size_t total_memory = 16 * 1024 * 1024;
   InitMemoryChunk(&g_persistent_memory, PlatformAllocateMemory(total_memory), total_memory);
+
+  ProfilerStart();
+  PROFILE_FUNCTION();
+
   const char* device_extensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
   CreateDevice(info->enable_debug_layers,
                info->gpu_id,
@@ -162,18 +166,14 @@ EngineInit(const Engine_Startup_Info* info)
   g_context->triangle_pipeline = CreateEntity(&g_context->ecs);
   g_context->voxel_pipeline = CreateEntity(&g_context->ecs);
   g_context->shadow_pipeline = CreateEntity(&g_context->ecs);
-  AddPipelineProgramComponent(&g_context->ecs, &g_context->asset_manager, g_context->rect_pipeline,
-                              "rect.vert.spv", "rect.frag.spv",
-                              &CreateRectPipeline, &g_context->deletion_queue);
-  AddPipelineProgramComponent(&g_context->ecs, &g_context->asset_manager, g_context->triangle_pipeline,
-                              "triangle.vert.spv", "triangle.frag.spv",
-                              &CreateTrianglePipeline, &g_context->deletion_queue);
-  AddPipelineProgramComponent(&g_context->ecs, &g_context->asset_manager, g_context->voxel_pipeline,
-                              "voxel.vert.spv", "voxel.frag.spv",
-                              &CreateVoxelPipeline, &g_context->deletion_queue);
-  AddPipelineProgramComponent(&g_context->ecs, &g_context->asset_manager, g_context->shadow_pipeline,
-                              "shadow_voxel.vert.spv", NULL,
-                              &CreateShadowPipeline, &g_context->deletion_queue);
+#define ADD_PIPELINE(pipeline, vertex_sh, fragment_sh, func) AddPipelineProgramComponent(&g_context->ecs, &g_context->asset_manager, g_context->pipeline, \
+                                                                                         vertex_sh, fragment_sh, \
+                                                                                         func, &g_context->deletion_queue)
+
+  ADD_PIPELINE(rect_pipeline, "rect.vert.spv", "rect.frag.spv", CreateRectPipeline);
+  ADD_PIPELINE(triangle_pipeline, "triangle.vert.spv", "triangle.frag.spv", CreateTrianglePipeline);
+  ADD_PIPELINE(voxel_pipeline, "voxel.vert.spv", "voxel.frag.spv", CreateVoxelPipeline);
+  ADD_PIPELINE(shadow_pipeline, "shadow_voxel.vert.spv", NULL, CreateShadowPipeline);
 
   CreateVoxelDrawer(&g_context->vox_drawer, &g_context->vox_allocator, 128*1024, 32);
 
@@ -233,6 +233,7 @@ EngineInit(const Engine_Startup_Info* info)
 void
 EngineFree()
 {
+  PROFILE_FUNCTION();
   {
     FOREACH_COMPONENT(Voxel_Grid) {
       FreeVoxelGrid(&g_context->vox_allocator, &components[i]);
@@ -278,12 +279,16 @@ EngineFree()
 
   DestroyWindow(0);
   DestroyDevice(0);
+
+  ProfilerSaveJSON("trace.json");
+
   PlatformFreeMemory(g_persistent_memory.ptr);
 }
 
 void
 EngineUpdateAndRender()
 {
+  PROFILE_FUNCTION();
   // calculate time difference
   g_context->prev_time = g_context->curr_time;
   g_context->curr_time = PlatformGetTicks();

@@ -707,6 +707,7 @@ CreateDevice(int enable_debug_layers, uint32_t gpu_id,
              const char** device_extensions,
              uint32_t num_device_extensions)
 {
+  PROFILE_FUNCTION();
   // allocate memory for our big structure
   g_device = PersistentAllocate(sizeof(Device_Vulkan));
 
@@ -783,6 +784,7 @@ CreateDevice(int enable_debug_layers, uint32_t gpu_id,
 INTERNAL void
 DestroyDevice(int free_memory)
 {
+  PROFILE_FUNCTION();
   FHT_Iterator it;
 
   FHT_FOREACH(&g_device->pipeline_layout_cache, &g_device->pipeline_layout_info_type, &it) {
@@ -1447,7 +1449,7 @@ LoadShader(const char* path, const Shader_Reflect** reflect)
       *reflect = &shader_info->reflect;
     }
   }
-  PlatformFreeFile(buffer);
+  PlatformFreeLoadedFile(buffer);
   return ret;
 }
 
@@ -1488,7 +1490,7 @@ ForceUpdateShader(const char* path)
   vkDestroyShaderModule(g_device->logical_device, shader_info->module, NULL);
   shader_info->module = ret;
   ReflectSPIRV(buffer, buffer_size / sizeof(uint32_t), &shader_info->reflect);
-  PlatformFreeFile(buffer);
+  PlatformFreeLoadedFile(buffer);
   return VK_SUCCESS;
 }
 
@@ -1675,6 +1677,7 @@ CreatePipelineLayout(const Shader_Reflect** shader_templates, size_t count)
 INTERNAL VkResult
 CreateGraphicsPipelines(VkPipeline* pipelines, size_t count, const Pipeline_Desc* descs, VkPipelineLayout* layouts)
 {
+  PROFILE_FUNCTION();
   // allocate some structures
   VkGraphicsPipelineCreateInfo* create_infos = PersistentAllocate(count * sizeof(VkGraphicsPipelineCreateInfo));
   VkPipelineShaderStageCreateInfo* stages = PersistentAllocate(2 * count * sizeof(VkPipelineShaderStageCreateInfo));

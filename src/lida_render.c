@@ -572,6 +572,7 @@ SH_AllocateDescriptorSets(Shadow_Pass* pass, const Forward_Pass* fwd_pass)
 INTERNAL VkResult
 CreateForwardPass(Forward_Pass* pass, uint32_t width, uint32_t height, VkSampleCountFlagBits samples)
 {
+  PROFILE_FUNCTION();
   memset(pass, 0, sizeof(Forward_Pass));
   pass->render_extent = (VkExtent2D) {width, height};
   FWD_ChooseFromats(pass, samples);
@@ -622,6 +623,7 @@ DestroyForwardPass(Forward_Pass* pass)
 INTERNAL void
 ResizeForwardPass(Forward_Pass* pass, uint32_t width, uint32_t height)
 {
+  PROFILE_FUNCTION();
   // destroy attachments
   vkDestroyFramebuffer(g_device->logical_device, pass->framebuffer, NULL);
   vkDestroyImageView(g_device->logical_device, pass->depth_image_view, NULL);
@@ -680,6 +682,7 @@ SendForwardPassData(Forward_Pass* pass)
 INTERNAL void
 BeginForwardPass(Forward_Pass* pass, VkCommandBuffer cmd, float clear_color[4])
 {
+  PROFILE_FUNCTION();
   VkClearValue clearValues[2];
   // color attachment
   memcpy(clearValues[0].color.float32, clear_color, sizeof(float) * 4);
@@ -711,6 +714,7 @@ BeginForwardPass(Forward_Pass* pass, VkCommandBuffer cmd, float clear_color[4])
 INTERNAL VkResult
 CreateShadowPass(Shadow_Pass* pass, const Forward_Pass* fwd_pass, uint32_t width, uint32_t height)
 {
+  PROFILE_FUNCTION();
   pass->extent.width = width;
   pass->extent.height = height;
   VkResult err = SH_CreateRenderPass(pass, fwd_pass);

@@ -125,7 +125,11 @@ void PlatformHideCursor();
 void PlatformShowCursor();
 
 void* PlatformLoadEntireFile(const char* path, size_t* buff_size);
-void PlatformFreeFile(void* data);
+void PlatformFreeLoadedFile(void* data);
+
+void* PlatformOpenFileForWrite(const char* path);
+void PlatformWriteToFile(void* file, const void* bytes, size_t sz);
+void PlatformCloseFileForWrite(void* file);
 
 int PlatformCreateWindow();
 void PlatformDestroyWindow();

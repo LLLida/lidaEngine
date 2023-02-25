@@ -322,6 +322,7 @@ CreateWindowFrames()
 INTERNAL VkResult
 CreateWindow(int vsync)
 {
+  PROFILE_FUNCTION();
   g_window = PersistentAllocate(sizeof(Vulkan_Window));
   memset(g_window, 0, sizeof(Vulkan_Window));
   // we just hope that 8 images are enough
@@ -372,6 +373,7 @@ DestroyWindow(int free_memory)
 INTERNAL VkResult
 ResizeWindow()
 {
+  PROFILE_FUNCTION();
   for (uint32_t i = 0; i < g_window->num_images; i++) {
     vkDestroyFramebuffer(g_device->logical_device, g_window->images[i].framebuffer, NULL);
     vkDestroyImageView(g_device->logical_device, g_window->images[i].image_view, NULL);
@@ -388,6 +390,7 @@ ResizeWindow()
 INTERNAL VkCommandBuffer
 BeginCommands()
 {
+  PROFILE_FUNCTION();
   Window_Frame* frame = &g_window->frames[g_window->frame_counter % 2];
   VkCommandBufferBeginInfo begin_info = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
   vkBeginCommandBuffer(frame->cmd, &begin_info);
@@ -397,6 +400,7 @@ BeginCommands()
 INTERNAL VkResult
 BeginRenderingToWindow()
 {
+  PROFILE_FUNCTION();
   Window_Frame* frame = &g_window->frames[g_window->frame_counter % 2];
   VkResult err = vkAcquireNextImageKHR(g_device->logical_device,
                                        g_window->swapchain,
@@ -442,6 +446,7 @@ BeginRenderingToWindow()
 INTERNAL VkResult
 PresentToScreen()
 {
+  PROFILE_FUNCTION();
   Window_Frame* frame = &g_window->frames[g_window->frame_counter % 2];
   VkResult err;
   // wait till commands from previous frame are done, so we can safely use GPU resources
