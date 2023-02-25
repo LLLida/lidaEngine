@@ -128,6 +128,7 @@ EngineInit(const Engine_Startup_Info* info)
 
   g_config = CreateConfig(&g_context->ecs, &g_context->asset_manager,
                         CreateEntity(&g_context->ecs), "variables.ini");
+  g_profiler.enabled = *GetVar_Int(g_config, "Misc.profiling");
 
   int options[] = { 1, 2, 4, 8, 16, 32 };
   VkSampleCountFlagBits values[] = { VK_SAMPLE_COUNT_1_BIT, VK_SAMPLE_COUNT_2_BIT, VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_8_BIT, VK_SAMPLE_COUNT_16_BIT, VK_SAMPLE_COUNT_32_BIT };
@@ -299,6 +300,7 @@ EngineUpdateAndRender()
     case 31:
       // get file notifications every 32 frame
       UpdateAssets(&g_context->asset_manager);
+      g_profiler.enabled = *GetVar_Int(g_config, "Misc.profiling");
       break;
 
     case 30:

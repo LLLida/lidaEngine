@@ -933,9 +933,7 @@ ProfilerSaveJSON(const char* filename)
 INTERNAL void
 ProfilerBeginSection(Profile_Section* section, const char* name)
 {
-  if (!g_profiler.enabled)
-    return;
-  if (g_profiler.offset == ARR_SIZE(g_profiler.buff)) {
+  if (g_profiler.enabled && g_profiler.offset == ARR_SIZE(g_profiler.buff)) {
     LOG_WARN("profiler is out of space, disabling it");
     g_profiler.enabled = 0;
   }
