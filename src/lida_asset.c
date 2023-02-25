@@ -24,20 +24,6 @@ typedef struct {
 
 } Asset_Manager;
 
-typedef void(*Pipeline_Create_Func)(Pipeline_Desc* description);
-
-typedef struct {
-
-  VkPipeline pipeline;
-  VkPipelineLayout layout;
-  // this is only accessed when compiling pipeline
-  Pipeline_Create_Func create_func;
-  const char* vertex_shader;
-  const char* fragment_shader;
-
-} Pipeline_Program;
-DECLARE_COMPONENT(Pipeline_Program);
-
 
 /// private functions
 

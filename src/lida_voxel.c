@@ -82,19 +82,23 @@ typedef struct {
   size_t vertex_offset;
   size_t transform_offset;
 
-  Vertex_X3C* vertex_temp_buffer;
+  Allocation* vertex_temp_buffer;
   size_t vertex_temp_buffer_size;
 
+#if VX_USE_INDICES
+  Allocation* index_temp_buffer;
+#endif
+
   struct {
-    VX_Draw_Command* draws;
+    Allocation* draws;
     size_t num_draws;
-    VX_Mesh_Info* meshes;
+    Allocation* meshes;
     size_t num_meshes;
   } frames[2];
 
-  VX_Draw_Hash* hashes_cached;
+  Allocation* hashes_cached;
   size_t num_hashes_cached;
-  VX_Draw_ID* regions_cached;
+  Allocation* regions_cached;
   size_t num_regions_cached;
 
 } Voxel_Drawer;
@@ -485,20 +489,25 @@ LoadVoxelGridFromFile(Allocator* allocator, Voxel_Grid* grid, const char* filena
 /// Voxel drawer
 
 INTERNAL VkResult
-CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draws)
+CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_vertices, uint32_t max_draws)
 {
   for (int i = 0; i < 2; i++) {
-    // TODO: use allocator
-    drawer->frames[i].draws = PersistentAllocate(6 * max_draws * sizeof(VX_Draw_Command));
-    drawer->frames[i].meshes = PersistentAllocate(max_vertices * sizeof(VX_Mesh_Info));
+    drawer->frames[i].draws = DoAllocation(allocator, 6 * max_draws * sizeof(VX_Draw_Command),
+                                           "voxel-draws");
+    drawer->frames[i].meshes = DoAllocation(allocator, max_draws * sizeof(VX_Mesh_Info),
+                                            "voxel-mesh-cache");
     drawer->frames[i].num_draws = 0;
     drawer->frames[i].num_meshes = 0;
+    if (drawer->frames[i].draws == 0 || drawer->frames[i].meshes == 0) {
+      LOG_ERROR("out of memory");
+    }
   }
-  // TODO: I think, we're allocating too much memory for caches. Hoping
-  // we will have a good allocator soon.
-  // NOTE: we have allocator now, but I'm too lazy to integrate it at the moment.
-  drawer->hashes_cached = PersistentAllocate(NearestPow2(max_draws) * sizeof(VX_Draw_Hash));
-  drawer->regions_cached = PersistentAllocate(max_draws * sizeof(VX_Draw_ID));
+  drawer->hashes_cached = DoAllocation(allocator,
+                                       NearestPow2(max_draws) * sizeof(VX_Draw_Hash),
+                                       "voxel-hash-cache");
+  drawer->regions_cached = DoAllocation(allocator,
+                                        max_draws * sizeof(VX_Draw_ID),
+                                        "voxel-draw-cache");
   drawer->num_hashes_cached = 0;
   drawer->num_regions_cached = 0;
   // create buffers
@@ -580,7 +589,14 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
 #endif
   // allocate vertex temp buffer
   drawer->vertex_temp_buffer_size = 20 * 1024;
-  drawer->vertex_temp_buffer = (Vertex_X3C*)PersistentAllocate(drawer->vertex_temp_buffer_size * sizeof(Vertex_X3C));
+  drawer->vertex_temp_buffer = DoAllocation(allocator,
+                                            drawer->vertex_temp_buffer_size * sizeof(Vertex_X3C),
+                                            "voxel-temp-vertex-buffer");
+#if VX_USE_INDICES
+  drawer->index_temp_buffer = DoAllocation(allocator,
+                                           drawer->vertex_temp_buffer_size * 3 / 2 * sizeof(uint32_t),
+                                           "voxel-temp-index-buffer");
+#endif
   // init fields
   drawer->max_draws = max_draws;
   drawer->max_vertices = max_vertices;
@@ -590,9 +606,18 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
 }
 
 INTERNAL void
-DestroyVoxelDrawer(Voxel_Drawer* drawer)
+DestroyVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator)
 {
-  PersistentRelease(drawer->vertex_temp_buffer);
+#if VX_USE_INDICES
+  FreeAllocation(allocator, drawer->index_temp_buffer);
+  FreeAllocation(allocator, drawer->vertex_temp_buffer);
+  FreeAllocation(allocator, drawer->regions_cached);
+  FreeAllocation(allocator, drawer->hashes_cached);
+  FreeAllocation(allocator, drawer->frames[1].meshes);
+  FreeAllocation(allocator, drawer->frames[1].draws);
+  FreeAllocation(allocator, drawer->frames[0].meshes);
+  FreeAllocation(allocator, drawer->frames[0].draws);
+#endif
   vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
   vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
   vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
@@ -609,15 +634,15 @@ CompareVX_DrawID(const void* lhs, const void* rhs)
 INTERNAL void
 UpdateVoxelDrawerCache(Voxel_Drawer* drawer)
 {
-  VX_Mesh_Info* prev_meshes = drawer->frames[1-drawer->frame_id].meshes;
+  VX_Mesh_Info* prev_meshes = drawer->frames[1-drawer->frame_id].meshes->ptr;
   size_t n = drawer->frames[1-drawer->frame_id].num_meshes;
   const uint32_t n2 = NearestPow2(n);
 
   drawer->num_hashes_cached = n2;
   drawer->num_regions_cached = n+1;
 
-  VX_Draw_Hash* hashes = drawer->hashes_cached;
-  VX_Draw_ID* regions = drawer->regions_cached;
+  VX_Draw_Hash* hashes = drawer->hashes_cached->ptr;
+  VX_Draw_ID* regions = drawer->regions_cached->ptr;
 
   for (size_t  i = 0; i < n; i++) {
     regions[i].draw_id = i;
@@ -674,8 +699,8 @@ VX_FindDrawByHash(Voxel_Drawer* drawer, uint64_t hash)
   uint32_t n = drawer->num_hashes_cached;
   if (n > 0) {
     // n is always power of two
-    VX_Draw_Hash* hashes = (VX_Draw_Hash*)drawer->hashes_cached;
-    VX_Mesh_Info* prev_meshes = (VX_Mesh_Info*)drawer->frames[1-drawer->frame_id].meshes;
+    VX_Draw_Hash* hashes = drawer->hashes_cached->ptr;
+    VX_Mesh_Info* prev_meshes = drawer->frames[1-drawer->frame_id].meshes->ptr;
     uint32_t id = hash & (n-1);
     uint32_t psl = 0;
     while (1) {
@@ -702,9 +727,9 @@ VX_FindNearestDraw(Voxel_Drawer* drawer, uint32_t offset)
 {
   // based on https://en.cppreference.com/w/cpp/algorithm/upper_bound
   uint32_t n = drawer->num_regions_cached;
-  VX_Draw_ID* regions = drawer->regions_cached;
+  VX_Draw_ID* regions = drawer->regions_cached->ptr;
   VX_Draw_ID* ptr = regions;
-  VX_Mesh_Info* prev_meshes = drawer->frames[1-drawer->frame_id].meshes;
+  VX_Mesh_Info* prev_meshes = drawer->frames[1-drawer->frame_id].meshes->ptr;
   while (n > 0) {
     uint32_t step = n / 2;
     VX_Draw_ID* it = ptr + step;
@@ -724,11 +749,13 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
   uint32_t index = drawer->frames[drawer->frame_id].num_meshes;
   // add transform
   memcpy(&drawer->pTransforms[drawer->transform_offset], transform, sizeof(Transform));
+  VX_Mesh_Info* current_meshes = drawer->frames[drawer->frame_id].meshes->ptr;
+  VX_Draw_Command* current_draws = drawer->frames[drawer->frame_id].draws->ptr;
   if (index > 0) {
     // try to use instancing if same mesh is pushed twice
-    VX_Mesh_Info* prev_mesh = &drawer->frames[drawer->frame_id].meshes[index-1];
+    VX_Mesh_Info* prev_mesh = &current_meshes[index-1];
     if (prev_mesh->hash == grid->hash) {
-      VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws;
+      VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws->ptr;
       for (uint32_t i = 0; i < 6; i++) {
         draws[prev_mesh->first_draw_id+i].instanceCount++;
       }
@@ -737,16 +764,16 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
     }
   }
   const uint32_t* draw_id = VX_FindDrawByHash(drawer, grid->hash);
-  VX_Mesh_Info* prev_meshes = drawer->frames[1-drawer->frame_id].meshes;
-  VX_Mesh_Info* mesh = &drawer->frames[drawer->frame_id].meshes[drawer->frames[drawer->frame_id].num_meshes++];
+  VX_Mesh_Info* prev_meshes = drawer->frames[1-drawer->frame_id].meshes->ptr;
+  VX_Mesh_Info* mesh = &current_meshes[drawer->frames[drawer->frame_id].num_meshes++];
   if (draw_id) {
     // if we found that a grid with exact same hash was rendered in previous frame then
     // we use previous frame's vertices in this frame.
     // This helps to not waste time generating same vertices every frame.
-    VX_Draw_Command* prev_draws = drawer->frames[1-drawer->frame_id].draws;
+    VX_Draw_Command* prev_draws = drawer->frames[1-drawer->frame_id].draws->ptr;
     memcpy(mesh, &prev_meshes[*draw_id], sizeof(VX_Mesh_Info));
     for (int i = 0; i < 6; i++) {
-      VX_Draw_Command* dst = &drawer->frames[drawer->frame_id].draws[drawer->frames[drawer->frame_id].num_draws++];
+      VX_Draw_Command* dst = &current_draws[drawer->frames[drawer->frame_id].num_draws++];
       VX_Draw_Command* src = &prev_draws[prev_meshes[*draw_id].first_draw_id + i];
       dst->firstVertex = src->firstVertex;
       dst->vertexCount = src->vertexCount;
@@ -763,15 +790,15 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
     uint32_t base_index = 0;
 #endif
     for (int i = 0; i < 6; i++) {
-      VX_Draw_Command* command = &drawer->frames[drawer->frame_id].draws[drawer->frames[drawer->frame_id].num_draws++];
+      VX_Draw_Command* command = &current_draws[drawer->frames[drawer->frame_id].num_draws++];
       if (upper_bound > d->first_vertex) {
         // if we're not sure if we can write voxels safely at this position
         // then write to a temporary buffer and see if we can fit to current free region
 #if VX_USE_INDICES
         // TODO: do we need index_temp_buffer?
         uint32_t index_offset = drawer->vertex_offset*3/2;
-        command->vertexCount = GenerateVoxelGridMeshGreedy(grid, drawer->vertex_temp_buffer, i,
-                                                          base_index, drawer->pIndices + index_offset);
+        command->vertexCount = GenerateVoxelGridMeshGreedy(grid, (Vertex_X3C*)drawer->vertex_temp_buffer->ptr, i,
+                                                           base_index, (uint32_t*)drawer->index_temp_buffer + index_offset);
         base_index += command->vertexCount;
 #else
         command->vertexCount = GenerateVoxelGridMeshGreedy(grid, drawer->vertex_temp_buffer, i);
@@ -817,7 +844,7 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
 #if VX_USE_INDICES
   vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
 #endif
-  VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws;
+  VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws->ptr;
   for (uint32_t i = 0; i < drawer->frames[drawer->frame_id].num_draws; i += 6) {
     VX_Draw_Command* command = &draws[i];
     // merge draw calls
@@ -850,7 +877,7 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
 #if VX_USE_INDICES
   vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
 #endif
-  VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws;
+  VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws->ptr;
   for (uint32_t i = normal_id; i < drawer->frames[drawer->frame_id].num_draws; i += 6) {
     VX_Draw_Command* command = &draws[i];
 #if VX_USE_INDICES

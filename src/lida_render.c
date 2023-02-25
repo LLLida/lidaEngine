@@ -62,11 +62,25 @@ typedef struct {
 
 } Deletion_Queue;
 
+typedef void(*Pipeline_Create_Func)(Pipeline_Desc* description);
+
+typedef struct {
+
+  VkPipeline pipeline;
+  VkPipelineLayout layout;
+  // this is only accessed when compiling pipeline
+  Pipeline_Create_Func create_func;
+  const char* vertex_shader;
+  const char* fragment_shader;
+
+} Pipeline_Program;
+DECLARE_COMPONENT(Pipeline_Program);
+
 // we always pass color as uint32_t and decompress it on GPU
 #define PACK_COLOR(r, g, b, a) ((a) << 24) | ((b) << 16) | ((g) << 8) | (r)
 
 
-/// Functions primarily by this module
+/// private functions
 
 INTERNAL void
 FWD_ChooseFromats(Forward_Pass* pass, VkSampleCountFlagBits samples)
@@ -767,6 +781,15 @@ ShadowPassViewport(Shadow_Pass* pass, VkViewport** p_viewport, VkRect2D** p_scis
   rect.extent.height = pass->extent.height;
   *p_viewport = &viewport;
   *p_scissor = &rect;
+}
+
+INTERNAL void
+cmdBindProgram(VkCommandBuffer cmd, const Pipeline_Program* prog,
+               uint32_t descriptor_set_count, VkDescriptorSet* descriptor_sets)
+{
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->layout,
+                          0, descriptor_set_count, descriptor_sets, 0, NULL);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
 }
 
 INTERNAL int

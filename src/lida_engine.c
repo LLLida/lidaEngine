@@ -175,7 +175,7 @@ EngineInit(const Engine_Startup_Info* info)
                               "shadow_voxel.vert.spv", NULL,
                               &CreateShadowPipeline, &g_context->deletion_queue);
 
-  CreateVoxelDrawer(&g_context->vox_drawer, 128*1024, 32);
+  CreateVoxelDrawer(&g_context->vox_drawer, &g_context->vox_allocator, 128*1024, 32);
 
   g_context->arial_font = CreateEntity(&g_context->ecs);
 
@@ -242,7 +242,7 @@ EngineFree()
   // wait until commands from previous frames are ended so we can safely destroy GPU resources
   vkDeviceWaitIdle(g_device->logical_device);
 
-  DestroyVoxelDrawer(&g_context->vox_drawer);
+  DestroyVoxelDrawer(&g_context->vox_drawer, &g_context->vox_allocator);
 
   DestroyFontAtlas(&g_context->font_atlas);
   DestroyBitmapRenderer(&g_context->bitmap_renderer);
@@ -368,14 +368,12 @@ EngineUpdateAndRender()
   // render to shadow map
   BeginShadowPass(&g_context->shadow_pass, cmd);
   {
-    Pipeline_Program* prog = GetComponent(Pipeline_Program, g_context->shadow_pipeline);
-    ds_set = g_context->shadow_pass.scene_data_set;
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->layout,
-                        0, 1, &ds_set, 0, NULL);
     float depth_bias_constant = *GetVar_Float(g_config, "Render.depth_bias_constant");
     float depth_bias_slope = *GetVar_Float(g_config, "Render.depth_bias_slope");
     vkCmdSetDepthBias(cmd, depth_bias_constant, 0.0f, depth_bias_slope);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
+    Pipeline_Program* prog = GetComponent(Pipeline_Program, g_context->shadow_pipeline);
+    ds_set = g_context->shadow_pass.scene_data_set;
+    cmdBindProgram(cmd, prog, 1, &ds_set);
     DrawVoxels(&g_context->vox_drawer, cmd);
   }
   vkCmdEndRenderPass(cmd);
@@ -387,10 +385,7 @@ EngineUpdateAndRender()
     // draw triangles
     Pipeline_Program* prog = GetComponent(Pipeline_Program, g_context->triangle_pipeline);
     ds_set = g_context->forward_pass.scene_data_set;
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            // g_context->triangle_pipeline_layout, 0, 1, &ds_set, 0, NULL);
-                            prog->layout, 0, 1, &ds_set, 0, NULL);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
+    cmdBindProgram(cmd, prog, 1, &ds_set);
     // 1st draw
     Vec4 colors[] = {
       VEC4_CREATE(1.0f, 0.2f, 0.2f, 1.0f),
@@ -411,9 +406,7 @@ EngineUpdateAndRender()
     // draw voxels
     prog = GetComponent(Pipeline_Program, g_context->voxel_pipeline);
     VkDescriptorSet ds_sets[] = { ds_set, g_context->shadow_pass.shadow_set };
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            prog->layout, 0, ARR_SIZE(ds_sets), ds_sets, 0, NULL);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
+    cmdBindProgram(cmd, prog, ARR_SIZE(ds_sets), ds_sets);
     for (uint32_t i = 0; i < 6; i++) {
       vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
       DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i);
@@ -435,9 +428,7 @@ EngineUpdateAndRender()
       Assert(0);
     }
     Pipeline_Program* prog = GetComponent(Pipeline_Program, g_context->rect_pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            prog->layout, 0, 1, &ds_set, 0, NULL);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
+    cmdBindProgram(cmd, prog, 1, &ds_set);
     vkCmdDraw(cmd, 4, 1, 0, 0);
 
     // draw text

@@ -273,7 +273,7 @@ RemoveComponent_ECS(ECS* ecs, Sparse_Set* set, EID entity)
 #define ComponentIDs(type) (EID*)(g_sparse_set_##type .dense->ptr)
 
 // TODO: figure out how we can append __LINE__ to set's name so we can
-// call multipli FOREACH_COMPONENT()s in 1 scope
+// call multiple FOREACH_COMPONENT()s in 1 scope
 #define FOREACH_COMPONENT(type) type* components = ComponentData(type); \
   EID* entities = ComponentIDs(type);                                   \
   (void)entities;                                                       \
