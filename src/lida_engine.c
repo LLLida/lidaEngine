@@ -31,6 +31,7 @@
 #include "lida_asset.c"
 #include "lida_input.c"
 #include "lida_config.c"
+#include "lida_console.c"
 
 typedef struct {
 
@@ -227,6 +228,8 @@ EngineInit(const Engine_Startup_Info* info)
                                         &CameraKeymap_Mouse, &g_context->camera };
   BindKeymap(&g_context->root_keymap);
 
+  InitConsole();
+
   // create pipelines
   BatchCreatePipelines(&g_context->ecs);
 }
@@ -369,6 +372,7 @@ EngineUpdateAndRender()
     pos = (Vec2) { 0.7f, 0.14f };
     color = PACK_COLOR(4, 200, 59, 130);
     DrawQuad(&g_context->quad_renderer, &pos, &text_size, color);
+    UpdateAndDrawConsole(&g_context->quad_renderer);
   }
 
   VkDescriptorSet ds_set;
@@ -506,6 +510,10 @@ RootKeymap_Pressed(PlatformKeyCode key, void* udata)
         uint32_t s = FixFragmentation(&g_context->vox_allocator);
         LOG_INFO("just saved %u bytes", s);
       } break;
+      // '0' popups up console
+    case PlatformKey_0:
+      EnableConsole();
+      break;
       // ALT-C goes to camera mode
     case PlatformKey_C:
       if (modkey_alt) {

@@ -590,6 +590,7 @@ DrawQuad(Quad_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t co
   Quad_Draw* draw;
   if (renderer->num_draws > 0 &&
       renderer->draws[renderer->num_draws-1].set == VK_NULL_HANDLE) {
+    draw = &renderer->draws[renderer->num_draws-1];
     draw->first_index -= 6;
     draw->num_indices += 6;
   } else {
