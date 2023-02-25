@@ -52,12 +52,13 @@ DECLARE_COMPONENT(Font);
 
 typedef struct {
 
+  // NULL if drawing a simple quad
   VkDescriptorSet set;
   uint32_t first_vertex;
   uint32_t first_index;
   uint32_t num_indices;
 
-} Bitmap_Draw;
+} Quad_Draw;
 
 typedef struct {
 
@@ -75,14 +76,14 @@ typedef struct {
   Vertex_X2UC* b_vertices_mapped;
   size_t b_vertex_count;
   uint32_t* b_current_index;
-  Bitmap_Draw draws[128];
+  Quad_Draw draws[128];
   uint32_t num_draws;
   // for rendering quads
   Vertex_X2C* q_current_vertex;
   size_t q_max_vertex;
   uint32_t* q_current_index;
 
-} Bitmap_Renderer;
+} Quad_Renderer;
 
 typedef struct {
 
@@ -98,7 +99,7 @@ typedef struct {
 /// public functions
 
 INTERNAL VkResult
-CreateBitmapRenderer(Bitmap_Renderer* renderer)
+CreateBitmapRenderer(Quad_Renderer* renderer)
 {
   PROFILE_FUNCTION();
   if (g_ft_library == NULL) {
@@ -236,7 +237,7 @@ CreateBitmapRenderer(Bitmap_Renderer* renderer)
 }
 
 INTERNAL void
-DestroyBitmapRenderer(Bitmap_Renderer* renderer)
+DestroyBitmapRenderer(Quad_Renderer* renderer)
 {
   vkDestroyPipeline(g_device->logical_device, renderer->pipelines[1], NULL);
   vkDestroyPipeline(g_device->logical_device, renderer->pipelines[0], NULL);
@@ -248,7 +249,7 @@ DestroyBitmapRenderer(Bitmap_Renderer* renderer)
 
 // naming could be better...
 INTERNAL void
-NewBitmapFrame(Bitmap_Renderer* renderer)
+NewBitmapFrame(Quad_Renderer* renderer)
 {
   renderer->b_vertex_count = 0;
   renderer->num_draws = 0;
@@ -259,41 +260,39 @@ NewBitmapFrame(Bitmap_Renderer* renderer)
 }
 
 INTERNAL void
-RenderBitmaps(Bitmap_Renderer* renderer, VkCommandBuffer cmd)
+RenderQuads(Quad_Renderer* renderer, VkCommandBuffer cmd)
 {
   PROFILE_FUNCTION();
   if (renderer->num_draws == 0)
     return;
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipelines[0]);
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(cmd, 0, 1, &renderer->vertex_buffer, &offset);
   vkCmdBindIndexBuffer(cmd, renderer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
+  VkDescriptorSet prev_set = VK_NULL_HANDLE;
+  if (renderer->draws[0].set == VK_NULL_HANDLE) {
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipelines[1]);
+  }
   for (uint32_t i = 0; i < renderer->num_draws; i++) {
-    Bitmap_Draw* draw = &renderer->draws[i];
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipeline_layouts[0],
-                            0, 1, &draw->set,
-                            0, NULL);
+    Quad_Draw* draw = &renderer->draws[i];
+    // change state only if needed
+    if (draw->set != prev_set) {
+      if (draw->set != VK_NULL_HANDLE) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipelines[0]);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipeline_layouts[0],
+                                0, 1, &draw->set,
+                                0, NULL);
+      } else {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipelines[1]);
+      }
+      prev_set = draw->set;
+    }
+    // NOTE: obviously we could produce less draw calls, but who cares.
     vkCmdDrawIndexed(cmd, draw->num_indices, 1, draw->first_index, draw->first_vertex, 0);
   }
 }
 
-INTERNAL void
-RenderQuads(Bitmap_Renderer* renderer, VkCommandBuffer cmd)
-{
-  PROFILE_FUNCTION();
-  uint32_t num_indices = (renderer->indices_mapped + renderer->max_indices) - renderer->q_current_index;
-  if (num_indices == 0)
-    return;
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, renderer->pipelines[1]);
-  VkDeviceSize offset = 0;
-  vkCmdBindVertexBuffers(cmd, 0, 1, &renderer->vertex_buffer, &offset);
-  vkCmdBindIndexBuffer(cmd, renderer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
-  uint32_t first_index = renderer->q_current_index - renderer->indices_mapped;
-  vkCmdDrawIndexed(cmd, num_indices, 1, first_index, 0, 0);
-}
-
 INTERNAL VkResult
-CreateFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, uint32_t width, uint32_t height)
+CreateFontAtlas(Quad_Renderer* renderer, Font_Atlas* atlas, uint32_t width, uint32_t height)
 {
   PROFILE_FUNCTION();
   atlas->extent = (VkExtent2D) { width, height };
@@ -375,7 +374,7 @@ DestroyFontAtlas(Font_Atlas* atlas)
 }
 
 INTERNAL uint32_t
-LoadToFontAtlas(Bitmap_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cmd, Font* font, const char* font_name, uint32_t pixel_size)
+LoadToFontAtlas(Quad_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cmd, Font* font, const char* font_name, uint32_t pixel_size)
 {
   PROFILE_FUNCTION();
   // load font, process it with Freetype and then send updated data to GPU
@@ -516,11 +515,11 @@ ResetFontAtlas(Font_Atlas* atlas)
 }
 
 INTERNAL void
-DrawText(Bitmap_Renderer* renderer, Font* font, const char* text, const Vec2* size, uint32_t color, const Vec2* pos_)
+DrawText(Quad_Renderer* renderer, Font* font, const char* text, const Vec2* size, uint32_t color, const Vec2* pos_)
 {
   Vec2 pos_glyph = *pos_;
-  Bitmap_Draw* draw = &renderer->draws[renderer->num_draws];
-  *draw = (Bitmap_Draw) {
+  Quad_Draw* draw = &renderer->draws[renderer->num_draws];
+  *draw = (Quad_Draw) {
     .set = font->ds_set,
     .first_vertex = renderer->b_vertex_count,
     .first_index = renderer->b_current_index - renderer->indices_mapped
@@ -566,7 +565,7 @@ DrawText(Bitmap_Renderer* renderer, Font* font, const char* text, const Vec2* si
 }
 
 INTERNAL void
-DrawQuad(Bitmap_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t color)
+DrawQuad(Quad_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t color)
 {
   const Vec2 muls[] = {
     { 1.0f, 1.0f },
@@ -575,9 +574,8 @@ DrawQuad(Bitmap_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t 
     { 0.0f, 0.0f }
   };
   const int indices[6] = { /*1st triangle*/0, 1, 3, /*2nd triangle*/3, 2, 0 };
-  size_t offset = renderer->q_current_vertex - (Vertex_X2C*)renderer->b_vertices_mapped;
   for (int i = 0; i < 6; i++) {
-    *(--renderer->q_current_index) = offset - 4 + indices[i];
+    *(--renderer->q_current_index) = indices[i];
   }
   for (int i = 0; i < 4; i++) {
     *(--renderer->q_current_vertex) = (Vertex_X2C) {
@@ -586,4 +584,11 @@ DrawQuad(Bitmap_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t 
       .color = color,
     };
   }
+  Quad_Draw* draw = &renderer->draws[renderer->num_draws++];
+  *draw = (Quad_Draw) {
+    .set = VK_NULL_HANDLE,
+    .first_vertex = renderer->q_current_vertex - (Vertex_X2C*)renderer->b_vertices_mapped,
+    .first_index = renderer->q_current_index - renderer->indices_mapped,
+    .num_indices = 6,
+  };
 }

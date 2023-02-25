@@ -39,7 +39,7 @@ typedef struct {
   ECS ecs;
   Forward_Pass forward_pass;
   Shadow_Pass shadow_pass;
-  Bitmap_Renderer bitmap_renderer;
+  Quad_Renderer quad_renderer;
   Font_Atlas font_atlas;
   Camera camera;
   Voxel_Drawer vox_drawer;
@@ -149,8 +149,8 @@ EngineInit(const Engine_Startup_Info* info)
                      dim, dim);
   }
 
-  CreateBitmapRenderer(&g_context->bitmap_renderer);
-  CreateFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, 512, 128);
+  CreateBitmapRenderer(&g_context->quad_renderer);
+  CreateFontAtlas(&g_context->quad_renderer, &g_context->font_atlas, 512, 128);
 
   g_context->camera.z_near = 0.01f;
   g_context->camera.position = VEC3_CREATE(0.0f, 0.0f, -2.0f);
@@ -247,7 +247,7 @@ EngineFree()
   DestroyVoxelDrawer(&g_context->vox_drawer, &g_context->vox_allocator);
 
   DestroyFontAtlas(&g_context->font_atlas);
-  DestroyBitmapRenderer(&g_context->bitmap_renderer);
+  DestroyBitmapRenderer(&g_context->quad_renderer);
 
   {
     FOREACH_COMPONENT(Pipeline_Program) {
@@ -348,26 +348,27 @@ EngineUpdateAndRender()
 
   if (g_window->frame_counter == 0) {
     Font* font = AddComponent(&g_context->ecs, Font, g_context->arial_font);
-    LoadToFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, cmd, font, "Consolas.ttf", 32);
+    LoadToFontAtlas(&g_context->quad_renderer, &g_context->font_atlas, cmd, font, "Consolas.ttf", 32);
   } else {
-    NewBitmapFrame(&g_context->bitmap_renderer);
+    NewBitmapFrame(&g_context->quad_renderer);
+    DrawQuad(&g_context->quad_renderer, &VEC2_CREATE(0.04f, 0.36f), &VEC2_CREATE(0.3f, 0.05f), PACK_COLOR(23, 67, 240, 109));
     Vec2 pos = { 0.04f, 0.4f };
     Vec2 text_size = { 0.05f, 0.05f };
     uint32_t color = PACK_COLOR(220, 119, 0, 205);
     Font* font = GetComponent(Font, g_context->arial_font);
-    DrawText(&g_context->bitmap_renderer, font, "Banana", &text_size, color, &pos);
+    DrawText(&g_context->quad_renderer, font, "Banana", &text_size, color, &pos);
     pos = (Vec2) { 0.04f, 0.7f };
     text_size = (Vec2) { 0.05f, 0.05f };
     color = PACK_COLOR(5, 9, 0, 205);
-    DrawText(&g_context->bitmap_renderer, font,
+    DrawText(&g_context->quad_renderer, font,
              GetVar_String(g_config, "Misc.some_string"), &text_size, color, &pos);
     pos = (Vec2) { 0.7f, 0.02f };
     text_size = (Vec2) { 0.05f, 0.1f };
     color = PACK_COLOR(4, 59, 200, 254);
-    DrawQuad(&g_context->bitmap_renderer, &pos, &text_size, color);
+    DrawQuad(&g_context->quad_renderer, &pos, &text_size, color);
     pos = (Vec2) { 0.7f, 0.14f };
     color = PACK_COLOR(4, 200, 59, 130);
-    DrawQuad(&g_context->bitmap_renderer, &pos, &text_size, color);
+    DrawQuad(&g_context->quad_renderer, &pos, &text_size, color);
   }
 
   VkDescriptorSet ds_set;
@@ -438,10 +439,8 @@ EngineUpdateAndRender()
     cmdBindProgram(cmd, prog, 1, &ds_set);
     vkCmdDraw(cmd, 4, 1, 0, 0);
 
-    // draw text
-    RenderBitmaps(&g_context->bitmap_renderer, cmd);
-    // draw quads!
-    RenderQuads(&g_context->bitmap_renderer, cmd);
+    // draw UI stuff
+    RenderQuads(&g_context->quad_renderer, cmd);
   }
   vkCmdEndRenderPass(cmd);
 

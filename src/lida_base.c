@@ -647,6 +647,8 @@ FHT_Init(Fixed_Hash_Table* ht, void* ptr, size_t max_elements, const Type_Info* 
 INTERNAL void*
 FHT_Insert(Fixed_Hash_Table* ht, const Type_Info* type, void* elem)
 {
+  if (ht->size == ht->max)
+    return NULL;
   uint32_t temp_hash = type->hash(elem);
   uint32_t temp_psl = 0;
   size_t id = temp_hash & (ht->max-1);
