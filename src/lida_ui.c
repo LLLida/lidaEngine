@@ -567,6 +567,7 @@ DrawText(Quad_Renderer* renderer, Font* font, const char* text, const Vec2* size
 INTERNAL void
 DrawQuad(Quad_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t color)
 {
+  // generate vertices
   const Vec2 muls[] = {
     { 1.0f, 1.0f },
     { 0.0f, 1.0f },
@@ -574,8 +575,9 @@ DrawQuad(Quad_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t co
     { 0.0f, 0.0f }
   };
   const int indices[6] = { /*1st triangle*/0, 1, 3, /*2nd triangle*/3, 2, 0 };
+  size_t offset = renderer->q_current_vertex - (Vertex_X2C*)renderer->b_vertices_mapped;
   for (int i = 0; i < 6; i++) {
-    *(--renderer->q_current_index) = indices[i];
+    *(--renderer->q_current_index) = offset - 4 + indices[i];
   }
   for (int i = 0; i < 4; i++) {
     *(--renderer->q_current_vertex) = (Vertex_X2C) {
@@ -584,11 +586,19 @@ DrawQuad(Quad_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t co
       .color = color,
     };
   }
-  Quad_Draw* draw = &renderer->draws[renderer->num_draws++];
-  *draw = (Quad_Draw) {
-    .set = VK_NULL_HANDLE,
-    .first_vertex = renderer->q_current_vertex - (Vertex_X2C*)renderer->b_vertices_mapped,
-    .first_index = renderer->q_current_index - renderer->indices_mapped,
-    .num_indices = 6,
-  };
+  // add draw
+  Quad_Draw* draw;
+  if (renderer->num_draws > 0 &&
+      renderer->draws[renderer->num_draws-1].set == VK_NULL_HANDLE) {
+    draw->first_index -= 6;
+    draw->num_indices += 6;
+  } else {
+    draw = &renderer->draws[renderer->num_draws++];
+    *draw = (Quad_Draw) {
+      .set = VK_NULL_HANDLE,
+      .first_vertex = 0,
+      .first_index = renderer->q_current_index - renderer->indices_mapped,
+      .num_indices = 6,
+    };
+  }
 }
