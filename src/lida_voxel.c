@@ -171,7 +171,6 @@ GLOBAL const Vec3 vox_positions[] = {
   {1.0f, 1.0f, 1.0f},
   {1.0f, 0.0f, 1.0f},
   {1.0f, 0.0f, 0.0f},
-  #if 1
   // -y
   {1.0f, 0.0f, 0.0f},
   {1.0f, 0.0f, 1.0f},
@@ -192,28 +191,6 @@ GLOBAL const Vec3 vox_positions[] = {
   {1.0f, 1.0f, 1.0f},
   {0.0f, 1.0f, 1.0f},
   {0.0f, 0.0f, 1.0f},
-  #else
-  // -y
-  {0.0f, 0.0f, 0.0f},
-  {1.0f, 0.0f, 0.0f},
-  {1.0f, 0.0f, 1.0f},
-  {0.0f, 0.0f, 1.0f},
-  // +y
-  {0.0f, 1.0f, 0.0f},
-  {1.0f, 1.0f, 1.0f},
-  {1.0f, 1.0f, 0.0f},
-  {0.0f, 1.0f, 1.0f},
-  // -z
-  {0.0f, 0.0f, 0.0f},
-  {1.0f, 1.0f, 0.0f},
-  {1.0f, 0.0f, 0.0f},
-  {0.0f, 1.0f, 0.0f},
-  // +z
-  {0.0f, 0.0f, 1.0f},
-  {1.0f, 0.0f, 1.0f},
-  {1.0f, 1.0f, 1.0f},
-  {0.0f, 1.0f, 1.0f},
-  #endif
 #else
   // -x
   {0.0f, 1.0f, 1.0f},
@@ -548,6 +525,7 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
     return err;
   }
   // allocate memory
+#if VX_USE_INDICES
   VkMemoryRequirements buffer_requirements[3];
   vkGetBufferMemoryRequirements(g_device->logical_device,
                                 drawer->vertex_buffer, &buffer_requirements[0]);
@@ -555,6 +533,13 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
                                 drawer->transform_buffer, &buffer_requirements[1]);
   vkGetBufferMemoryRequirements(g_device->logical_device,
                                 drawer->index_buffer, &buffer_requirements[2]);
+#else
+  VkMemoryRequirements buffer_requirements[2];
+  vkGetBufferMemoryRequirements(g_device->logical_device,
+                                drawer->vertex_buffer, &buffer_requirements[0]);
+  vkGetBufferMemoryRequirements(g_device->logical_device,
+                                drawer->transform_buffer, &buffer_requirements[1]);
+#endif
   VkMemoryRequirements requirements;
   MergeMemoryRequirements(buffer_requirements, ARR_SIZE(buffer_requirements), &requirements);
   // try to allocate device local memory accessible from CPU
@@ -574,6 +559,7 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
       return err;
     }
   }
+  LOG_TRACE("allocated %u bytes for voxels", (uint32_t)requirements.size);
   // bind buffers to allocated memory
   err = BufferBindToMemory(&drawer->memory, drawer->vertex_buffer,
                            &buffer_requirements[0], (void**)&drawer->pVertices, NULL);
@@ -585,11 +571,13 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
   if (err != VK_SUCCESS) {
     LOG_WARN("failed to bind storage buffer to memory with error %s", ToString_VkResult(err));
   }
+#if VX_USE_INDICES
   err = BufferBindToMemory(&drawer->memory, drawer->index_buffer,
                            &buffer_requirements[2], (void**)&drawer->pIndices, NULL);
   if (err != VK_SUCCESS) {
     LOG_WARN("failed to bind index buffer to memory with error %s", ToString_VkResult(err));
   }
+#endif
   // allocate vertex temp buffer
   drawer->vertex_temp_buffer_size = 20 * 1024;
   drawer->vertex_temp_buffer = (Vertex_X3C*)PersistentAllocate(drawer->vertex_temp_buffer_size * sizeof(Vertex_X3C));

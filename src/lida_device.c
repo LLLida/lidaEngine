@@ -1554,7 +1554,6 @@ GetSampler(VkFilter filter, VkSamplerAddressMode mode)
   }
   // add sampler to cache if succeeded
   FHT_Insert(&g_device->sampler_cache, &g_device->sampler_info_type, &sampler);
-  LOG_TRACE("create a sampler");
   return sampler.handle;
 }
 

@@ -340,7 +340,6 @@ EngineUpdateAndRender()
   VkCommandBuffer cmd = BeginCommands();
 
   if (g_window->frame_counter == 0) {
-    // LoadToFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, cmd, "arial.ttf", 32);
     Font* font = AddComponent(&g_context->ecs, Font, g_context->arial_font);
     LoadToFontAtlas(&g_context->bitmap_renderer, &g_context->font_atlas, cmd, font, "Consolas.ttf", 32);
   } else {

@@ -64,7 +64,7 @@ SetSparseSetMaxID(Allocator* allocator, Sparse_Set* set, EID id)
   } else {
     set->sparse = DoAllocation(allocator, sizeof(uint32_t)*id, set->type_info->name);
   }
-  LOG_TRACE("%s: sparse=%p", set->type_info->name, set->sparse->ptr);
+  // LOG_TRACE("%s: sparse=%p", set->type_info->name, set->sparse->ptr);
   if (set->sparse == NULL) {
     set->sparse = old;
     LOG_WARN("entity component system: out of memory");
