@@ -229,6 +229,10 @@ EngineInit(const Engine_Startup_Info* info)
   BindKeymap(&g_context->root_keymap);
 
   InitConsole();
+  g_console->font = g_context->arial_font;
+  ConsolePutLine("En passant is forced in all positions");
+  ConsolePutLine("I want to eat");
+  ConsolePutLine("Hungry I am!");
 
   // create pipelines
   BatchCreatePipelines(&g_context->ecs);
@@ -372,7 +376,7 @@ EngineUpdateAndRender()
     pos = (Vec2) { 0.7f, 0.14f };
     color = PACK_COLOR(4, 200, 59, 130);
     DrawQuad(&g_context->quad_renderer, &pos, &text_size, color);
-    UpdateAndDrawConsole(&g_context->quad_renderer);
+    UpdateAndDrawConsole(&g_context->quad_renderer, dt);
   }
 
   VkDescriptorSet ds_set;
@@ -510,8 +514,9 @@ RootKeymap_Pressed(PlatformKeyCode key, void* udata)
         uint32_t s = FixFragmentation(&g_context->vox_allocator);
         LOG_INFO("just saved %u bytes", s);
       } break;
-      // '0' popups up console
+      // '0' or '`' popups up console
     case PlatformKey_0:
+    case PlatformKey_BACKQUOTE:
       if (modkey_shift) {
         ShowConsoleBig();
       } else {
