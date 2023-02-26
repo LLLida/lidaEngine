@@ -9,12 +9,23 @@ typedef struct {
 
 } Console_Line;
 
+typedef void(*Console_Command_Func)(uint32_t num, char** args);
+
+typedef struct {
+
+  const char* name;
+  Console_Command_Func func;
+  const char* doc;
+
+} Console_Command;
+DECLARE_TYPE(Console_Command);
+
 typedef struct {
 
   Keymap keymap;
   float bottom;
   float target_y;
-  // recommended value: 5.0
+  // recommended value: 6.0
   float open_speed;
   uint32_t bg_color1;
   uint32_t bg_color2;
@@ -26,6 +37,7 @@ typedef struct {
   uint32_t last_line;
   uint32_t num_lines;
   uint32_t buff_offset;
+  Fixed_Hash_Table env;
   char prompt[256];
   Console_Line lines[128];
   char buffer[8*1024];
@@ -200,10 +212,39 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
       break;
 
     case PlatformKey_RETURN:
-      ConsolePutLine(g_console->prompt, 0);
-      g_console->prompt[0] = '\0';
-      g_console->cursor_pos = 0;
-      break;
+      {
+        // collect arguments
+        // TODO(bug): avoid buffer overflow
+        char buff[256];
+        char* words[8];
+        char* beg = g_console->prompt;
+        uint32_t offset = 0;
+        uint32_t num_words = 0;
+        for (uint32_t i = 0; i <= prompt_len; i++) {
+          // TODO(bug): there may be multiple spaces
+          if (IsSpace(g_console->prompt[i]) || g_console->prompt[i] == '\0') {
+            strncpy(buff+offset, beg, i);
+            beg += i+1;
+            words[num_words++] = buff+offset;
+            offset += i+1;
+          }
+        }
+        if (num_words == 0) {
+          ConsolePutLine("", 0);
+        }
+        // search command
+        Console_Command* command = FHT_Search(&g_console->env,
+                                              GET_TYPE_INFO(Console_Command), &words[0]);
+        if (command == NULL) {
+          LOG_WARN("command '%s' does not exist", words[0]);
+        } else {
+          command->func(num_words-1, words+1);
+        }
+        // ConsolePutLine(g_console->prompt, 0);
+        // clear prompt
+        g_console->prompt[0] = '\0';
+        g_console->cursor_pos = 0;
+      } break;
 
     default:
       break;
@@ -240,7 +281,6 @@ ConsoleKeymap_TextInput(const char* text)
 INTERNAL void
 ConsoleLogCallback(const Log_Event* le)
 {
-  // TODO(feature): color based on level
   uint32_t colors[6] = {
     PACK_COLOR(69, 69, 69, 200),   // TRACE
     PACK_COLOR(154, 205, 50, 240), // DEBUG
@@ -252,6 +292,31 @@ ConsoleLogCallback(const Log_Event* le)
   ConsolePutLine(le->str, colors[le->level]);
 }
 
+INTERNAL void
+ConsoleAddCommand(const char* name, Console_Command_Func func, const char* doc)
+{
+  Console_Command command = { name, func, doc };
+  FHT_Insert(&g_console->env, GET_TYPE_INFO(Console_Command), &command);
+}
+
+INTERNAL uint32_t
+HashConsoleCommand(const void* obj)
+{
+  const Console_Command* command = obj;
+  return HashString32(command->name);
+}
+
+INTERNAL int
+CompareConsoleCommands(const void* lhs, const void* rhs)
+{
+  const Console_Command* l = lhs, *r = rhs;
+  return strcmp(l->name, r->name);
+}
+
+/// list of commands
+INTERNAL void CMD_info(uint32_t num, char** args);
+INTERNAL void CMD_FPS(uint32_t num, char** args);
+
 
 /// public functions
 
@@ -259,7 +324,7 @@ INTERNAL void
 InitConsole()
 {
   g_console = PersistentAllocate(sizeof(Console));
-  g_console->open_speed = 5.0f;
+  g_console->open_speed = 6.0f;
   g_console->bottom = 0.0f;
   g_console->target_y = 0.0f;
   g_console->last_line = ARR_SIZE(g_console->lines)-1;
@@ -273,6 +338,23 @@ InitConsole()
                                  NULL };
   stbsp_sprintf(g_console->prompt, "I'm so hungry :(");
   EngineAddLogger(&ConsoleLogCallback, 0, NULL);
+  REGISTER_TYPE(Console_Command, HashConsoleCommand, CompareConsoleCommands);
+  FHT_Init(&g_console->env,
+           PersistentAllocate(FHT_CALC_SIZE(GET_TYPE_INFO(Console_Command), 64)),
+           64, GET_TYPE_INFO(Console_Command));
+  ConsoleAddCommand("info", CMD_info,
+                    "info COMMAND-NAME\n"
+                    " Print information about command.");
+  ConsoleAddCommand("FPS", CMD_FPS,
+                    "FPS\n"
+                    " Print number of frames per second we're running at.");
+}
+
+INTERNAL void
+FreeConsole()
+{
+  PersistentRelease(g_console->env.ptr);
+  PersistentRelease(g_console);
 }
 
 INTERNAL void
@@ -280,4 +362,43 @@ UpdateAndDrawConsole(Quad_Renderer* renderer, float dt)
 {
   UpdateConsoleState(dt);
   DrawConsole(renderer);
+}
+
+void
+CMD_info(uint32_t num, char** args)
+{
+  if (num != 1) {
+    LOG_WARN("command 'info' accepts only 1 argument; for detailed explanation type 'info info'");
+    return;
+  }
+  char* begin = args[0];
+  Console_Command* command = FHT_Search(&g_console->env, GET_TYPE_INFO(Console_Command), &begin);
+  if (command == 0) {
+    LOG_WARN("command '%s' does not exist", begin);
+    return;
+  }
+  char buff[512];
+  strncpy(buff, command->doc, sizeof(buff));
+  begin = buff;
+  char* it = begin;
+  while (*it) {
+    if (*it == '\n') {
+      *it = '\0';
+      ConsolePutLine(begin, PACK_COLOR(152, 252, 152, 233));
+      begin = it+1;
+    }
+    it++;
+  }
+  ConsolePutLine(begin, PACK_COLOR(152, 252, 152, 233));
+}
+
+void
+CMD_FPS(uint32_t num, char** args)
+{
+  (void)args;
+  if (num != 0) {
+    LOG_WARN("command 'FPS' accepts only 1 argument; for detailed explanation type 'info FPS'");
+    return;
+  }
+  LOG_INFO("FPS=%f", g_window->frames_per_second);
 }
