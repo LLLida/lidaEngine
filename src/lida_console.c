@@ -68,10 +68,10 @@ ConsolePutLine(const char* str)
 INTERNAL void
 UpdateConsoleState(float dt)
 {
-  g_console->bg_color1 = PACK_COLOR(80, 12, 15, 200);
-  g_console->bg_color2 = PACK_COLOR(100, 32, 35, 240);
-  g_console->fg_color1 = PACK_COLOR(255, 255, 255, 255);
-  g_console->fg_color2 = PACK_COLOR(240, 230, 200, 255);
+  g_console->bg_color1 = PACK_COLOR(35, 0, 0, 200);
+  g_console->bg_color2 = PACK_COLOR(40, 10, 8, 240);
+  g_console->fg_color1 = PACK_COLOR(255, 222, 173, 255);
+  g_console->fg_color2 = PACK_COLOR(222, 184, 135, 255);
 
   // TODO: currently we exponential grow. It does look nice when it
   // starts opening, but when it is almost done. It decreases very
