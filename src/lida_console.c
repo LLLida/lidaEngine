@@ -12,8 +12,9 @@ typedef struct {
   uint32_t bg_color2;
   uint32_t fg_color1;
   uint32_t fg_color2;
+  uint32_t cursor_color1;
   EID font;
-  float open_t;
+  int cursor_pos;
   uint32_t last_line;
   uint32_t num_lines;
   uint32_t buff_offset;
@@ -73,6 +74,8 @@ UpdateConsoleState(float dt)
   g_console->fg_color1 = PACK_COLOR(255, 222, 173, 255);
   g_console->fg_color2 = PACK_COLOR(222, 184, 135, 255);
 
+  g_console->cursor_color1 = PACK_COLOR(50, 205, 50, 245);
+
   // TODO: currently we exponential grow. It does look nice when it
   // starts opening, but when it is almost done. It decreases very
   // slow.  Maybe we could introduce something better. (please don't
@@ -87,6 +90,7 @@ DrawConsole(Quad_Renderer* renderer)
 {
   if (g_console->bottom < 0.001f)
     return;
+  // TODO: calculate size in a way that we render pixel-perfect glyphs
   const float prompt_height = 0.04f;
   const float char_size = 0.03f;
   // draw quads
@@ -108,12 +112,21 @@ DrawConsole(Quad_Renderer* renderer)
   while (count > 0) {
     uint32_t id = g_console->last_line + ARR_SIZE(g_console->lines) - g_console->num_lines + count;
     char* line = g_console->lines[id % ARR_SIZE(g_console->lines)];
-    // TODO: change argument orger
+    // TODO(consistency): change argument orger
     DrawText(renderer, font, line, &size, g_console->fg_color2, &pos);
     pos.y -= char_size;
     count--;
   }
-  // draw prompt
+  // draw cursor
+  pos.x = left_pad + g_console->cursor_pos * char_size;
+  pos.y = g_console->bottom - char_size - bottom_pad;
+  size.x = char_size;
+  size.y = char_size;
+  DrawQuad(renderer, &pos, &size, g_console->cursor_color1, 0);
+  // draw prompt text
+  pos.x = left_pad;
+  pos.y = g_console->bottom - bottom_pad;
+  DrawText(renderer, font, g_console->prompt, &size, g_console->fg_color1, &pos);
 }
 
 INTERNAL int
@@ -136,6 +149,16 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
       }
       break;
 
+    case PlatformKey_LEFT:
+      if (g_console->cursor_pos > 0)
+        g_console->cursor_pos -= 1;
+      break;
+
+    case PlatformKey_RIGHT:
+      if (g_console->cursor_pos < strlen(g_console->prompt))
+        g_console->cursor_pos += 1;
+      break;
+
     default:
       break;
 
@@ -156,6 +179,14 @@ ConsoleKeymap_Mouse(int x, int y, int xrel, int yrel, void* udata)
   return 0;
 }
 
+INTERNAL void
+ConsoleKeymap_TextInput(const char* text)
+{
+  if (text[0] == '`' || text[0] == '~')
+    return;
+  LOG_DEBUG("Text input! %s", text);
+}
+
 
 /// public functions
 
@@ -169,11 +200,13 @@ InitConsole()
   g_console->last_line = ARR_SIZE(g_console->lines)-1;
   g_console->num_lines = 0;
   g_console->buff_offset = 0;
+  g_console->cursor_pos = 0;
   g_console->keymap = (Keymap) { ConsoleKeymap_Pressed,
                                  ConsoleKeymap_Released,
                                  ConsoleKeymap_Mouse,
+                                 ConsoleKeymap_TextInput,
                                  NULL };
-
+  stbsp_sprintf(g_console->prompt, "I'm so hungry :(");
 }
 
 INTERNAL void

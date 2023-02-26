@@ -102,6 +102,10 @@ typedef enum {
   PlatformKey_Z = 'z',
 
   // I calculated this myself
+  PlatformKey_RIGHT = 1073741903,
+  PlatformKey_LEFT = 1073741904,
+  PlatformKey_DOWN = 1073741905,
+  PlatformKey_UP = 1073741906,
   PlatformKey_LCTRL = 1073742048,
   PlatformKey_LSHIFT = 1073742049,
   PlatformKey_LALT = 1073742050,
@@ -213,6 +217,7 @@ void EngineKeyReleased(PlatformKeyCode key);
 // platform calls this when mouse moved
 void EngineMouseMotion(int x, int y, int xrel, int yrel);
 
+void EngineTextInput(const char* text);
 
 #ifdef __cplusplus
 }

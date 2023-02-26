@@ -118,6 +118,9 @@ main(int argc, char** argv)
           EngineMouseMotion(event.motion.x, event.motion.y, event.motion.xrel, event.motion.yrel);
           break;
 
+        case SDL_TEXTINPUT:
+          EngineTextInput(event.text.text);
+          break;
         }
     }
 

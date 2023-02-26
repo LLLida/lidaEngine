@@ -7,12 +7,14 @@
 // return 1 to pass event to parent keymap
 typedef int(*Keyboard_Callback)(PlatformKeyCode key, void* udata);
 typedef int(*Mouse_Callback)(int x, int y, int xrel, int yrel, void* udata);
+typedef void(*TextInput_Callback)(const char* text);
 
 typedef struct {
 
   Keyboard_Callback on_pressed;
   Keyboard_Callback on_released;
   Mouse_Callback on_mouse;
+  TextInput_Callback on_text_input;
   void* udata;
 
 } Keymap;
@@ -101,6 +103,15 @@ MouseMotion(int x, int y, int xrel, int yrel)
     }
     curr--;
   } while (pass && curr >= g_keymap_stack);
+}
+
+void TextInput(const char* text)
+{
+  Assert(g_keymap_count > 0 && "No keymaps are bound");
+  Keymap* curr = &g_keymap_stack[g_keymap_count-1];
+  if (curr->on_text_input) {
+    curr->on_text_input(text);
+  }
 }
 
 INTERNAL int
