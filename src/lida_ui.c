@@ -518,12 +518,18 @@ INTERNAL void
 DrawText(Quad_Renderer* renderer, Font* font, const char* text, const Vec2* size, uint32_t color, const Vec2* pos_)
 {
   Vec2 pos_glyph = *pos_;
-  Quad_Draw* draw = &renderer->draws[renderer->num_draws];
-  *draw = (Quad_Draw) {
-    .set = font->ds_set,
-    .first_vertex = renderer->b_vertex_count,
-    .first_index = renderer->b_current_index - renderer->indices_mapped
-  };
+  Quad_Draw* draw;
+  if (renderer->num_draws > 0 &&
+      renderer->draws[renderer->num_draws-1].set == font->ds_set) {
+    draw = &renderer->draws[renderer->num_draws-1];
+  } else {
+    draw = &renderer->draws[renderer->num_draws++];
+    *draw = (Quad_Draw) {
+      .set = font->ds_set,
+      .first_vertex = renderer->b_vertex_count,
+      .first_index = renderer->b_current_index - renderer->indices_mapped
+    };
+  }
   Vec2 scale;
   scale.x = size->x / (float)font->pixel_size;
   scale.y = size->y / (float)font->pixel_size;
@@ -561,11 +567,10 @@ DrawText(Quad_Renderer* renderer, Font* font, const char* text, const Vec2* size
     pos_glyph.y += font->glyphs[(int)*text].advance.y * scale.y;
     text++;
   }
-  renderer->num_draws++;
 }
 
 INTERNAL void
-DrawQuad(Quad_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t color)
+DrawQuad(Quad_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t color, int overlap)
 {
   // generate vertices
   const Vec2 muls[] = {
@@ -589,7 +594,8 @@ DrawQuad(Quad_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t co
   // add draw
   Quad_Draw* draw;
   if (renderer->num_draws > 0 &&
-      renderer->draws[renderer->num_draws-1].set == VK_NULL_HANDLE) {
+      renderer->draws[renderer->num_draws-1].set == VK_NULL_HANDLE &&
+      overlap) {
     draw = &renderer->draws[renderer->num_draws-1];
     draw->first_index -= 6;
     draw->num_indices += 6;

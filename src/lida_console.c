@@ -92,10 +92,10 @@ DrawConsole(Quad_Renderer* renderer)
   // draw quads
   Vec2 pos = {0.0f, g_console->bottom - prompt_height};
   Vec2 size = {1.0f, prompt_height};
-  DrawQuad(renderer, &pos, &size, g_console->bg_color1);
+  DrawQuad(renderer, &pos, &size, g_console->bg_color1, 0);
   pos.y = 0.0f;
   size.y = g_console->bottom - prompt_height;
-  DrawQuad(renderer, &pos, &size, g_console->bg_color2);
+  DrawQuad(renderer, &pos, &size, g_console->bg_color2, 1);
   // draw lines
   Font* font = GetComponent(Font, g_console->font);
   const float left_pad = 0.01f;
@@ -108,7 +108,6 @@ DrawConsole(Quad_Renderer* renderer)
   while (count > 0) {
     uint32_t id = g_console->last_line + ARR_SIZE(g_console->lines) - g_console->num_lines + count;
     char* line = g_console->lines[id % ARR_SIZE(g_console->lines)];
-    // LOG_DEBUG("line = %s pos={%f %f}", line, pos.x, pos.y);
     // TODO: change argument orger
     DrawText(renderer, font, line, &size, g_console->fg_color2, &pos);
     pos.y -= char_size;
@@ -127,6 +126,7 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
       HideConsole();
       break;
 
+      // '`' toggles between console sizes
     case PlatformKey_BACKQUOTE:
       HideConsole();
       if (g_console->bottom > 0.5f) {

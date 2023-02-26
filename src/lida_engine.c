@@ -358,7 +358,7 @@ EngineUpdateAndRender()
     LoadToFontAtlas(&g_context->quad_renderer, &g_context->font_atlas, cmd, font, "Consolas.ttf", 32);
   } else {
     NewBitmapFrame(&g_context->quad_renderer);
-    DrawQuad(&g_context->quad_renderer, &VEC2_CREATE(0.04f, 0.36f), &VEC2_CREATE(0.3f, 0.05f), PACK_COLOR(23, 67, 240, 109));
+    DrawQuad(&g_context->quad_renderer, &VEC2_CREATE(0.04f, 0.36f), &VEC2_CREATE(0.3f, 0.05f), PACK_COLOR(23, 67, 240, 109), 1);
     Vec2 pos = { 0.04f, 0.4f };
     Vec2 text_size = { 0.05f, 0.05f };
     uint32_t color = PACK_COLOR(220, 119, 0, 205);
@@ -372,10 +372,10 @@ EngineUpdateAndRender()
     pos = (Vec2) { 0.7f, 0.02f };
     text_size = (Vec2) { 0.05f, 0.1f };
     color = PACK_COLOR(4, 59, 200, 254);
-    DrawQuad(&g_context->quad_renderer, &pos, &text_size, color);
+    DrawQuad(&g_context->quad_renderer, &pos, &text_size, color, 1);
     pos = (Vec2) { 0.7f, 0.14f };
     color = PACK_COLOR(4, 200, 59, 130);
-    DrawQuad(&g_context->quad_renderer, &pos, &text_size, color);
+    DrawQuad(&g_context->quad_renderer, &pos, &text_size, color, 1);
     UpdateAndDrawConsole(&g_context->quad_renderer, dt);
   }
 
