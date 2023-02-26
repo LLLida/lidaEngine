@@ -4,6 +4,13 @@
 
 typedef struct {
 
+  char* ptr;
+  uint32_t color;
+
+} Console_Line;
+
+typedef struct {
+
   Keymap keymap;
   float bottom;
   float target_y;
@@ -20,7 +27,7 @@ typedef struct {
   uint32_t num_lines;
   uint32_t buff_offset;
   char prompt[256];
-  char* lines[128];
+  Console_Line lines[128];
   char buffer[8*1024];
 
 } Console;
@@ -51,9 +58,10 @@ HideConsole()
   UnbindKeymap();
 }
 
+// pass color=0 to use default color
 // NOTE: str is copied, no worries
 INTERNAL void
-ConsolePutLine(const char* str)
+ConsolePutLine(const char* str, uint32_t color)
 {
   size_t len = strlen(str);
   if (g_console->buff_offset + len >= sizeof(g_console->buffer)) {
@@ -61,7 +69,13 @@ ConsolePutLine(const char* str)
     g_console->buff_offset = 0;
   }
   g_console->last_line = (g_console->last_line+1) % ARR_SIZE(g_console->lines);
-  g_console->lines[g_console->last_line] = strcpy(g_console->buffer+g_console->buff_offset, str);
+  if (color == 0) {
+    color = g_console->fg_color2;
+  }
+  g_console->lines[g_console->last_line] = (Console_Line) {
+    .ptr = strcpy(g_console->buffer+g_console->buff_offset, str),
+    .color = color
+  };
   g_console->buff_offset += len+1;
   if (g_console->num_lines < ARR_SIZE(g_console->lines))
     g_console->num_lines++;
@@ -112,9 +126,9 @@ DrawConsole(Quad_Renderer* renderer)
   uint32_t count = g_console->num_lines;
   while (count > 0) {
     uint32_t id = g_console->last_line + ARR_SIZE(g_console->lines) - g_console->num_lines + count;
-    char* line = g_console->lines[id % ARR_SIZE(g_console->lines)];
+    Console_Line* line = &g_console->lines[id % ARR_SIZE(g_console->lines)];
     // TODO(consistency): change argument orger
-    DrawText(renderer, font, line, &size, g_console->fg_color2, &pos);
+    DrawText(renderer, font, line->ptr, &size, line->color, &pos);
     pos.y -= char_size;
     count--;
   }
@@ -125,10 +139,10 @@ DrawConsole(Quad_Renderer* renderer)
   for (int i = 0; i < g_console->cursor_pos; i++) {
     pos.x += font->glyphs[(int)g_console->prompt[i]].advance.x * char_size;
   }
-  pos.y = g_console->bottom - char_size - bottom_pad;
+  pos.y = g_console->bottom - char_size - 0.5f * bottom_pad;
   // Space has size.x = 0, which does not satisfy us
   if (current_char == ' ' || current_char == '\0') {
-    // 'X' is big it definitely fits fell
+    // 'X' is big. it definitely fits well
     size.x = font->glyphs['X'].size.x * char_size;
   } else {
     size.x = font->glyphs[(int)current_char].size.x * char_size;
@@ -147,6 +161,7 @@ INTERNAL int
 ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
 {
   (void)udata;
+  size_t prompt_len = strlen(g_console->prompt);
   switch (key)
     {
 
@@ -170,22 +185,30 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
       break;
 
     case PlatformKey_RIGHT:
-      if (g_console->cursor_pos < (int)strlen(g_console->prompt))
+      if (g_console->cursor_pos < (int)prompt_len)
         g_console->cursor_pos += 1;
+      break;
+
+      // delete character
+    case PlatformKey_BACKSPACE:
+      if (g_console->cursor_pos > 0) {
+        char* dst = g_console->prompt + g_console->cursor_pos - 1;
+        memmove(dst, dst+1, prompt_len-1);
+        g_console->prompt[prompt_len-1] = '\0';
+        g_console->cursor_pos--;
+      }
+      break;
+
+    case PlatformKey_RETURN:
+      ConsolePutLine(g_console->prompt, 0);
+      g_console->prompt[0] = '\0';
+      g_console->cursor_pos = 0;
       break;
 
     default:
       break;
 
     }
-  return 0;
-}
-
-INTERNAL int
-ConsoleKeymap_Released(PlatformKeyCode key, void* udata)
-{
-  (void)key;
-  (void)udata;
   return 0;
 }
 
@@ -205,7 +228,28 @@ ConsoleKeymap_TextInput(const char* text)
 {
   if (text[0] == '`' || text[0] == '~')
     return;
-  LOG_DEBUG("Text input! %s", text);
+  size_t prompt_len = strlen(g_console->prompt);
+  if (prompt_len+1 == sizeof(g_console->prompt))
+    return;
+  char* src = g_console->prompt + g_console->cursor_pos;
+  memmove(src+1, src, prompt_len - g_console->cursor_pos + 1);
+  g_console->prompt[g_console->cursor_pos] = text[0];
+  g_console->cursor_pos++;
+}
+
+INTERNAL void
+ConsoleLogCallback(const Log_Event* le)
+{
+  // TODO(feature): color based on level
+  uint32_t colors[6] = {
+    PACK_COLOR(69, 69, 69, 200),   // TRACE
+    PACK_COLOR(154, 205, 50, 240), // DEBUG
+    PACK_COLOR(46, 139, 87, 250),  // INFO
+    PACK_COLOR(253, 165, 10, 255), // WARN
+    PACK_COLOR(205, 3, 2, 255),    // ERROR
+    PACK_COLOR(138, 43, 210, 253), // FATAL
+  };
+  ConsolePutLine(le->str, colors[le->level]);
 }
 
 
@@ -223,11 +267,12 @@ InitConsole()
   g_console->buff_offset = 0;
   g_console->cursor_pos = 0;
   g_console->keymap = (Keymap) { ConsoleKeymap_Pressed,
-                                 ConsoleKeymap_Released,
+                                 NULL,
                                  ConsoleKeymap_Mouse,
                                  ConsoleKeymap_TextInput,
                                  NULL };
   stbsp_sprintf(g_console->prompt, "I'm so hungry :(");
+  EngineAddLogger(&ConsoleLogCallback, 0, NULL);
 }
 
 INTERNAL void

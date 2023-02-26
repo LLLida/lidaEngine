@@ -230,9 +230,9 @@ EngineInit(const Engine_Startup_Info* info)
 
   InitConsole();
   g_console->font = g_context->arial_font;
-  ConsolePutLine("En passant is forced in all positions");
-  ConsolePutLine("I want to eat");
-  ConsolePutLine("Hungry I am!");
+  ConsolePutLine("En passant is forced in all positions", 0);
+  ConsolePutLine("I want to eat", 0);
+  ConsolePutLine("Hungry I am!", 0);
 
   // create pipelines
   BatchCreatePipelines(&g_context->ecs);
