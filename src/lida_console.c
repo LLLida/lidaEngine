@@ -7,6 +7,7 @@ typedef struct {
   Keymap keymap;
   float bottom;
   float target_y;
+  // recommended value: 5.0
   float open_speed;
   uint32_t bg_color1;
   uint32_t bg_color2;
@@ -118,20 +119,34 @@ DrawConsole(Quad_Renderer* renderer)
     count--;
   }
   // draw cursor
-  pos.x = left_pad + g_console->cursor_pos * char_size;
+  // Why human text is so complex??? 😵
+  char current_char = g_console->prompt[g_console->cursor_pos];
+  pos.x = left_pad + font->glyphs[(int)current_char].bearing.x * char_size;
+  for (int i = 0; i < g_console->cursor_pos; i++) {
+    pos.x += font->glyphs[(int)g_console->prompt[i]].advance.x * char_size;
+  }
   pos.y = g_console->bottom - char_size - bottom_pad;
-  size.x = char_size;
+  // Space has size.x = 0, which does not satisfy us
+  if (current_char == ' ' || current_char == '\0') {
+    // 'X' is big it definitely fits fell
+    size.x = font->glyphs['X'].size.x * char_size;
+  } else {
+    size.x = font->glyphs[(int)current_char].size.x * char_size;
+  }
   size.y = char_size;
   DrawQuad(renderer, &pos, &size, g_console->cursor_color1, 0);
   // draw prompt text
   pos.x = left_pad;
   pos.y = g_console->bottom - bottom_pad;
+  size.x = char_size;
+  size.y = char_size;
   DrawText(renderer, font, g_console->prompt, &size, g_console->fg_color1, &pos);
 }
 
 INTERNAL int
 ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
 {
+  (void)udata;
   switch (key)
     {
 
@@ -155,7 +170,7 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
       break;
 
     case PlatformKey_RIGHT:
-      if (g_console->cursor_pos < strlen(g_console->prompt))
+      if (g_console->cursor_pos < (int)strlen(g_console->prompt))
         g_console->cursor_pos += 1;
       break;
 
@@ -169,13 +184,19 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
 INTERNAL int
 ConsoleKeymap_Released(PlatformKeyCode key, void* udata)
 {
-
+  (void)key;
+  (void)udata;
   return 0;
 }
 
 INTERNAL int
 ConsoleKeymap_Mouse(int x, int y, int xrel, int yrel, void* udata)
 {
+  (void)x;
+  (void)y;
+  (void)xrel;
+  (void)yrel;
+  (void)udata;
   return 0;
 }
 
@@ -194,7 +215,7 @@ INTERNAL void
 InitConsole()
 {
   g_console = PersistentAllocate(sizeof(Console));
-  g_console->open_speed = 4.0f;
+  g_console->open_speed = 5.0f;
   g_console->bottom = 0.0f;
   g_console->target_y = 0.0f;
   g_console->last_line = ARR_SIZE(g_console->lines)-1;

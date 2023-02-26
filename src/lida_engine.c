@@ -223,7 +223,7 @@ EngineInit(const Engine_Startup_Info* info)
   g_context->deletion_queue.count = 0;
 
   // keybindings
-  g_context->root_keymap = (Keymap) { &RootKeymap_Pressed, NULL, NULL, NULL, NULL, NULL };
+  g_context->root_keymap = (Keymap) { &RootKeymap_Pressed, NULL, NULL, NULL, NULL };
   g_context->camera_keymap = (Keymap) { &CameraKeymap_Pressed, &CameraKeymap_Released,
                                         &CameraKeymap_Mouse, NULL, &g_context->camera };
   BindKeymap(&g_context->root_keymap);

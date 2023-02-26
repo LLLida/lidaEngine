@@ -31,12 +31,11 @@ typedef struct {
 
 typedef struct {
 
-  FT_Vector advance;
-  iVec2 bearing;
-  uint32_t width;
-  uint32_t height;
-  Vec2 offset;
+  Vec2 advance;
+  Vec2 bearing;
   Vec2 size;
+  Vec2 uv_offset;
+  Vec2 uv_size;
 
 } Glyph_Info;
 
@@ -398,20 +397,23 @@ LoadToFontAtlas(Quad_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cmd,
   FT_Set_Pixel_Sizes(face, 0, pixel_size);
   FT_GlyphSlot glyph_slot = face->glyph;
   stbrp_rect rects[128];
+  float inv_size = 1.0f / (float)pixel_size;
+  float inv_extent_width = 1.0f / (float)atlas->extent.width;
+  float inv_extent_height = 1.0f / (float)atlas->extent.height;
   for (size_t i = 32; i < 128; i++) {
     FT_Error err = FT_Load_Char(face, i, FT_LOAD_RENDER);
     if (err) {
       LOG_WARN("freetype: failed to load char '%c' with error(%d) %s", (char)i, err, FT_Error_String(err));
       continue;
     }
-    font->glyphs[i].advance.x = glyph_slot->advance.x >> 6;
-    font->glyphs[i].advance.y = glyph_slot->advance.y >> 6;
-    font->glyphs[i].bearing.x = glyph_slot->bitmap_left;
-    font->glyphs[i].bearing.y = glyph_slot->bitmap_top;
-    font->glyphs[i].width = glyph_slot->bitmap.width;
-    font->glyphs[i].height = glyph_slot->bitmap.rows;
-    font->glyphs[i].size.x = glyph_slot->bitmap.width / (float)atlas->extent.width;
-    font->glyphs[i].size.y = glyph_slot->bitmap.rows / (float)atlas->extent.height;
+    font->glyphs[i].advance.x = (glyph_slot->advance.x >> 6) * inv_size;
+    font->glyphs[i].advance.y = (glyph_slot->advance.y >> 6) * inv_size;
+    font->glyphs[i].bearing.x = glyph_slot->bitmap_left * inv_size;
+    font->glyphs[i].bearing.y = glyph_slot->bitmap_top * inv_size;
+    font->glyphs[i].size.x = glyph_slot->bitmap.width * inv_size;
+    font->glyphs[i].size.y = glyph_slot->bitmap.rows * inv_size;
+    font->glyphs[i].uv_size.x = glyph_slot->bitmap.width * inv_extent_width;
+    font->glyphs[i].uv_size.y = glyph_slot->bitmap.rows * inv_extent_height;
     rects[i-32].id = i;
     rects[i-32].w = glyph_slot->bitmap.width;
     rects[i-32].h = glyph_slot->bitmap.rows;
@@ -459,8 +461,8 @@ LoadToFontAtlas(Quad_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cmd,
         data[pos + 2] = 255;
         data[pos + 3] = glyph_slot->bitmap.buffer[y * glyph_slot->bitmap.width + x];
       }
-    font->glyphs[c].offset.x = rects[i].x / (float)atlas->extent.width;
-    font->glyphs[c].offset.y = (rects[i].y + atlas->lines) / (float)atlas->extent.height;
+    font->glyphs[c].uv_offset.x = rects[i].x * inv_extent_width;
+    font->glyphs[c].uv_offset.y = (rects[i].y + atlas->lines) * inv_extent_height;
   }
   font->pixel_size = pixel_size;
   font->ds_set = atlas->descriptor_set;
@@ -530,18 +532,15 @@ DrawText(Quad_Renderer* renderer, Font* font, const char* text, const Vec2* size
       .first_index = renderer->b_current_index - renderer->indices_mapped
     };
   }
-  Vec2 scale;
-  scale.x = size->x / (float)font->pixel_size;
-  scale.y = size->y / (float)font->pixel_size;
   while (*text) {
     // upload 6 indices and 4 vertices to buffer
     Glyph_Info* glyph = &font->glyphs[(int)*text];
     Vec2 pos;
-    pos.x = pos_glyph.x + glyph->bearing.x * scale.x;
-    pos.y = pos_glyph.y - glyph->bearing.y * scale.y;
+    pos.x = pos_glyph.x + glyph->bearing.x * size->x;
+    pos.y = pos_glyph.y - glyph->bearing.y * size->y;
     Vec2 offset;
-    offset.x = glyph->width * scale.x;
-    offset.y = glyph->height * scale.y;
+    offset.x = glyph->size.x * size->x;
+    offset.y = glyph->size.y * size->y;
     const Vec2 muls[] = {
       { 0.0f, 0.0f },
       { 1.0f, 0.0f },
@@ -556,15 +555,15 @@ DrawText(Quad_Renderer* renderer, Font* font, const char* text, const Vec2* size
       renderer->b_vertices_mapped[renderer->b_vertex_count++] = (Vertex_X2UC) {
         .pos.x = pos.x + offset.x * muls[i].x,
         .pos.y = pos.y + offset.y * muls[i].y,
-        .uv.x = glyph->offset.x + glyph->size.x * muls[i].x,
-        .uv.y = glyph->offset.y + glyph->size.y * muls[i].y,
+        .uv.x = glyph->uv_offset.x + glyph->uv_size.x * muls[i].x,
+        .uv.y = glyph->uv_offset.y + glyph->uv_size.y * muls[i].y,
         .color = color,
       };
     }
     draw->num_indices += 6;
 
-    pos_glyph.x += font->glyphs[(int)*text].advance.x * scale.x;
-    pos_glyph.y += font->glyphs[(int)*text].advance.y * scale.y;
+    pos_glyph.x += font->glyphs[(int)*text].advance.x * size->x;
+    pos_glyph.y += font->glyphs[(int)*text].advance.y * size->y;
     text++;
   }
 }
