@@ -86,10 +86,10 @@ GLOBAL EID grid_2;
 
 /// Engine general functions
 
-INTERNAL void RootKeymap_Pressed(PlatformKeyCode key, void* udata);
-INTERNAL void CameraKeymap_Pressed(PlatformKeyCode key, void* udata);
-INTERNAL void CameraKeymap_Released(PlatformKeyCode key, void* udata);
-INTERNAL void CameraKeymap_Mouse(int x, int y, int xrel, int yrel, void* udata);
+INTERNAL int RootKeymap_Pressed(PlatformKeyCode key, void* udata);
+INTERNAL int CameraKeymap_Pressed(PlatformKeyCode key, void* udata);
+INTERNAL int CameraKeymap_Released(PlatformKeyCode key, void* udata);
+INTERNAL int CameraKeymap_Mouse(int x, int y, int xrel, int yrel, void* udata);
 
 INTERNAL void CreateRectPipeline(Pipeline_Desc* description);
 INTERNAL void CreateTrianglePipeline(Pipeline_Desc* description);
@@ -485,7 +485,7 @@ EngineMouseMotion(int x, int y, int xrel, int yrel)
 
 /// keymaps
 
-void
+int
 RootKeymap_Pressed(PlatformKeyCode key, void* udata)
 {
   (void)udata;
@@ -512,7 +512,11 @@ RootKeymap_Pressed(PlatformKeyCode key, void* udata)
       } break;
       // '0' popups up console
     case PlatformKey_0:
-      EnableConsole();
+      if (modkey_shift) {
+        ShowConsoleBig();
+      } else {
+        ShowConsole();
+      }
       break;
       // ALT-C goes to camera mode
     case PlatformKey_C:
@@ -525,9 +529,10 @@ RootKeymap_Pressed(PlatformKeyCode key, void* udata)
     default:
       break;
     }
+  return 0;
 }
 
-void
+int
 CameraKeymap_Pressed(PlatformKeyCode key, void* udata)
 {
   Camera* camera = udata;
@@ -562,9 +567,10 @@ CameraKeymap_Pressed(PlatformKeyCode key, void* udata)
     default:
       break;
     }
+  return 0;
 }
 
-void
+int
 CameraKeymap_Released(PlatformKeyCode key, void* udata)
 {
   Camera* camera = udata;
@@ -595,15 +601,17 @@ CameraKeymap_Released(PlatformKeyCode key, void* udata)
       break;
 
     }
+  return 0;
 }
 
-void
+int
 CameraKeymap_Mouse(int x, int y, int xrel, int yrel, void* udata)
 {
   Camera* camera = udata;
   (void)x;
   (void)y;
   CameraRotate(camera, yrel, xrel, 0.0f);
+  return 0;
 }
 
 

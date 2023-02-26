@@ -4,8 +4,9 @@
 
  */
 
-typedef void(*Keyboard_Callback)(PlatformKeyCode key, void* udata);
-typedef void(*Mouse_Callback)(int x, int y, int xrel, int yrel, void* udata);
+// return 1 to pass event to parent keymap
+typedef int(*Keyboard_Callback)(PlatformKeyCode key, void* udata);
+typedef int(*Mouse_Callback)(int x, int y, int xrel, int yrel, void* udata);
 
 typedef struct {
 
@@ -59,8 +60,13 @@ KeyPressed(PlatformKeyCode key) {
     modkey_alt = 1;
   }
   Keymap* curr = &g_keymap_stack[g_keymap_count-1];
-  if (curr->on_pressed)
-    curr->on_pressed(key, curr->udata);
+  int pass = 1;
+  do {
+    if (curr->on_pressed) {
+      pass = curr->on_pressed(key, curr->udata);
+    }
+    curr--;
+  } while (pass && curr >= g_keymap_stack);
 }
 
 INTERNAL void
@@ -74,8 +80,13 @@ KeyReleased(PlatformKeyCode key) {
     modkey_alt = 0;
   }
   Keymap* curr = &g_keymap_stack[g_keymap_count-1];
-  if (curr->on_released)
-    curr->on_released(key, curr->udata);
+  int pass = 1;
+  do {
+    if (curr->on_released) {
+      pass = curr->on_released(key, curr->udata);
+    }
+    curr--;
+  } while (pass && curr >= g_keymap_stack);
 }
 
 INTERNAL void
@@ -83,6 +94,30 @@ MouseMotion(int x, int y, int xrel, int yrel)
 {
   Assert(g_keymap_count > 0 && "No keymaps are bound");
   Keymap* curr = &g_keymap_stack[g_keymap_count-1];
-  if (curr->on_mouse)
-    curr->on_mouse(x, y, xrel, yrel, curr->udata);
+  int pass = 1;
+  do {
+    if (curr->on_mouse) {
+      pass = curr->on_mouse(x, y, xrel, yrel, curr->udata);
+    }
+    curr--;
+  } while (pass && curr >= g_keymap_stack);
+}
+
+INTERNAL int
+NilKeyboardCallback(PlatformKeyCode key, void* udata)
+{
+  (void)key;
+  (void)udata;
+  return 0;
+}
+
+INTERNAL int
+NilMouseCallback(int x, int y, int xrel, int yrel, void* udata)
+{
+  (void)x;
+  (void)y;
+  (void)xrel;
+  (void)yrel;
+  (void)udata;
+  return 0;
 }
