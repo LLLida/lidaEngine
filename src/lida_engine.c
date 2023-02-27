@@ -344,6 +344,14 @@ EngineUpdateAndRender()
 
   Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
 
+  // rotate one of the voxel models
+  {
+    Transform* transform = GetComponent(Transform, grid_1);
+    Quat rot;
+    QuatFromEulerAngles(dt * 0.1f, 0.0f, 0.0f, &rot);
+    MultiplyQuats(&transform->rotation, &rot, &transform->rotation);
+  }
+
   NewVoxelDrawerFrame(&g_context->vox_drawer);
 
   FOREACH_COMPONENT(Voxel_Grid) {
@@ -425,7 +433,8 @@ EngineUpdateAndRender()
     cmdBindProgram(cmd, prog, ARR_SIZE(ds_sets), ds_sets);
     for (uint32_t i = 0; i < 6; i++) {
       vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
-      DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i);
+      DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i,
+                            &g_context->camera.position);
     }
   }
   vkCmdEndRenderPass(cmd);
@@ -692,7 +701,8 @@ void CreateVoxelPipeline(Pipeline_Desc* description)
   *description = (Pipeline_Desc) {
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     .polygonMode = VK_POLYGON_MODE_FILL,
-    .cullMode = VK_CULL_MODE_FRONT_BIT,
+    .cullMode = VK_CULL_MODE_NONE,
+    // .cullMode = VK_CULL_MODE_FRONT_BIT,
     .depth_bias_enable = VK_FALSE,
     .msaa_samples = g_context->forward_pass.msaa_samples,
     .depth_test = VK_TRUE,

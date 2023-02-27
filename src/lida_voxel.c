@@ -7,7 +7,7 @@
 
 typedef uint8_t Voxel;
 #define VX_USE_INDICES 1
-#define VX_USE_CULLING 0
+#define VX_USE_CULLING 1
 
 // stores voxels as plain 3D array
 typedef struct {
@@ -40,7 +40,7 @@ typedef struct {
 #if VX_USE_CULLING
   // this is for culling
   Vec3 normal;
-  // vec3 position;
+  Vec3 position;
 #endif
 
 } VX_Draw_Command;
@@ -800,6 +800,7 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
       dst->instanceCount = 1;
 #if VX_USE_CULLING
       RotateByQuat(&f_vox_normals[i], &transform->rotation, &dst->normal);
+      dst->position = transform->position;
 #endif
     }
   } else {
@@ -892,7 +893,8 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
 }
 
 INTERNAL void
-DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal_id)
+DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal_id,
+                      const Vec3* camera_pos)
 {
   PROFILE_FUNCTION();
   VkDeviceSize offsets[] = { 0, 0 };
@@ -904,6 +906,15 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
   VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws->ptr;
   for (uint32_t i = normal_id; i < drawer->frames[drawer->frame_id].num_draws; i += 6) {
     VX_Draw_Command* command = &draws[i];
+
+#if VX_USE_CULLING
+    // try to backface cull this face
+    Vec3 dir = VEC3_SUB(draws[i].position, *camera_pos);
+    float dot = VEC3_DOT(dir, draws[i].normal);
+    if (dot > 0)
+      continue;
+#endif
+
 #if VX_USE_INDICES
     uint32_t vertex_offset = draws[i - i%6].firstVertex;
     vkCmdDrawIndexed(cmd, command->vertexCount*3/2, command->instanceCount,
