@@ -1,6 +1,15 @@
 #+TITLE: lida engine
 #+AUTHOR: Adil Mokhammad
 
+* Features
+
+ * rendering with Vulkan API;
+ * custom voxel rendering algorithm;
+ * all memory used by CPU side is preallocated at startup(1 malloc for entire engine);
+ * CVar system;
+ * hot loadable shaders, voxel models, configuration variables;
+ * builtin console(press "~");
+
 * Build instructions
 
 Build is done with the =GNU Make= program. C and C++ compilers are *required* (currently tested only with =GCC=). =cd= into repository and run =make=. This will produce directory =bin= with binaries in it.
