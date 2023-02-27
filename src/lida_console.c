@@ -214,21 +214,24 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
     case PlatformKey_RETURN:
       {
         // collect arguments
-        // TODO(bug): avoid buffer overflow
-        char buff[256];
+        // NOTE: overflow can't happen because prompt's max size is 256
+        char buff[512];
         char* words[8];
-        char* beg = g_console->prompt;
         uint32_t offset = 0;
         uint32_t num_words = 0;
-        for (uint32_t i = 0; i <= prompt_len; i++) {
-          // TODO(bug): there may be multiple spaces
-          if (IsSpace(g_console->prompt[i]) || g_console->prompt[i] == '\0') {
-            strncpy(buff+offset, beg, i);
-            beg += i+1;
-            words[num_words++] = buff+offset;
-            offset += i+1;
+        char* word = strtok(g_console->prompt, " ");
+        while (word != NULL) {
+          if (num_words == ARR_SIZE(words)) {
+            LOG_WARN("maximum number of arguments is exceeded(which is %lu)", ARR_SIZE(words)-1);
+            break;
           }
+          size_t len = strlen(word);
+          strcpy(buff+offset, word);
+          words[num_words++] = buff+offset;
+          offset += len+1;
+          word = strtok(NULL, " ");
         }
+
         if (num_words == 0) {
           ConsolePutLine("", 0);
         }
@@ -316,6 +319,8 @@ CompareConsoleCommands(const void* lhs, const void* rhs)
 /// list of commands
 INTERNAL void CMD_info(uint32_t num, char** args);
 INTERNAL void CMD_FPS(uint32_t num, char** args);
+INTERNAL void CMD_get(uint32_t num, char** args);
+INTERNAL void CMD_set(uint32_t num, char** args);
 
 
 /// public functions
@@ -339,15 +344,20 @@ InitConsole()
   stbsp_sprintf(g_console->prompt, "I'm so hungry :(");
   EngineAddLogger(&ConsoleLogCallback, 0, NULL);
   REGISTER_TYPE(Console_Command, HashConsoleCommand, CompareConsoleCommands);
+  const uint32_t max_commands = 64;
   FHT_Init(&g_console->env,
-           PersistentAllocate(FHT_CALC_SIZE(GET_TYPE_INFO(Console_Command), 64)),
-           64, GET_TYPE_INFO(Console_Command));
-  ConsoleAddCommand("info", CMD_info,
-                    "info COMMAND-NAME\n"
+           PersistentAllocate(FHT_CALC_SIZE(GET_TYPE_INFO(Console_Command), max_commands)),
+           max_commands, GET_TYPE_INFO(Console_Command));
+#define ADD_COMMAND(cmd, doc) ConsoleAddCommand(#cmd, CMD_##cmd, doc)
+  ADD_COMMAND(info, "info COMMAND-NAME\n"
                     " Print information about command.");
-  ConsoleAddCommand("FPS", CMD_FPS,
-                    "FPS\n"
-                    " Print number of frames per second we're running at.");
+  ADD_COMMAND(FPS, "FPS\n"
+                   " Print number of frames per second we're running at.");
+  ADD_COMMAND(get, "get VARIABLE-NAME\n"
+                   " Print value of configuration variable.");
+  ADD_COMMAND(set, "set VARIABLE-NAME [INTEGER FLOAT STRING]\n"
+                   " Set value of configuration variable.");
+#undef ADD_COMMAND
 }
 
 INTERNAL void
@@ -397,8 +407,78 @@ CMD_FPS(uint32_t num, char** args)
 {
   (void)args;
   if (num != 0) {
-    LOG_WARN("command 'FPS' accepts only 1 argument; for detailed explanation type 'info FPS'");
+    LOG_WARN("command 'FPS' accepts no arguments; for detailed explanation type 'info FPS'");
     return;
   }
   LOG_INFO("FPS=%f", g_window->frames_per_second);
+}
+
+void
+CMD_get(uint32_t num, char** args)
+{
+  if (num != 1) {
+    LOG_WARN("command 'get' accepts only 1 argument; for detailed explanation type 'info get'");
+    return;
+  }
+  CVar* var = FHT_Search(&g_config->vars, GET_TYPE_INFO(CVar), &args[0]);
+  if (var == NULL) {
+    LOG_WARN("variable '%s' does not exist", args[0]);
+    return;
+  }
+  char buff[16];
+  switch (var->type)
+    {
+    case CONFIG_INTEGER:
+      stbsp_sprintf(buff, "%d", var->value.int_);
+      ConsolePutLine(buff, 0);
+      break;
+
+    case CONFIG_FLOAT:
+      stbsp_sprintf(buff, "%f", var->value.float_);
+      ConsolePutLine(buff, 0);
+      break;
+
+    case CONFIG_STRING:
+      ConsolePutLine(var->value.str, 0);
+      break;
+    }
+}
+
+void
+CMD_set(uint32_t num, char** args)
+{
+  if (num != 2) {
+    LOG_WARN("command 'get' accepts only 2 arguments; for detailed explanation type 'info set'");
+    return;
+  }
+  CVar* var = FHT_Search(&g_config->vars, GET_TYPE_INFO(CVar), &args[0]);
+  if (var == NULL) {
+    LOG_WARN("variable '%s' does not exist", args[0]);
+    return;
+  }
+  const char* val = args[1];
+  if ((val[0] >= '0' && val[0] <= '9') || val[0] == '-') {
+    // TODO(quality): check for parse errors
+    if (strchr(val+1, '.')) {
+      if (var->type != CONFIG_FLOAT) {
+        LOG_WARN("set: '%s' is not a float", args[0]);
+        return;
+      }
+      var->value.float_ = strtof(val, NULL);
+    } else {
+      if (var->type != CONFIG_INTEGER) {
+        LOG_WARN("set: '%s' is not a integer", args[0]);
+        return;
+      }
+      var->value.int_ = atoi(val);
+    }
+  } else {
+    if (var->type != CONFIG_STRING) {
+      LOG_WARN("set: '%s' is not a string", args[0]);
+      return;
+    }
+    var->value.str = g_config->buff + g_config->buff_offset;
+    g_config->buff_offset += strlen(val) + 1;
+    strcpy(var->value.str, val);
+  }
 }

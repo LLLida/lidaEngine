@@ -26,6 +26,7 @@ typedef struct {
 
   Fixed_Hash_Table vars;
   char buff[2048];
+  uint32_t buff_offset;
 
 } Config_File;
 
@@ -104,7 +105,7 @@ ParseConfig(const char* filename, Config_File* config)
   char* line = file_contents;
   int lineno = 1;
   char* current_section = NULL;
-  size_t buff_offset = 0;
+  config->buff_offset = 0;
   size_t buff_size = sizeof(config->buff);
   // https://stackoverflow.com/questions/17983005/c-how-to-read-a-string-line-by-line
   while (line) {
@@ -150,9 +151,9 @@ ParseConfig(const char* filename, Config_File* config)
         } else {
           // allocate a string for name
           CVar entry;
-          entry.name = config->buff + buff_offset;
-          buff_offset += stbsp_sprintf(entry.name, "%s.%s", current_section, name) + 1;
-          if (buff_offset >= buff_size) {
+          entry.name = config->buff + config->buff_offset;
+          config->buff_offset += stbsp_sprintf(entry.name, "%s.%s", current_section, name) + 1;
+          if (config->buff_offset >= buff_size) {
             LOG_WARN("out of memory when parsing file '%s'", filename);
           }
           // parse value
@@ -178,9 +179,9 @@ ParseConfig(const char* filename, Config_File* config)
               }
             }
             entry.type = CONFIG_STRING;
-            entry.value.str = config->buff + buff_offset;
-            buff_offset += strlen(value) + 1;
-            if (buff_offset >= buff_size) {
+            entry.value.str = config->buff + config->buff_offset;
+            config->buff_offset += strlen(value) + 1;
+            if (config->buff_offset >= buff_size) {
               LOG_WARN("out of memory when parsing file '%s'", filename);
             }
             strcpy(entry.value.str, value);
