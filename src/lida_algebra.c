@@ -373,6 +373,48 @@ LookAtMatrix(const Vec3* eye, const Vec3* target, const Vec3* up, Mat4* out)
 }
 
 INTERNAL void
+RotateByQuat(const Vec3* v, const Quat* q, Vec3* out)
+{
+  // glsl:
+  //  return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+  // This is the only place where I missed operator overloading.
+  Vec3 xyz = { q->x, q->y, q->z };
+  Vec3 xyzv = VEC_CROSS(xyz, *v);
+  Vec3 vqw = VEC3_MUL(*v, q->w);
+  Vec3 xyzvvqw = VEC3_ADD(xyzv, vqw);
+  Vec3 xyzxyz = VEC_CROSS(xyz, xyzvvqw);
+  Vec3 xyz2 = VEC3_MUL(xyzxyz, 2.0f);
+  *out = VEC3_ADD(*v, xyz2);
+}
+
+// NOTE: quaternion multiplication is not commutative
+INTERNAL void
+MultiplyQuats(const Quat* lhs, const Quat* rhs, Quat* out)
+{
+  Quat temp;
+  temp.x = lhs->w * rhs->x + lhs->x * rhs->w + lhs->y * rhs->z - lhs->z * rhs->y;
+  temp.y = lhs->w * rhs->y - lhs->x * rhs->z + lhs->y * rhs->w + lhs->z * rhs->x;
+  temp.z = lhs->w * rhs->z + lhs->x * rhs->y - lhs->y * rhs->x + lhs->z * rhs->w;
+  temp.w = lhs->w * rhs->w - lhs->x * rhs->x - lhs->y * rhs->y - lhs->z * rhs->z;
+  memcpy(out, &temp, sizeof(Quat));
+}
+
+INTERNAL void
+QuatFromEulerAngles(float yaw, float pitch, float roll, Quat* q)
+{
+  float cy = cosf(yaw * 0.5f);
+  float sy = sinf(yaw * 0.5f);
+  float cp = cosf(pitch * 0.5f);
+  float sp = sinf(pitch * 0.5f);
+  float cr = cosf(roll * 0.5f);
+  float sr = sinf(roll * 0.5f);
+  q->w = cr * cp * cy + sr * sp * sy;
+  q->x = sr * cp * cy - cr * sp * sy;
+  q->y = cr * sp * cy + sr * cp * sy;
+  q->z = cr * cp * sy - sr * sp * cy;
+}
+
+INTERNAL void
 CameraUpdateProjection(Camera* camera)
 {
   PerspectiveMatrix(camera->fovy, camera->aspect_ratio, camera->z_near, &camera->projection_matrix);

@@ -7,6 +7,7 @@
 
 typedef uint8_t Voxel;
 #define VX_USE_INDICES 1
+#define VX_USE_CULLING 0
 
 // stores voxels as plain 3D array
 typedef struct {
@@ -36,9 +37,11 @@ typedef struct {
   uint32_t firstVertex;
   uint32_t firstInstance;
   uint32_t instanceCount;
+#if VX_USE_CULLING
   // this is for culling
-  // vec3 normalVector;
+  Vec3 normal;
   // vec3 position;
+#endif
 
 } VX_Draw_Command;
 
@@ -250,6 +253,15 @@ GLOBAL const iVec3 vox_normals[6] = {
   {0, 1, 0},
   {0, 0, -1},
   {0, 0, 1}
+};
+
+GLOBAL const Vec3 f_vox_normals[6] = {
+  {-1.0f, 0.0f, 0.0f},
+  {1.0f, 0.0f, 0.0f},
+  {0.0f, -1.0f, 0.0f},
+  {0.0f, 1.0f, 0.0f},
+  {0.0f, 0.0f, -1.0f},
+  {0.0f, 0.0f, 1.0f}
 };
 
 INTERNAL uint32_t
@@ -786,6 +798,9 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
       dst->vertexCount = src->vertexCount;
       dst->firstInstance = drawer->transform_offset;
       dst->instanceCount = 1;
+#if VX_USE_CULLING
+      RotateByQuat(&f_vox_normals[i], &transform->rotation, &dst->normal);
+#endif
     }
   } else {
     // if hash not found then generate new vertices and draw data.
