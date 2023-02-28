@@ -915,9 +915,7 @@ RenderDebugLines(Debug_Drawer* drawer, VkCommandBuffer cmd)
 {
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(cmd, 0, 1, &drawer->vertex_buffer, &offset);
-  for (uint32_t i = 0; i < drawer->vertex_offset; i += 2) {
-    vkCmdDraw(cmd, 2, 1, i, 0);
-  }
+  vkCmdDraw(cmd, drawer->vertex_offset, 1, 0, 0);
 }
 
 INTERNAL void
@@ -952,4 +950,35 @@ PipelineDebugDrawVertices(const VkVertexInputAttributeDescription** attributes, 
   *num_bindings = ARR_SIZE(g_bindings);
   *attributes = g_attributes;
   *num_attributes = ARR_SIZE(g_attributes);
+}
+
+INTERNAL void
+CalculateObjectOBB(const Vec3* half_size, const Transform* transform, Vec3 corners[8])
+{
+  Vec3 box[3];
+  box[0] = VEC3_CREATE(half_size->x, 0.0f, 0.0f);
+  box[1] = VEC3_CREATE(0.0f, half_size->y, 0.0f);
+  box[2] = VEC3_CREATE(0.0f, 0.0f, half_size->z);
+  RotateByQuat(&box[0], &transform->rotation, &box[0]);
+  RotateByQuat(&box[1], &transform->rotation, &box[1]);
+  RotateByQuat(&box[2], &transform->rotation, &box[2]);
+  const Vec3 muls[8] = {
+    { -1.0f, -1.0f, -1.0f },
+    { -1.0f, -1.0f, 1.0f },
+    { -1.0f, 1.0f, -1.0f },
+    { -1.0f, 1.0f, 1.0f },
+    { 1.0f, -1.0f, -1.0f },
+    { 1.0f, -1.0f, 1.0f },
+    { 1.0f, 1.0f, -1.0f },
+    { 1.0f, 1.0f, 1.0f },
+  };
+  for (size_t i = 0; i < 8; i++) {
+    Vec3 basis[3];
+    basis[0] = VEC3_MUL(box[0], muls[i].x * (transform->scale + 0.1f));
+    basis[1] = VEC3_MUL(box[1], muls[i].y * (transform->scale + 0.1f));
+    basis[2] = VEC3_MUL(box[2], muls[i].z * (transform->scale + 0.1f));
+    corners[i].x = basis[0].x + basis[1].x + basis[2].x + transform->position.x;
+    corners[i].y = basis[0].y + basis[1].y + basis[2].y + transform->position.y;
+    corners[i].z = basis[0].z + basis[1].z + basis[2].z + transform->position.z;
+  }
 }

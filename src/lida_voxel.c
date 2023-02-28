@@ -29,11 +29,6 @@ typedef struct {
   uint32_t firstVertex;
   uint32_t firstInstance;
   uint32_t instanceCount;
-#if VX_USE_CULLING
-  // this is for culling
-  Vec3 normal;
-  Vec3 obb[3];
-#endif
 
 } VX_Draw_Command;
 
@@ -41,7 +36,10 @@ typedef struct {
 
   uint64_t hash;
 #if VX_USE_CULLING
-  Vec3 position;
+  Vec3 half_size;
+  // TODO: we might want to use EID here because transforms might move
+  // in memory
+  const Transform* transform;
 #endif
   uint32_t first_vertex;
   uint32_t last_vertex;
@@ -794,7 +792,6 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
     // This helps to not waste time generating same vertices every frame.
     VX_Draw_Command* prev_draws = drawer->frames[1-drawer->frame_id].draws->ptr;
     memcpy(mesh, &prev_meshes[*draw_id], sizeof(VX_Mesh_Info));
-    mesh->position = transform->position;
     for (int i = 0; i < 6; i++) {
       VX_Draw_Command* dst = &current_draws[drawer->frames[drawer->frame_id].num_draws++];
       VX_Draw_Command* src = &prev_draws[prev_meshes[*draw_id].first_draw_id + i];
@@ -803,7 +800,7 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
       dst->firstInstance = drawer->transform_offset;
       dst->instanceCount = 1;
 #if VX_USE_CULLING
-      RotateByQuat(&f_vox_normals[i], &transform->rotation, &dst->normal);
+      // RotateByQuat(&f_vox_normals[i], &transform->rotation, &dst->normal);
 #endif
     }
   } else {
@@ -842,7 +839,7 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
 #if VX_USE_INDICES
         uint32_t index_offset = drawer->vertex_offset*3/2;
         command->vertexCount = GenerateVoxelGridMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i,
-                                                          base_index, drawer->pIndices + index_offset);
+                                                           base_index, drawer->pIndices + index_offset);
         base_index += command->vertexCount;
 #else
         command->vertexCount =
@@ -852,11 +849,19 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
       command->firstVertex = drawer->vertex_offset;
       command->firstInstance = drawer->transform_offset;
       command->instanceCount = 1;
+#if VX_USE_CULLING
+      // RotateByQuat(&f_vox_normals[i], &transform->rotation, &command->normal);
+#endif
       drawer->vertex_offset += command->vertexCount;
     }
     mesh->last_vertex = drawer->vertex_offset;
     mesh->hash = grid->hash;
   }
+  // this information will be used for culling
+#if VX_USE_CULLING
+  CalculateVoxelGridSize(grid, &mesh->half_size);
+  mesh->transform = transform;
+#endif
   mesh->first_draw_id = 6 * index;
   drawer->transform_offset++;
 }
@@ -897,9 +902,10 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
 
 INTERNAL void
 DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal_id,
-                      const Vec3* camera_pos, const Vec3* camera_dir)
+                      const Camera* camera)
 {
   PROFILE_FUNCTION();
+  Assert(normal_id < 6);
   VkDeviceSize offsets[] = { 0, 0 };
   VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer };
   vkCmdBindVertexBuffers(cmd, 0, ARR_SIZE(buffers), buffers, offsets);
@@ -908,6 +914,11 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
 #endif
   VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws->ptr;
   VX_Mesh_Info* meshes = drawer->frames[drawer->frame_id].meshes->ptr;
+
+#if VX_USE_CULLING
+  Vec3 obb[8];
+#endif
+
   for (uint32_t i = normal_id; i < drawer->frames[drawer->frame_id].num_draws; i += 6) {
     VX_Draw_Command* command = &draws[i];
     VX_Mesh_Info* mesh = &meshes[i/6];
@@ -915,14 +926,25 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
     // TODO(render): find a way to cull instanced objects
     if (command->instanceCount == 1) {
       // try to backface cull this face
-      Vec3 dir = VEC3_SUB(mesh->position, *camera_pos);
-      float dot = VEC3_DOT(dir, command->normal);
+      Vec3 dist = VEC3_SUB(mesh->transform->position, camera->position);
+      Vec3 normal = f_vox_normals[normal_id];
+      RotateByQuat(&normal, &mesh->transform->rotation, &normal);
+      float dot = VEC3_DOT(dist, normal);
       if (dot > 0)
         continue;
 
-      // dot = VEC3_DOT(dir, *camera_dir);
-      // if (dot < 0)
-      // continue;
+      // cull objects from behind
+      // TODO(render): frustum culling
+      CalculateObjectOBB(&mesh->half_size, mesh->transform, obb);
+      int flag = 0;
+      for (size_t i = 0; i < 8; i++) {
+        Vec3 dir = VEC3_SUB(obb[i], camera->position);
+        dot = VEC3_DOT(dir, camera->front);
+        // NOTE: camera front is inverted, test below should be obviously "dot > 0"
+        flag |= (dot < 0);
+      }
+      if (flag == 0)
+        continue;
     }
 #endif
 
@@ -971,38 +993,20 @@ PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint
   *num_bindings = ARR_SIZE(g_bindings);
 }
 
+// calculate oriented bounding box's corners
 INTERNAL void
-DebugDrawVoxelOBB(Debug_Drawer* debug_drawer, const Voxel_Grid* grid, const Transform* transform)
+CalculateVoxelGridOBB(const Voxel_Grid* grid, const Transform* transform, Vec3 corners[8])
 {
   Vec3 half_size;
   CalculateVoxelGridSize(grid, &half_size);
-  Vec3 box[3];
-  box[0] = VEC3_CREATE(half_size.x, 0.0f, 0.0f);
-  box[1] = VEC3_CREATE(0.0f, half_size.y, 0.0f);
-  box[2] = VEC3_CREATE(0.0f, 0.0f, half_size.z);
-  RotateByQuat(&box[0], &transform->rotation, &box[0]);
-  RotateByQuat(&box[1], &transform->rotation, &box[1]);
-  RotateByQuat(&box[2], &transform->rotation, &box[2]);
-  const Vec3 muls[8] = {
-    { -1.0f, -1.0f, -1.0f },
-    { -1.0f, -1.0f, 1.0f },
-    { -1.0f, 1.0f, -1.0f },
-    { -1.0f, 1.0f, 1.0f },
-    { 1.0f, -1.0f, -1.0f },
-    { 1.0f, -1.0f, 1.0f },
-    { 1.0f, 1.0f, -1.0f },
-    { 1.0f, 1.0f, 1.0f },
-  };
+  CalculateObjectOBB(&half_size, transform, corners);
+}
+
+INTERNAL void
+DebugDrawVoxelOBB(Debug_Drawer* debug_drawer, const Voxel_Grid* grid, const Transform* transform)
+{
   Vec3 points[8];
-  for (size_t i = 0; i < 8; i++) {
-    Vec3 basis[3];
-    basis[0] = VEC3_MUL(box[0], muls[i].x * (transform->scale + 0.1f));
-    basis[1] = VEC3_MUL(box[1], muls[i].y * (transform->scale + 0.1f));
-    basis[2] = VEC3_MUL(box[2], muls[i].z * (transform->scale + 0.1f));
-    points[i].x = basis[0].x + basis[1].x + basis[2].x + transform->position.x;
-    points[i].y = basis[0].y + basis[1].y + basis[2].y + transform->position.y;
-    points[i].z = basis[0].z + basis[1].z + basis[2].z + transform->position.z;
-  }
+  CalculateVoxelGridOBB(grid, transform, points);
   const uint32_t indices[24] = {
     0, 1,
     1, 3,

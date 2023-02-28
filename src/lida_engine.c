@@ -390,6 +390,22 @@ EngineUpdateAndRender()
     color = PACK_COLOR(5, 9, 0, 205);
     DrawText(&g_context->quad_renderer, font,
              GetVar_String(g_config, "Misc.some_string"), &text_size, color, &pos);
+
+    // camera front
+    {
+      pos = VEC2_CREATE(0.005f, 0.9f);
+      text_size = (Vec2) { 0.025f, 0.025f };
+      color = PACK_COLOR(255, 255, 255, 160);
+      char buff[64];
+      stbsp_sprintf(buff, "front=[%.3f, %.3f, %.3f]",
+                    g_context->camera.front.x, g_context->camera.front.y, g_context->camera.front.z);
+      DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
+      pos = VEC2_CREATE(0.005f, 0.95f);
+      stbsp_sprintf(buff, "pos=[%.3f, %.3f, %.3f]",
+                    g_context->camera.position.x, g_context->camera.position.y, g_context->camera.position.z);
+      DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
+    }
+
     pos = (Vec2) { 0.7f, 0.02f };
     text_size = (Vec2) { 0.05f, 0.1f };
     color = PACK_COLOR(4, 59, 200, 254);
@@ -447,7 +463,7 @@ EngineUpdateAndRender()
     for (uint32_t i = 0; i < 6; i++) {
       vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
       DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i,
-                            &g_context->camera.position, &g_context->camera.front);
+                            &g_context->camera);
     }
     // draw debug lines
     prog = GetComponent(Pipeline_Program, g_context->debug_pipeline);
