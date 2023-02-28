@@ -114,21 +114,21 @@ void TextInput(const char* text)
   }
 }
 
-INTERNAL int
-NilKeyboardCallback(PlatformKeyCode key, void* udata)
-{
-  (void)key;
-  (void)udata;
-  return 0;
-}
+// INTERNAL int
+// NilKeyboardCallback(PlatformKeyCode key, void* udata)
+// {
+//   (void)key;
+//   (void)udata;
+//   return 0;
+// }
 
-INTERNAL int
-NilMouseCallback(int x, int y, int xrel, int yrel, void* udata)
-{
-  (void)x;
-  (void)y;
-  (void)xrel;
-  (void)yrel;
-  (void)udata;
-  return 0;
-}
+// INTERNAL int
+// NilMouseCallback(int x, int y, int xrel, int yrel, void* udata)
+// {
+//   (void)x;
+//   (void)y;
+//   (void)xrel;
+//   (void)yrel;
+//   (void)udata;
+//   return 0;
+// }

@@ -59,6 +59,7 @@ typedef struct {
 
   // fonts
   EID arial_font;
+  EID pixel_font;
 
   uint32_t prev_time;
   uint32_t curr_time;
@@ -188,6 +189,7 @@ EngineInit(const Engine_Startup_Info* info)
   CreateDebugDrawer(&g_context->debug_drawer, 1024);
 
   g_context->arial_font = CreateEntity(&g_context->ecs);
+  g_context->pixel_font = CreateEntity(&g_context->ecs);
 
   // create some entities
   grid_1 = CreateEntity(&g_context->ecs);
@@ -240,7 +242,7 @@ EngineInit(const Engine_Startup_Info* info)
   BindKeymap(&g_context->root_keymap);
 
   InitConsole();
-  g_console->font = g_context->arial_font;
+  g_console->font = g_context->pixel_font;
   ConsolePutLine("En passant is forced in all positions", 0);
   ConsolePutLine("I want to eat", 0);
   ConsolePutLine("Hungry I am!", 0);
@@ -387,6 +389,9 @@ EngineUpdateAndRender()
   if (g_window->frame_counter == 0) {
     Font* font = AddComponent(&g_context->ecs, Font, g_context->arial_font);
     LoadToFontAtlas(&g_context->quad_renderer, &g_context->font_atlas, cmd, font, "Consolas.ttf", 32);
+    font = AddComponent(&g_context->ecs, Font, g_context->pixel_font);
+    LoadToFontAtlas(&g_context->quad_renderer, &g_context->font_atlas, cmd, font, "pixel1.ttf", 16);
+    FontAtlasEndLoading(&g_context->font_atlas, cmd);
   } else {
     NewBitmapFrame(&g_context->quad_renderer);
     DrawQuad(&g_context->quad_renderer, &VEC2_CREATE(0.04f, 0.36f), &VEC2_CREATE(0.3f, 0.05f), PACK_COLOR(23, 67, 240, 109), 1);

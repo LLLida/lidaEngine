@@ -432,7 +432,7 @@ LoadToFontAtlas(Quad_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cmd,
   PersistentRelease(rect_nodes);
   // load glyphs to staging buffer
   // TODO: use real staging buffer
-  uint8_t* tmp = (uint8_t*)renderer->b_vertices_mapped;
+  uint8_t* tmp = (uint8_t*)renderer->b_vertices_mapped + renderer->b_vertex_count;
   uint32_t max_height = 0;
   for (uint32_t i = 0; i < 128-32; i++) {
     int c = rects[i].id;
@@ -441,7 +441,7 @@ LoadToFontAtlas(Quad_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cmd,
       LOG_WARN("freetype: failed to load char '%c' with error %s", i, FT_Error_String(err));
       continue;
     }
-    if (rects[i].y + rects[i].h + atlas->lines)
+    if (rects[i].y + rects[i].h + atlas->lines > max_height)
       max_height = rects[i].y + rects[i].h + atlas->lines;
     if (max_height > atlas->extent.height) {
       LOG_ERROR("not enough space in font atlas; required extent is at least [%u, %u]",
@@ -468,36 +468,52 @@ LoadToFontAtlas(Quad_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cmd,
   font->ds_set = atlas->descriptor_set;
   FT_Done_Face(face);
   // record commands to GPU...
-  VkImageMemoryBarrier barrier = {
-    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-    .srcAccessMask = 0,
-    .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-    .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-    .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-    .image = atlas->image,
-    .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-  };
-  vkCmdPipelineBarrier(cmd,
-                       VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                       VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       0,
-                       0, NULL,
-                       0, NULL,
-                       1, &barrier);
+  if (atlas->lines == 0) {
+    VkImageMemoryBarrier barrier = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+      .srcAccessMask = 0,
+      .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+      .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      .image = atlas->image,
+      .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+    };
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0,
+                         0, NULL,
+                         0, NULL,
+                         1, &barrier);
+  }
   VkBufferImageCopy copy_info = {
-    .bufferOffset = 0,
+    .bufferOffset = renderer->b_vertex_count,
     .bufferRowLength = 0,
     .bufferImageHeight = 0,
     .imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
     .imageOffset = (VkOffset3D) {0, atlas->lines, 0},
-    .imageExtent = (VkExtent3D) {atlas->extent.width, atlas->extent.height-atlas->lines, 1}
+    .imageExtent = (VkExtent3D) {atlas->extent.width, max_height-atlas->lines, 1}
   };
   vkCmdCopyBufferToImage(cmd, renderer->vertex_buffer, atlas->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                          1, &copy_info);
-  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-  barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-  barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  atlas->lines = max_height;
+  renderer->b_vertex_count += 4 * copy_info.imageExtent.width * copy_info.imageExtent.height;
+  PlatformFreeLoadedFile(buffer);
+  return 0;
+}
+
+INTERNAL void
+FontAtlasEndLoading(Font_Atlas* atlas, VkCommandBuffer cmd)
+{
+  VkImageMemoryBarrier barrier = {
+    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+    .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+    .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+    .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    .image = atlas->image,
+    .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+  };
   vkCmdPipelineBarrier(cmd,
                        VK_PIPELINE_STAGE_TRANSFER_BIT,
                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
@@ -505,9 +521,6 @@ LoadToFontAtlas(Quad_Renderer* renderer, Font_Atlas* atlas, VkCommandBuffer cmd,
                        0, NULL,
                        0, NULL,
                        1, &barrier);
-  atlas->lines = max_height;
-  PlatformFreeLoadedFile(buffer);
-  return 0;
 }
 
 INTERNAL void
@@ -607,4 +620,11 @@ DrawQuad(Quad_Renderer* renderer, const Vec2* pos, const Vec2* size, uint32_t co
       .num_indices = 6,
     };
   }
+}
+
+INTERNAL void
+PixelPerfectCharSize(uint32_t pixel_size, Vec2* size)
+{
+  size->x = (float)pixel_size / (float)g_window->swapchain_extent.width;
+  size->y = (float)pixel_size / (float)g_window->swapchain_extent.height;
 }

@@ -117,9 +117,18 @@ DrawConsole(Quad_Renderer* renderer)
 {
   if (g_console->bottom < 0.001f)
     return;
-  // TODO: calculate size in a way that we render pixel-perfect glyphs
+  Font* font = GetComponent(Font, g_console->font);
   const float prompt_height = 0.04f;
-  const float char_size = 0.03f;
+  Vec2 char_size;
+  {
+    int* option = GetVar_Int(g_config, "Console.pixel_perfect_font_size");
+    if (option && *option) {
+      PixelPerfectCharSize(font->pixel_size, &char_size);
+    } else {
+      char_size.x = 0.025f;
+      char_size.y = 0.025f;
+    }
+  }
   // draw quads
   Vec2 pos = {0.0f, g_console->bottom - prompt_height};
   Vec2 size = {1.0f, prompt_height};
@@ -128,44 +137,43 @@ DrawConsole(Quad_Renderer* renderer)
   size.y = g_console->bottom - prompt_height;
   DrawQuad(renderer, &pos, &size, g_console->bg_color2, 1);
   // draw lines
-  Font* font = GetComponent(Font, g_console->font);
   const float left_pad = 0.01f;
   const float bottom_pad = 0.01f;
   pos.x = left_pad;
   pos.y = g_console->bottom - prompt_height - bottom_pad;
-  size.x = char_size;
-  size.y = char_size;
+  size.x = char_size.x;
+  size.y = char_size.y;
   uint32_t count = g_console->num_lines;
-  while (count > 0) {
+  while (count > 0 && pos.y >= 0.0f) {
     uint32_t id = g_console->last_line + ARR_SIZE(g_console->lines) - g_console->num_lines + count;
     Console_Line* line = &g_console->lines[id % ARR_SIZE(g_console->lines)];
     // TODO(consistency): change argument orger
     DrawText(renderer, font, line->ptr, &size, line->color, &pos);
-    pos.y -= char_size;
+    pos.y -= char_size.y;
     count--;
   }
   // draw cursor
   // Why human text is so complex??? 😵
   char current_char = g_console->prompt[g_console->cursor_pos];
-  pos.x = left_pad + font->glyphs[(int)current_char].bearing.x * char_size;
+  pos.x = left_pad + font->glyphs[(int)current_char].bearing.x * char_size.x;
   for (int i = 0; i < g_console->cursor_pos; i++) {
-    pos.x += font->glyphs[(int)g_console->prompt[i]].advance.x * char_size;
+    pos.x += font->glyphs[(int)g_console->prompt[i]].advance.x * char_size.x;
   }
-  pos.y = g_console->bottom - char_size - 0.5f * bottom_pad;
+  pos.y = g_console->bottom - char_size.y - 0.5f * bottom_pad;
   // Space has size.x = 0, which does not satisfy us
   if (current_char == ' ' || current_char == '\0') {
     // 'X' is big. it definitely fits well
-    size.x = font->glyphs['X'].size.x * char_size;
+    size.x = font->glyphs['X'].size.x * char_size.x;
   } else {
-    size.x = font->glyphs[(int)current_char].size.x * char_size;
+    size.x = font->glyphs[(int)current_char].size.x * char_size.x;
   }
-  size.y = char_size;
+  size.y = char_size.y;
   DrawQuad(renderer, &pos, &size, g_console->cursor_color1, 0);
   // draw prompt text
   pos.x = left_pad;
   pos.y = g_console->bottom - bottom_pad;
-  size.x = char_size;
-  size.y = char_size;
+  size.x = char_size.x;
+  size.y = char_size.y;
   DrawText(renderer, font, g_console->prompt, &size, g_console->fg_color1, &pos);
 }
 
