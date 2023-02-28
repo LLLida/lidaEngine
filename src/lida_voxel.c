@@ -272,6 +272,25 @@ GetVoxelGridMaxGeneratedVertices(const Voxel_Grid* grid)
 #endif
 }
 
+// return: inv_size
+INTERNAL float
+CalculateVoxelGridSize(const Voxel_Grid* grid, Vec3* half_size)
+{
+  float inv_size;
+  // TODO: we currently have no Min() function defined... shame
+  if (grid->width <= grid->height && grid->height <= grid->depth) {
+    inv_size = 1.0f / (float)grid->width;
+  } else if (grid->height <= grid->width && grid->width <= grid->depth) {
+    inv_size = 1.0f / (float)grid->height;
+  } else {
+    inv_size = 1.0f / (float)grid->depth;
+  }
+  half_size->x = inv_size * 0.5f * (float)grid->width;
+  half_size->y = inv_size * 0.5f * (float)grid->height;
+  half_size->z = inv_size * 0.5f * (float)grid->depth;
+  return inv_size;
+}
+
 INTERNAL uint32_t
 GenerateVoxelGridMeshNaive(const Voxel_Grid* grid, Vertex_X3C* vertices, int face)
 {
@@ -337,20 +356,8 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
   // TODO: my dream is to make this function execute fast, processing
   // 4 or 8 voxels at same time
   Vertex_X3C* const first_vertex = vertices;
-  float inv_size;
-  // TODO: we currently have no Min() function defined... shame
-  if (grid->width <= grid->height && grid->height <= grid->depth) {
-    inv_size = 1.0f / (float)grid->width;
-  } else if (grid->height <= grid->width && grid->width <= grid->depth) {
-    inv_size = 1.0f / (float)grid->height;
-  } else {
-    inv_size = 1.0f / (float)grid->depth;
-  }
-  Vec3 half_size = {
-    inv_size * 0.5f * (float)grid->width,
-    inv_size * 0.5f * (float)grid->height,
-    inv_size * 0.5f * (float)grid->depth,
-  };
+  Vec3 half_size;
+  float inv_size = CalculateVoxelGridSize(grid, &half_size);
   const uint32_t dims[3] = { grid->width, grid->height, grid->depth };
   const int d = face >> 1;
   const int u = (d+1)%3, v = (d+2)%3;
@@ -962,4 +969,59 @@ PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint
   }
   *bindings = g_bindings;
   *num_bindings = ARR_SIZE(g_bindings);
+}
+
+INTERNAL void
+DebugDrawVoxelOBB(Debug_Drawer* debug_drawer, const Voxel_Grid* grid, const Transform* transform)
+{
+  Vec3 half_size;
+  CalculateVoxelGridSize(grid, &half_size);
+  Vec3 box[3];
+  box[0] = VEC3_CREATE(half_size.x, 0.0f, 0.0f);
+  box[1] = VEC3_CREATE(0.0f, half_size.y, 0.0f);
+  box[2] = VEC3_CREATE(0.0f, 0.0f, half_size.z);
+  RotateByQuat(&box[0], &transform->rotation, &box[0]);
+  RotateByQuat(&box[1], &transform->rotation, &box[1]);
+  RotateByQuat(&box[2], &transform->rotation, &box[2]);
+  const Vec3 muls[8] = {
+    { -1.0f, -1.0f, -1.0f },
+    { -1.0f, -1.0f, 1.0f },
+    { -1.0f, 1.0f, -1.0f },
+    { -1.0f, 1.0f, 1.0f },
+    { 1.0f, -1.0f, -1.0f },
+    { 1.0f, -1.0f, 1.0f },
+    { 1.0f, 1.0f, -1.0f },
+    { 1.0f, 1.0f, 1.0f },
+  };
+  Vec3 points[8];
+  for (size_t i = 0; i < 8; i++) {
+    Vec3 basis[3];
+    basis[0] = VEC3_MUL(box[0], muls[i].x * (transform->scale + 0.1f));
+    basis[1] = VEC3_MUL(box[1], muls[i].y * (transform->scale + 0.1f));
+    basis[2] = VEC3_MUL(box[2], muls[i].z * (transform->scale + 0.1f));
+    points[i].x = basis[0].x + basis[1].x + basis[2].x + transform->position.x;
+    points[i].y = basis[0].y + basis[1].y + basis[2].y + transform->position.y;
+    points[i].z = basis[0].z + basis[1].z + basis[2].z + transform->position.z;
+  }
+  const uint32_t indices[24] = {
+    0, 1,
+    1, 3,
+    3, 2,
+    2, 0,
+
+    4, 5,
+    5, 7,
+    7, 6,
+    6, 4,
+
+    0, 4,
+    1, 5,
+    2, 6,
+    3, 7
+  };
+  for (size_t i = 0; i < ARR_SIZE(indices); i += 2) {
+    AddDebugLine(debug_drawer,
+                 &points[indices[i]], &points[indices[i+1]],
+                 PACK_COLOR(255, 0, 0, 255));
+  }
 }

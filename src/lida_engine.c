@@ -366,26 +366,9 @@ EngineUpdateAndRender()
   FOREACH_COMPONENT(Voxel_Grid) {
     Transform* transform = GetComponent(Transform, entities[i]);
     PushMeshToVoxelDrawer(&g_context->vox_drawer, &components[i], transform);
-  }
-
-  // FIXME(test): draw some lines
-  {
-    Vec3 positions[] = {
-      { -1.0f, -3.0f, -1.0f }, { -1.0f, 3.0f, -1.0f },
-      { 4.0f, -3.0f, 7.0f }, { -7.0f, 2.0f, -4.0f },
-      { -4.0f, -3.0f, 4.0f }, { 4.0f, 3.0f, -4.0f },
-      { 5.0f, 3.0f, -1.0f }, { 2.0f, 3.0f, -1.0f },
-    };
-    uint32_t colors[] = {
-      PACK_COLOR(245, 0, 245, 255),
-      PACK_COLOR(245, 245, 0, 255),
-      PACK_COLOR(0, 245, 245, 255),
-      PACK_COLOR(0, 200, 100, 255)
-    };
-    for (size_t i = 0; i < ARR_SIZE(colors); i++) {
-      AddDebugLine(&g_context->debug_drawer,
-                   &positions[2*i], &positions[2*i+1],
-                   colors[i]);
+    int* opt = GetVar_Int(g_config, "Render.debug_voxel_obb");
+    if (opt && *opt) {
+      DebugDrawVoxelOBB(&g_context->debug_drawer, &components[i], transform);
     }
   }
 
