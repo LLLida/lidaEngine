@@ -76,6 +76,25 @@ typedef struct {
 } Pipeline_Program;
 DECLARE_COMPONENT(Pipeline_Program);
 
+// 16 bytes
+typedef struct {
+
+  Vec3 position;
+  uint32_t color;
+
+} Vertex_X3C;
+
+// this just draws lines
+typedef struct {
+
+  Video_Memory cpu_memory;
+  VkBuffer vertex_buffer;
+  Vertex_X3C* pVertices;
+  uint32_t max_vertices;
+  uint32_t vertex_offset;
+
+} Debug_Drawer;
+
 // we always pass color as uint32_t and decompress it on GPU
 #define PACK_COLOR(r, g, b, a) ((a) << 24) | ((b) << 16) | ((g) << 8) | (r)
 
@@ -791,8 +810,10 @@ INTERNAL void
 cmdBindProgram(VkCommandBuffer cmd, const Pipeline_Program* prog,
                uint32_t descriptor_set_count, VkDescriptorSet* descriptor_sets)
 {
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->layout,
-                          0, descriptor_set_count, descriptor_sets, 0, NULL);
+  if (descriptor_set_count > 0) {
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->layout,
+                            0, descriptor_set_count, descriptor_sets, 0, NULL);
+  }
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
 }
 
@@ -842,4 +863,93 @@ UpdateDeletionQueue(Deletion_Queue* dq)
     dq->left = (dq->left+1) % max;
     dq->count--;
   }
+}
+
+INTERNAL VkResult
+CreateDebugDrawer(Debug_Drawer* drawer, uint32_t max_vertices)
+{
+  drawer->max_vertices = max_vertices;
+  VkResult err = CreateBuffer(&drawer->vertex_buffer, max_vertices*sizeof(Vertex_X3C),
+                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "debug-draw-buffer");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create debug drawer with error %s", ToString_VkResult(err));
+    return err;
+  }
+  VkMemoryRequirements requirements;
+  vkGetBufferMemoryRequirements(g_device->logical_device, drawer->vertex_buffer, &requirements);
+  err = AllocateVideoMemory(&drawer->cpu_memory, requirements.size,
+                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                            requirements.memoryTypeBits,
+                            "debug-draw-memory");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to allocate memory for debug draws with error %s", ToString_VkResult(err));
+    return err;
+  }
+  err = BufferBindToMemory(&drawer->cpu_memory, drawer->vertex_buffer,
+                           &requirements, (void**)&drawer->pVertices,
+                           NULL);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to bind vertex buffer to memory for debug draws with error %s",
+              ToString_VkResult(err));
+    return err;
+  }
+  return VK_SUCCESS;
+}
+
+INTERNAL void
+DestroyDebugDrawer(Debug_Drawer* drawer)
+{
+  vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
+
+  FreeVideoMemory(&drawer->cpu_memory);
+}
+
+INTERNAL void
+NewDebugDrawerFrame(Debug_Drawer* drawer)
+{
+  drawer->vertex_offset = 0;
+}
+
+INTERNAL void
+RenderDebugLines(Debug_Drawer* drawer, VkCommandBuffer cmd)
+{
+  VkDeviceSize offset = 0;
+  vkCmdBindVertexBuffers(cmd, 0, 1, &drawer->vertex_buffer, &offset);
+  for (uint32_t i = 0; i < drawer->vertex_offset; i += 2) {
+    vkCmdDraw(cmd, 2, 1, i, 0);
+  }
+}
+
+INTERNAL void
+AddDebugLine(Debug_Drawer* drawer, const Vec3* start, const Vec3* end, uint32_t color)
+{
+  if (drawer->vertex_offset + 2 >= drawer->max_vertices) {
+    LOG_WARN("debug drawer is out of space");
+    return;
+  }
+  drawer->pVertices[drawer->vertex_offset++] = (Vertex_X3C) {
+    .position = *start,
+    .color = color,
+  };
+  drawer->pVertices[drawer->vertex_offset++] = (Vertex_X3C) {
+    .position = *end,
+    .color = color,
+  };
+}
+
+INTERNAL void
+PipelineDebugDrawVertices(const VkVertexInputAttributeDescription** attributes, uint32_t* num_attributes,
+                          const VkVertexInputBindingDescription** bindings, uint32_t* num_bindings)
+{
+  GLOBAL VkVertexInputBindingDescription g_bindings[1] = {
+    { 0, sizeof(Vertex_X3C), VK_VERTEX_INPUT_RATE_VERTEX },
+  };
+  GLOBAL VkVertexInputAttributeDescription g_attributes[2] = {
+    { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex_X3C, position) },
+    { 1, 0, VK_FORMAT_R32_UINT, offsetof(Vertex_X3C, color) },
+  };
+  *bindings = g_bindings;
+  *num_bindings = ARR_SIZE(g_bindings);
+  *attributes = g_attributes;
+  *num_attributes = ARR_SIZE(g_attributes);
 }

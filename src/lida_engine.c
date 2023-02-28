@@ -44,6 +44,7 @@ typedef struct {
   Font_Atlas font_atlas;
   Camera camera;
   Voxel_Drawer vox_drawer;
+  Debug_Drawer debug_drawer;
   Deletion_Queue deletion_queue;
   Asset_Manager asset_manager;
   Keymap root_keymap;
@@ -54,6 +55,7 @@ typedef struct {
   EID triangle_pipeline;
   EID voxel_pipeline;
   EID shadow_pipeline;
+  EID debug_pipeline;
 
   // fonts
   EID arial_font;
@@ -95,6 +97,7 @@ INTERNAL void CreateRectPipeline(Pipeline_Desc* description);
 INTERNAL void CreateTrianglePipeline(Pipeline_Desc* description);
 INTERNAL void CreateVoxelPipeline(Pipeline_Desc* description);
 INTERNAL void CreateShadowPipeline(Pipeline_Desc* description);
+INTERNAL void CreateDebugDrawPipeline(Pipeline_Desc* description);
 
 void
 EngineInit(const Engine_Startup_Info* info)
@@ -176,8 +179,11 @@ EngineInit(const Engine_Startup_Info* info)
   ADD_PIPELINE(triangle_pipeline, "triangle.vert.spv", "triangle.frag.spv", CreateTrianglePipeline);
   ADD_PIPELINE(voxel_pipeline, "voxel.vert.spv", "voxel.frag.spv", CreateVoxelPipeline);
   ADD_PIPELINE(shadow_pipeline, "shadow_voxel.vert.spv", NULL, CreateShadowPipeline);
+  ADD_PIPELINE(debug_pipeline, "debug_draw.vert.spv", "debug_draw.frag.spv", CreateDebugDrawPipeline);
 
   CreateVoxelDrawer(&g_context->vox_drawer, &g_context->vox_allocator, 128*1024, 32);
+
+  CreateDebugDrawer(&g_context->debug_drawer, 1024);
 
   g_context->arial_font = CreateEntity(&g_context->ecs);
 
@@ -250,6 +256,8 @@ EngineFree()
 
   // wait until commands from previous frames are ended so we can safely destroy GPU resources
   vkDeviceWaitIdle(g_device->logical_device);
+
+  DestroyDebugDrawer(&g_context->debug_drawer);
 
   DestroyVoxelDrawer(&g_context->vox_drawer, &g_context->vox_allocator);
 
@@ -353,10 +361,32 @@ EngineUpdateAndRender()
   }
 
   NewVoxelDrawerFrame(&g_context->vox_drawer);
+  NewDebugDrawerFrame(&g_context->debug_drawer);
 
   FOREACH_COMPONENT(Voxel_Grid) {
     Transform* transform = GetComponent(Transform, entities[i]);
     PushMeshToVoxelDrawer(&g_context->vox_drawer, &components[i], transform);
+  }
+
+  // FIXME(test): draw some lines
+  {
+    Vec3 positions[] = {
+      { -1.0f, -3.0f, -1.0f }, { -1.0f, 3.0f, -1.0f },
+      { 4.0f, -3.0f, 7.0f }, { -7.0f, 2.0f, -4.0f },
+      { -4.0f, -3.0f, 4.0f }, { 4.0f, 3.0f, -4.0f },
+      { 5.0f, 3.0f, -1.0f }, { 2.0f, 3.0f, -1.0f },
+    };
+    uint32_t colors[] = {
+      PACK_COLOR(245, 0, 245, 255),
+      PACK_COLOR(245, 245, 0, 255),
+      PACK_COLOR(0, 245, 245, 255),
+      PACK_COLOR(0, 200, 100, 255)
+    };
+    for (size_t i = 0; i < ARR_SIZE(colors); i++) {
+      AddDebugLine(&g_context->debug_drawer,
+                   &positions[2*i], &positions[2*i+1],
+                   colors[i]);
+    }
   }
 
   VkCommandBuffer cmd = BeginCommands();
@@ -434,8 +464,14 @@ EngineUpdateAndRender()
     for (uint32_t i = 0; i < 6; i++) {
       vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
       DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i,
-                            &g_context->camera.position);
+                            &g_context->camera.position, &g_context->camera.front);
     }
+    // draw debug lines
+    prog = GetComponent(Pipeline_Program, g_context->debug_pipeline);
+    // NOTE: forward_pass's descriptor set also has VK_SHADER_STAGE_FRAGMENT_BIT, it doesn't fit us
+    ds_set = g_context->shadow_pass.scene_data_set;
+    cmdBindProgram(cmd, prog, 1, &ds_set);
+    RenderDebugLines(&g_context->debug_drawer, cmd);
   }
   vkCmdEndRenderPass(cmd);
 
@@ -746,4 +782,34 @@ void CreateShadowPipeline(Pipeline_Desc* description)
                         &description->vertex_bindings, &description->vertex_binding_count,
                         0);
   ShadowPassViewport(&g_context->shadow_pass, &description->viewport, &description->scissor);
+}
+
+void CreateDebugDrawPipeline(Pipeline_Desc* description)
+{
+  static VkPipelineColorBlendAttachmentState colorblend_attachment = {
+    .blendEnable = VK_FALSE,
+    .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
+  };
+  static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+  *description = (Pipeline_Desc) {
+    .topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_NONE,
+    .line_width = 1.0f,
+    .depth_bias_enable = VK_FALSE,
+    .msaa_samples = g_context->forward_pass.msaa_samples,
+    .depth_test = VK_TRUE,
+    .depth_write = VK_TRUE,
+    .depth_compare_op = VK_COMPARE_OP_GREATER,
+    .blend_logic_enable = VK_FALSE,
+    .attachment_count = 1,
+    .attachments = &colorblend_attachment,
+    .dynamic_state_count = ARR_SIZE(dynamic_states),
+    .dynamic_states = dynamic_states,
+    .render_pass = g_context->forward_pass.render_pass,
+    .subpass = 0,
+    .marker = "debug-draw/pipeline"
+  };
+  PipelineDebugDrawVertices(&description->vertex_attributes, &description->vertex_attribute_count,
+                            &description->vertex_bindings, &description->vertex_binding_count);
 }

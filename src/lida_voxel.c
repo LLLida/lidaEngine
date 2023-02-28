@@ -22,14 +22,6 @@ typedef struct {
 } Voxel_Grid;
 DECLARE_COMPONENT(Voxel_Grid);
 
-// 16 bytes
-typedef struct {
-
-  Vec3 position;
-  uint32_t color;
-
-} Vertex_X3C;
-
 typedef struct {
 
   // this is for vkCmdDraw
@@ -40,7 +32,7 @@ typedef struct {
 #if VX_USE_CULLING
   // this is for culling
   Vec3 normal;
-  Vec3 position;
+  Vec3 obb[3];
 #endif
 
 } VX_Draw_Command;
@@ -48,9 +40,13 @@ typedef struct {
 typedef struct {
 
   uint64_t hash;
+#if VX_USE_CULLING
+  Vec3 position;
+#endif
   uint32_t first_vertex;
   uint32_t last_vertex;
   uint32_t first_draw_id;
+
 
 } VX_Mesh_Info;
 
@@ -791,6 +787,7 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
     // This helps to not waste time generating same vertices every frame.
     VX_Draw_Command* prev_draws = drawer->frames[1-drawer->frame_id].draws->ptr;
     memcpy(mesh, &prev_meshes[*draw_id], sizeof(VX_Mesh_Info));
+    mesh->position = transform->position;
     for (int i = 0; i < 6; i++) {
       VX_Draw_Command* dst = &current_draws[drawer->frames[drawer->frame_id].num_draws++];
       VX_Draw_Command* src = &prev_draws[prev_meshes[*draw_id].first_draw_id + i];
@@ -800,7 +797,6 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
       dst->instanceCount = 1;
 #if VX_USE_CULLING
       RotateByQuat(&f_vox_normals[i], &transform->rotation, &dst->normal);
-      dst->position = transform->position;
 #endif
     }
   } else {
@@ -894,7 +890,7 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
 
 INTERNAL void
 DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal_id,
-                      const Vec3* camera_pos)
+                      const Vec3* camera_pos, const Vec3* camera_dir)
 {
   PROFILE_FUNCTION();
   VkDeviceSize offsets[] = { 0, 0 };
@@ -904,15 +900,23 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
   vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
 #endif
   VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws->ptr;
+  VX_Mesh_Info* meshes = drawer->frames[drawer->frame_id].meshes->ptr;
   for (uint32_t i = normal_id; i < drawer->frames[drawer->frame_id].num_draws; i += 6) {
     VX_Draw_Command* command = &draws[i];
-
+    VX_Mesh_Info* mesh = &meshes[i/6];
 #if VX_USE_CULLING
-    // try to backface cull this face
-    Vec3 dir = VEC3_SUB(draws[i].position, *camera_pos);
-    float dot = VEC3_DOT(dir, draws[i].normal);
-    if (dot > 0)
-      continue;
+    // TODO(render): find a way to cull instanced objects
+    if (command->instanceCount == 1) {
+      // try to backface cull this face
+      Vec3 dir = VEC3_SUB(mesh->position, *camera_pos);
+      float dot = VEC3_DOT(dir, command->normal);
+      if (dot > 0)
+        continue;
+
+      // dot = VEC3_DOT(dir, *camera_dir);
+      // if (dot < 0)
+      // continue;
+    }
 #endif
 
 #if VX_USE_INDICES
