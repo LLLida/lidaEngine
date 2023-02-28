@@ -37,9 +37,7 @@ typedef struct {
   uint64_t hash;
 #if VX_USE_CULLING
   Vec3 half_size;
-  // TODO: we might want to use EID here because transforms might move
-  // in memory
-  const Transform* transform;
+  EID entity;
 #endif
   uint32_t first_vertex;
   uint32_t last_vertex;
@@ -763,7 +761,7 @@ VX_FindNearestDraw(Voxel_Drawer* drawer, uint32_t offset)
 }
 
 INTERNAL void
-PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transform* transform)
+PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transform* transform, EID entity)
 {
   PROFILE_FUNCTION();
   uint32_t index = drawer->frames[drawer->frame_id].num_meshes;
@@ -799,9 +797,6 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
       dst->vertexCount = src->vertexCount;
       dst->firstInstance = drawer->transform_offset;
       dst->instanceCount = 1;
-#if VX_USE_CULLING
-      // RotateByQuat(&f_vox_normals[i], &transform->rotation, &dst->normal);
-#endif
     }
   } else {
     // if hash not found then generate new vertices and draw data.
@@ -849,9 +844,6 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
       command->firstVertex = drawer->vertex_offset;
       command->firstInstance = drawer->transform_offset;
       command->instanceCount = 1;
-#if VX_USE_CULLING
-      // RotateByQuat(&f_vox_normals[i], &transform->rotation, &command->normal);
-#endif
       drawer->vertex_offset += command->vertexCount;
     }
     mesh->last_vertex = drawer->vertex_offset;
@@ -860,13 +852,14 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transf
   // this information will be used for culling
 #if VX_USE_CULLING
   CalculateVoxelGridSize(grid, &mesh->half_size);
-  mesh->transform = transform;
+  mesh->entity = entity;
 #endif
   mesh->first_draw_id = 6 * index;
   drawer->transform_offset++;
 }
 
-INTERNAL void
+// return: number of drawcalls
+INTERNAL uint32_t
 DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
 {
   PROFILE_FUNCTION();
@@ -877,6 +870,7 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
   vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
 #endif
   VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws->ptr;
+  uint32_t draw_calls = 0;
   for (uint32_t i = 0; i < drawer->frames[drawer->frame_id].num_draws; i += 6) {
     VX_Draw_Command* command = &draws[i];
     // merge draw calls
@@ -897,10 +891,13 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
               vertex_count, command->instanceCount,
               command->firstVertex, command->firstInstance);
 #endif
+    draw_calls++;
   }
+  return draw_calls;
 }
 
-INTERNAL void
+// return: number of drawcalls
+INTERNAL uint32_t
 DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal_id,
                       const Camera* camera)
 {
@@ -914,33 +911,31 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
 #endif
   VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws->ptr;
   VX_Mesh_Info* meshes = drawer->frames[drawer->frame_id].meshes->ptr;
-
-#if VX_USE_CULLING
-  Vec3 obb[8];
-#endif
+  uint32_t draw_calls = 0;
 
   for (uint32_t i = normal_id; i < drawer->frames[drawer->frame_id].num_draws; i += 6) {
     VX_Draw_Command* command = &draws[i];
-    VX_Mesh_Info* mesh = &meshes[i/6];
 #if VX_USE_CULLING
+    VX_Mesh_Info* mesh = &meshes[i/6];
     // TODO(render): find a way to cull instanced objects
     if (command->instanceCount == 1) {
+      Transform* transform = GetComponent(Transform, mesh->entity);
+      OBB* obb = GetComponent(OBB, mesh->entity);
       // try to backface cull this face
-      Vec3 dist = VEC3_SUB(mesh->transform->position, camera->position);
+      Vec3 dist = VEC3_SUB(transform->position, camera->position);
       Vec3 normal = f_vox_normals[normal_id];
-      RotateByQuat(&normal, &mesh->transform->rotation, &normal);
+      RotateByQuat(&normal, &transform->rotation, &normal);
       float dot = VEC3_DOT(dist, normal);
       if (dot > 0)
         continue;
 
       // cull objects from behind
       // TODO(render): frustum culling
-      CalculateObjectOBB(&mesh->half_size, mesh->transform, obb);
       int flag = 0;
       for (size_t i = 0; i < 8; i++) {
-        Vec3 dir = VEC3_SUB(obb[i], camera->position);
+        Vec3 dir = VEC3_SUB(obb->corners[i], camera->position);
         dot = VEC3_DOT(dir, camera->front);
-        // NOTE: camera front is inverted, test below should be obviously "dot > 0"
+        // NOTE: camera front is inverted, obviously test below should be "dot > 0"
         flag |= (dot < 0);
       }
       if (flag == 0)
@@ -957,7 +952,9 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
               command->vertexCount, command->instanceCount,
               command->firstVertex, command->firstInstance);
 #endif
+    draw_calls++;
   }
+  return draw_calls;
 }
 
 INTERNAL void
@@ -995,37 +992,9 @@ PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint
 
 // calculate oriented bounding box's corners
 INTERNAL void
-CalculateVoxelGridOBB(const Voxel_Grid* grid, const Transform* transform, Vec3 corners[8])
+CalculateVoxelGridOBB(const Voxel_Grid* grid, const Transform* transform, OBB* obb)
 {
   Vec3 half_size;
   CalculateVoxelGridSize(grid, &half_size);
-  CalculateObjectOBB(&half_size, transform, corners);
-}
-
-INTERNAL void
-DebugDrawVoxelOBB(Debug_Drawer* debug_drawer, const Voxel_Grid* grid, const Transform* transform)
-{
-  Vec3 points[8];
-  CalculateVoxelGridOBB(grid, transform, points);
-  const uint32_t indices[24] = {
-    0, 1,
-    1, 3,
-    3, 2,
-    2, 0,
-
-    4, 5,
-    5, 7,
-    7, 6,
-    6, 4,
-
-    0, 4,
-    1, 5,
-    2, 6,
-    3, 7
-  };
-  for (size_t i = 0; i < ARR_SIZE(indices); i += 2) {
-    AddDebugLine(debug_drawer,
-                 &points[indices[i]], &points[indices[i+1]],
-                 PACK_COLOR(255, 0, 0, 255));
-  }
+  CalculateObjectOBB(&half_size, transform, obb);
 }

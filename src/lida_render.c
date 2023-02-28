@@ -936,6 +936,32 @@ AddDebugLine(Debug_Drawer* drawer, const Vec3* start, const Vec3* end, uint32_t 
 }
 
 INTERNAL void
+DebugDrawOBB(Debug_Drawer* debug_drawer, const OBB* obb)
+{
+  const uint32_t indices[24] = {
+    0, 1,
+    1, 3,
+    3, 2,
+    2, 0,
+
+    4, 5,
+    5, 7,
+    7, 6,
+    6, 4,
+
+    0, 4,
+    1, 5,
+    2, 6,
+    3, 7
+  };
+  for (size_t i = 0; i < ARR_SIZE(indices); i += 2) {
+    AddDebugLine(debug_drawer,
+                 &obb->corners[indices[i]], &obb->corners[indices[i+1]],
+                 PACK_COLOR(255, 0, 0, 255));
+  }
+}
+
+INTERNAL void
 PipelineDebugDrawVertices(const VkVertexInputAttributeDescription** attributes, uint32_t* num_attributes,
                           const VkVertexInputBindingDescription** bindings, uint32_t* num_bindings)
 {
@@ -950,35 +976,4 @@ PipelineDebugDrawVertices(const VkVertexInputAttributeDescription** attributes, 
   *num_bindings = ARR_SIZE(g_bindings);
   *attributes = g_attributes;
   *num_attributes = ARR_SIZE(g_attributes);
-}
-
-INTERNAL void
-CalculateObjectOBB(const Vec3* half_size, const Transform* transform, Vec3 corners[8])
-{
-  Vec3 box[3];
-  box[0] = VEC3_CREATE(half_size->x, 0.0f, 0.0f);
-  box[1] = VEC3_CREATE(0.0f, half_size->y, 0.0f);
-  box[2] = VEC3_CREATE(0.0f, 0.0f, half_size->z);
-  RotateByQuat(&box[0], &transform->rotation, &box[0]);
-  RotateByQuat(&box[1], &transform->rotation, &box[1]);
-  RotateByQuat(&box[2], &transform->rotation, &box[2]);
-  const Vec3 muls[8] = {
-    { -1.0f, -1.0f, -1.0f },
-    { -1.0f, -1.0f, 1.0f },
-    { -1.0f, 1.0f, -1.0f },
-    { -1.0f, 1.0f, 1.0f },
-    { 1.0f, -1.0f, -1.0f },
-    { 1.0f, -1.0f, 1.0f },
-    { 1.0f, 1.0f, -1.0f },
-    { 1.0f, 1.0f, 1.0f },
-  };
-  for (size_t i = 0; i < 8; i++) {
-    Vec3 basis[3];
-    basis[0] = VEC3_MUL(box[0], muls[i].x * (transform->scale + 0.1f));
-    basis[1] = VEC3_MUL(box[1], muls[i].y * (transform->scale + 0.1f));
-    basis[2] = VEC3_MUL(box[2], muls[i].z * (transform->scale + 0.1f));
-    corners[i].x = basis[0].x + basis[1].x + basis[2].x + transform->position.x;
-    corners[i].y = basis[0].y + basis[1].y + basis[2].y + transform->position.y;
-    corners[i].z = basis[0].z + basis[1].z + basis[2].z + transform->position.z;
-  }
 }

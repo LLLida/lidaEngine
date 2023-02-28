@@ -63,6 +63,7 @@ typedef struct {
   uint32_t prev_time;
   uint32_t curr_time;
   int render_mode;
+  uint32_t voxel_draw_calls;
 
 } Engine_Context;
 
@@ -81,6 +82,7 @@ GLOBAL EID grid_2;
 #define X_ALL_COMPONENTS()                      \
   X(Voxel_Grid);                                \
   X(Transform);                                 \
+  X(OBB);                                       \
   X(Pipeline_Program);                          \
   X(Font);                                      \
   X(Config_File)
@@ -199,6 +201,7 @@ EngineInit(const Engine_Startup_Info* info)
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(3.1f, 2.6f, 1.0f);
   transform->scale = 3.0f;
+  AddComponent(&g_context->ecs, OBB, grid_1);
   // entity 2
   AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
                         grid_2, "chr_beau.vox");
@@ -206,10 +209,12 @@ EngineInit(const Engine_Startup_Info* info)
   transform->rotation = QUAT_IDENTITY();
   transform->position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
   transform->scale = 0.9f;
+  AddComponent(&g_context->ecs, OBB, grid_2);
   // floor
   EID floor = CreateEntity(&g_context->ecs);
   vox = AddComponent(&g_context->ecs, Voxel_Grid, floor);
   transform = AddComponent(&g_context->ecs, Transform, floor);
+  AddComponent(&g_context->ecs, OBB, floor);
   // manually write voxels
   AllocateVoxelGrid(&g_context->vox_allocator, vox, 128, 1, 128);
   // арбузовое счастье
@@ -365,10 +370,15 @@ EngineUpdateAndRender()
 
   FOREACH_COMPONENT(Voxel_Grid) {
     Transform* transform = GetComponent(Transform, entities[i]);
-    PushMeshToVoxelDrawer(&g_context->vox_drawer, &components[i], transform);
+    OBB* obb = GetComponent(OBB, entities[i]);
+    // update OBB
+    CalculateVoxelGridOBB(&components[i], transform, obb);
+    // draw
+    PushMeshToVoxelDrawer(&g_context->vox_drawer, &components[i], transform, entities[i]);
+    // draw wireframe
     int* opt = GetVar_Int(g_config, "Render.debug_voxel_obb");
     if (opt && *opt) {
-      DebugDrawVoxelOBB(&g_context->debug_drawer, &components[i], transform);
+      DebugDrawOBB(&g_context->debug_drawer, obb);
     }
   }
 
@@ -392,17 +402,27 @@ EngineUpdateAndRender()
              GetVar_String(g_config, "Misc.some_string"), &text_size, color, &pos);
 
     // camera front
+    // {
+    //   pos = VEC2_CREATE(0.005f, 0.9f);
+    //   text_size = (Vec2) { 0.025f, 0.025f };
+    //   color = PACK_COLOR(255, 255, 255, 160);
+    //   char buff[64];
+    //   stbsp_sprintf(buff, "front=[%.3f, %.3f, %.3f]",
+    //                 g_context->camera.front.x, g_context->camera.front.y, g_context->camera.front.z);
+    //   DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
+    //   pos = VEC2_CREATE(0.005f, 0.95f);
+    //   stbsp_sprintf(buff, "pos=[%.3f, %.3f, %.3f]",
+    //                 g_context->camera.position.x, g_context->camera.position.y, g_context->camera.position.z);
+    //   DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
+    // }
+
+    // draw call info
     {
       pos = VEC2_CREATE(0.005f, 0.9f);
       text_size = (Vec2) { 0.025f, 0.025f };
       color = PACK_COLOR(255, 255, 255, 160);
       char buff[64];
-      stbsp_sprintf(buff, "front=[%.3f, %.3f, %.3f]",
-                    g_context->camera.front.x, g_context->camera.front.y, g_context->camera.front.z);
-      DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
-      pos = VEC2_CREATE(0.005f, 0.95f);
-      stbsp_sprintf(buff, "pos=[%.3f, %.3f, %.3f]",
-                    g_context->camera.position.x, g_context->camera.position.y, g_context->camera.position.z);
+      stbsp_sprintf(buff, "draw calls: %u", g_context->voxel_draw_calls);
       DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
     }
 
@@ -417,6 +437,7 @@ EngineUpdateAndRender()
   }
 
   VkDescriptorSet ds_set;
+  g_context->voxel_draw_calls = 0;
 
   // render to shadow map
   BeginShadowPass(&g_context->shadow_pass, cmd);
@@ -427,7 +448,7 @@ EngineUpdateAndRender()
     Pipeline_Program* prog = GetComponent(Pipeline_Program, g_context->shadow_pipeline);
     ds_set = g_context->shadow_pass.scene_data_set;
     cmdBindProgram(cmd, prog, 1, &ds_set);
-    DrawVoxels(&g_context->vox_drawer, cmd);
+    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd);
   }
   vkCmdEndRenderPass(cmd);
 
@@ -462,8 +483,8 @@ EngineUpdateAndRender()
     cmdBindProgram(cmd, prog, ARR_SIZE(ds_sets), ds_sets);
     for (uint32_t i = 0; i < 6; i++) {
       vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
-      DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i,
-                            &g_context->camera);
+      g_context->voxel_draw_calls += DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i,
+                                                           &g_context->camera);
     }
     // draw debug lines
     prog = GetComponent(Pipeline_Program, g_context->debug_pipeline);

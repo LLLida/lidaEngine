@@ -49,6 +49,14 @@ typedef struct {
 } Transform;
 DECLARE_COMPONENT(Transform);
 
+// Oriented Bounding Box
+typedef struct {
+
+  Vec3 corners[8];
+
+} OBB;
+DECLARE_COMPONENT(OBB);
+
 enum {
   CAMERA_PRESSED_FORWARD = (1<<0),
   CAMERA_PRESSED_LEFT = (1<<1),
@@ -504,4 +512,35 @@ CameraUpdate(Camera* camera, float dt, uint32_t window_width, uint32_t window_he
     CameraMove(camera, -dt * camera->up.x, -dt * camera->up.y, -dt * camera->up.z);
   }
   camera->aspect_ratio = (float)window_width / (float)window_height;
+}
+
+INTERNAL void
+CalculateObjectOBB(const Vec3* half_size, const Transform* transform, OBB* obb)
+{
+  Vec3 box[3];
+  box[0] = VEC3_CREATE(half_size->x, 0.0f, 0.0f);
+  box[1] = VEC3_CREATE(0.0f, half_size->y, 0.0f);
+  box[2] = VEC3_CREATE(0.0f, 0.0f, half_size->z);
+  RotateByQuat(&box[0], &transform->rotation, &box[0]);
+  RotateByQuat(&box[1], &transform->rotation, &box[1]);
+  RotateByQuat(&box[2], &transform->rotation, &box[2]);
+  const Vec3 muls[8] = {
+    { -1.0f, -1.0f, -1.0f },
+    { -1.0f, -1.0f, 1.0f },
+    { -1.0f, 1.0f, -1.0f },
+    { -1.0f, 1.0f, 1.0f },
+    { 1.0f, -1.0f, -1.0f },
+    { 1.0f, -1.0f, 1.0f },
+    { 1.0f, 1.0f, -1.0f },
+    { 1.0f, 1.0f, 1.0f },
+  };
+  for (size_t i = 0; i < 8; i++) {
+    Vec3 basis[3];
+    basis[0] = VEC3_MUL(box[0], muls[i].x * (transform->scale + 0.1f));
+    basis[1] = VEC3_MUL(box[1], muls[i].y * (transform->scale + 0.1f));
+    basis[2] = VEC3_MUL(box[2], muls[i].z * (transform->scale + 0.1f));
+    obb->corners[i].x = basis[0].x + basis[1].x + basis[2].x + transform->position.x;
+    obb->corners[i].y = basis[0].y + basis[1].y + basis[2].y + transform->position.y;
+    obb->corners[i].z = basis[0].z + basis[1].z + basis[2].z + transform->position.z;
+  }
 }
