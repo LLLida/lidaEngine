@@ -68,11 +68,9 @@ enum {
 
 typedef struct {
 
-  // note: need to update before access
+  // NOTE: need to update before access
   Mat4 projection_matrix;
-  // note: need to update before access
   Mat4 view_matrix;
-  // note: need to update before access
   Vec3 front;
 
   Vec3 position;
@@ -234,6 +232,17 @@ Mat4_Mul(const Mat4* lhs, const Mat4* rhs, Mat4* out)
   temp.m33 = lhs->m30*rhs->m03 + lhs->m31*rhs->m13 + lhs->m32*rhs->m23 + lhs->m33*rhs->m33;
 
   memcpy(out, &temp, sizeof(Mat4));
+}
+
+INTERNAL void
+Mat4_Mul_Vec4(const Mat4* lhs, const Vec4* rhs, Vec4* out)
+{
+  Vec4 temp;
+  temp.x = rhs->x * lhs->m00 + rhs->y * lhs->m01 + rhs->z * lhs->m02 + rhs->w * lhs->m03;
+  temp.y = rhs->x * lhs->m10 + rhs->y * lhs->m11 + rhs->z * lhs->m12 + rhs->w * lhs->m13;
+  temp.z = rhs->x * lhs->m20 + rhs->y * lhs->m21 + rhs->z * lhs->m22 + rhs->w * lhs->m23;
+  temp.w = rhs->x * lhs->m30 + rhs->y * lhs->m31 + rhs->z * lhs->m32 + rhs->w * lhs->m33;
+  memcpy(out, &temp, sizeof(Vec4));
 }
 
 INTERNAL void
@@ -543,4 +552,21 @@ CalculateObjectOBB(const Vec3* half_size, const Transform* transform, OBB* obb)
     obb->corners[i].y = basis[0].y + basis[1].y + basis[2].y + transform->position.y;
     obb->corners[i].z = basis[0].z + basis[1].z + basis[2].z + transform->position.z;
   }
+}
+
+INTERNAL int
+TestFrustumOBB(const Mat4* projview, const OBB* obb)
+{
+  for (size_t i = 0; i < 8; i++) {
+    Vec4 pos = { obb->corners[i].x, obb->corners[i].y, obb->corners[i].z, 1.0f };
+    Mat4_Mul_Vec4(projview, &pos, &pos);
+    // check pos against clip space bounds
+    // NOTE: no upper check for z because we have inifinite z
+    if (-pos.w <= pos.x && pos.x <= pos.w &&
+        -pos.w <= pos.y && pos.y <= pos.w &&
+          0.0f <= pos.z) {
+      return 1;
+    }
+  }
+  return 0;
 }

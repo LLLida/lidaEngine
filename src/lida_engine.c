@@ -375,6 +375,9 @@ EngineUpdateAndRender()
     OBB* obb = GetComponent(OBB, entities[i]);
     // update OBB
     CalculateVoxelGridOBB(&components[i], transform, obb);
+    // frustum culling
+    if (TestFrustumOBB(&sc_data->camera_projview, obb) == 0)
+      continue;
     // draw
     PushMeshToVoxelDrawer(&g_context->vox_drawer, &components[i], transform, entities[i]);
     // draw wireframe
@@ -420,6 +423,22 @@ EngineUpdateAndRender()
     //                 g_context->camera.position.x, g_context->camera.position.y, g_context->camera.position.z);
     //   DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
     // }
+
+    // FIXME(test): draw !!! where grid_1 is located
+    {
+      Vec4 position;
+      Transform* transform = GetComponent(Transform, grid_1);
+      position.x = transform->position.x;
+      position.y = transform->position.y;
+      position.z = transform->position.z;
+      position.w = 1.0f;
+      Mat4_Mul_Vec4(&sc_data->camera_projview, &position, &position);
+      position.x /= position.w;
+      position.y /= position.w;
+      position.x = (position.x + 1.0f) * 0.5f;
+      position.y = (position.y + 1.0f) * 0.5f;
+      DrawText(&g_context->quad_renderer, font, "!!!", &text_size, PACK_COLOR(0, 0, 255, 255), (Vec2*)&position);
+    }
 
     // draw call info
     {

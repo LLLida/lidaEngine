@@ -917,28 +917,15 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
     VX_Draw_Command* command = &draws[i];
 #if VX_USE_CULLING
     VX_Mesh_Info* mesh = &meshes[i/6];
-    // TODO(render): find a way to cull instanced objects
+    // TODO(render): find a way to cull instanced objects.
     if (command->instanceCount == 1) {
       Transform* transform = GetComponent(Transform, mesh->entity);
-      OBB* obb = GetComponent(OBB, mesh->entity);
       // try to backface cull this face
       Vec3 dist = VEC3_SUB(transform->position, camera->position);
       Vec3 normal = f_vox_normals[normal_id];
       RotateByQuat(&normal, &transform->rotation, &normal);
       float dot = VEC3_DOT(dist, normal);
       if (dot > 0)
-        continue;
-
-      // cull objects from behind
-      // TODO(render): frustum culling
-      int flag = 0;
-      for (size_t i = 0; i < 8; i++) {
-        Vec3 dir = VEC3_SUB(obb->corners[i], camera->position);
-        dot = VEC3_DOT(dir, camera->front);
-        // NOTE: camera front is inverted, obviously test below should be "dot > 0"
-        flag |= (dot < 0);
-      }
-      if (flag == 0)
         continue;
     }
 #endif
