@@ -6,8 +6,10 @@
  * rendering with Vulkan API;
  * custom voxel rendering algorithm;
  * all memory used by CPU side is preallocated at startup(1 malloc for entire engine);
+ * probably one of the simplest and fastest Entity Component System out there;
  * CVar system;
  * hot loadable shaders, voxel models, configuration variables;
+ * efficient text rendering with FreeType2;
  * builtin console(press "~");
 
 * Build instructions
