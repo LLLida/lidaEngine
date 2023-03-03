@@ -39,6 +39,8 @@ typedef struct {
 #define ENTITY_DEAD_MASK 0x8000
 #define ENTITY_ALIVE_MASK (~ENTITY_DEAD_MASK)
 
+#define ENTITY_NIL UINT32_MAX
+
 
 /// internal functions
 
@@ -107,6 +109,8 @@ ReserveSparseSet(Allocator* allocator, Sparse_Set* set, uint32_t capacity)
 INTERNAL void*
 SearchSparseSet(const Sparse_Set* set, EID entity)
 {
+  if (set->size == 0)
+    return NULL;
   uint32_t* sparse = set->sparse->ptr;
   EID* dense = set->dense->ptr;
   if (entity < set->max_id &&

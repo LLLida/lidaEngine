@@ -33,31 +33,10 @@ typedef struct {
 } VX_Draw_Command;
 
 typedef struct {
-
-  uint64_t hash;
-#if VX_USE_CULLING
-  Vec3 half_size;
   EID entity;
-#endif
-  uint32_t first_vertex;
-  uint32_t last_vertex;
-  uint32_t first_draw_id;
-
-
-} VX_Mesh_Info;
-
-
-typedef struct {
-  uint32_t draw_id;
   uint32_t first_vertex;
   uint32_t last_vertex;
 } VX_Draw_ID;
-
-typedef struct {
-  uint32_t draw_id;
-  // counter for robin-hood hashing
-  uint32_t psl;
-} VX_Draw_Hash;
 
 typedef struct {
 
@@ -73,7 +52,7 @@ typedef struct {
   size_t max_draws;
   size_t max_indices;
 
-  int frame_id;
+  // frame when reset happened
   size_t vertex_offset;
   size_t transform_offset;
 
@@ -84,19 +63,21 @@ typedef struct {
   Allocation* index_temp_buffer;
 #endif
 
-  struct {
-    Allocation* draws;
-    size_t num_draws;
-    Allocation* meshes;
-    size_t num_meshes;
-  } frames[2];
-
-  Allocation* hashes_cached;
-  size_t num_hashes_cached;
-  Allocation* regions_cached;
-  size_t num_regions_cached;
+  Allocation* draws;
+  size_t num_draws;
+  Allocation* meshes;
+  size_t num_meshes;
 
 } Voxel_Drawer;
+
+typedef struct {
+
+  uint64_t hash;
+  uint32_t first_vertex;
+  uint32_t offsets[6];
+
+} Voxel_Cached;
+DECLARE_COMPONENT(Voxel_Cached);
 
 // NOTE: this doesn't do bounds checking
 // NOTE: setting a voxel value with this macro is unsafe, hash won't be correct,
@@ -506,25 +487,16 @@ INTERNAL VkResult
 CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_vertices, uint32_t max_draws)
 {
   PROFILE_FUNCTION();
-  for (int i = 0; i < 2; i++) {
-    drawer->frames[i].draws = DoAllocation(allocator, 6 * max_draws * sizeof(VX_Draw_Command),
-                                           "voxel-draws");
-    drawer->frames[i].meshes = DoAllocation(allocator, max_draws * sizeof(VX_Mesh_Info),
-                                            "voxel-mesh-cache");
-    drawer->frames[i].num_draws = 0;
-    drawer->frames[i].num_meshes = 0;
-    if (drawer->frames[i].draws == 0 || drawer->frames[i].meshes == 0) {
-      LOG_ERROR("out of memory");
-    }
+  drawer->draws = DoAllocation(allocator, 6 * max_draws * sizeof(VX_Draw_Command),
+                                         "voxel-draws");
+  drawer->meshes = DoAllocation(allocator, max_draws * sizeof(EID),
+                                          "voxel-mesh-ids");
+  drawer->num_draws = 0;
+  drawer->num_meshes = 0;
+  if (drawer->draws == 0 || drawer->meshes == 0) {
+    LOG_ERROR("out of memory");
+    return VK_ERROR_OUT_OF_HOST_MEMORY;
   }
-  drawer->hashes_cached = DoAllocation(allocator,
-                                       NearestPow2(max_draws) * sizeof(VX_Draw_Hash),
-                                       "voxel-hash-cache");
-  drawer->regions_cached = DoAllocation(allocator,
-                                        max_draws * sizeof(VX_Draw_ID),
-                                        "voxel-draw-cache");
-  drawer->num_hashes_cached = 0;
-  drawer->num_regions_cached = 0;
   // create buffers
   VkResult err = CreateBuffer(&drawer->vertex_buffer, max_vertices * sizeof(Vertex_X3C),
                               VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/vertex-buffer");
@@ -616,7 +588,6 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
   drawer->max_draws = max_draws;
   drawer->max_vertices = max_vertices;
   drawer->vertex_offset = 0;
-  drawer->frame_id = 1;
   return err;
 }
 
@@ -626,15 +597,13 @@ DestroyVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator)
   PROFILE_FUNCTION();
 #if VX_USE_INDICES
   FreeAllocation(allocator, drawer->index_temp_buffer);
-  FreeAllocation(allocator, drawer->vertex_temp_buffer);
-  FreeAllocation(allocator, drawer->regions_cached);
-  FreeAllocation(allocator, drawer->hashes_cached);
-  FreeAllocation(allocator, drawer->frames[1].meshes);
-  FreeAllocation(allocator, drawer->frames[1].draws);
-  FreeAllocation(allocator, drawer->frames[0].meshes);
-  FreeAllocation(allocator, drawer->frames[0].draws);
 #endif
+  FreeAllocation(allocator, drawer->vertex_temp_buffer);
+  FreeAllocation(allocator, drawer->meshes);
+  FreeAllocation(allocator, drawer->draws);
+#if VX_USE_INDICES
   vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
+#endif
   vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
   vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
   FreeVideoMemory(&drawer->memory);
@@ -648,214 +617,100 @@ CompareVX_DrawID(const void* lhs, const void* rhs)
 }
 
 INTERNAL void
-UpdateVoxelDrawerCache(Voxel_Drawer* drawer)
-{
-  VX_Mesh_Info* prev_meshes = drawer->frames[1-drawer->frame_id].meshes->ptr;
-  size_t n = drawer->frames[1-drawer->frame_id].num_meshes;
-  const uint32_t n2 = NearestPow2(n);
-
-  drawer->num_hashes_cached = n2;
-  drawer->num_regions_cached = n+1;
-
-  VX_Draw_Hash* hashes = drawer->hashes_cached->ptr;
-  VX_Draw_ID* regions = drawer->regions_cached->ptr;
-
-  for (size_t  i = 0; i < n; i++) {
-    regions[i].draw_id = i;
-    regions[i].first_vertex = prev_meshes[i].first_vertex;
-    regions[i].last_vertex = prev_meshes[i].last_vertex;
-  }
-  for (uint32_t i = 0; i < n2; i++) {
-    hashes[i].draw_id = UINT32_MAX;
-  }
-  // build hash table of draws from previous frame using robin-hood hashing
-  // https://programming.guide/robin-hood-hashing.html
-  for (uint32_t i = 0; i < n; i++) {
-    VX_Mesh_Info* mesh = &prev_meshes[i];
-    // because n2 is a power of 2, we can do '&' instead of expensive '%'
-    uint32_t id = mesh->hash & (n2-1);
-    VX_Draw_Hash obj;
-    obj.draw_id = i;
-    obj.psl = 0;
-    while (hashes[id].draw_id != UINT32_MAX) {
-      if (obj.psl > hashes[id].psl) {
-        MemorySwap(&obj, &hashes[id], sizeof(obj));
-      }
-      obj.psl++;
-      id = (id+1) & (n2-1);
-    }
-    memcpy(&hashes[id], &obj, sizeof(obj));
-  }
-  // drawIDs are put in sorted vector to perform binary search
-  QuickSort(regions, n, sizeof(VX_Draw_ID), &CompareVX_DrawID);
-  // upper bound of buffer
-  regions[n].draw_id = n;
-  regions[n].first_vertex = drawer->max_vertices;
-  regions[n].last_vertex = 0;
-  VX_Mesh_Info* border = &prev_meshes[n];
-  border->first_vertex = drawer->max_vertices;
-  border->last_vertex = 0;
-  drawer->frames[1-drawer->frame_id].num_meshes++;
-}
-
-INTERNAL void
 NewVoxelDrawerFrame(Voxel_Drawer* drawer)
 {
   PROFILE_FUNCTION();
-  drawer->frame_id = 1 - drawer->frame_id;
-  if (drawer->frame_id == 0)
+  GLOBAL int frame_id = 0;
+  if (frame_id == 0) {
     drawer->transform_offset = 0;
-  drawer->frames[drawer->frame_id].num_draws = 0;
-  drawer->frames[drawer->frame_id].num_meshes = 0;
-  UpdateVoxelDrawerCache(drawer);
-}
-
-INTERNAL uint32_t*
-VX_FindDrawByHash(Voxel_Drawer* drawer, uint64_t hash)
-{
-  uint32_t n = drawer->num_hashes_cached;
-  if (n > 0) {
-    // n is always power of two
-    VX_Draw_Hash* hashes = drawer->hashes_cached->ptr;
-    VX_Mesh_Info* prev_meshes = drawer->frames[1-drawer->frame_id].meshes->ptr;
-    uint32_t id = hash & (n-1);
-    uint32_t psl = 0;
-    while (1) {
-      if (hashes[id].draw_id == UINT32_MAX) {
-        // empty slot encountered => return NULL
-        return NULL;
-      }
-      if (prev_meshes[hashes[id].draw_id].hash == hash) {
-        // we found hash => return
-        return &hashes[id].draw_id;
-      }
-      if (psl > hashes[id].psl) {
-        return NULL;
-      }
-      id = (id+1) & (n-1);
-      psl++;
-    }
+    frame_id = 1;
+  } else {
+    frame_id = 0;
   }
-  return NULL;
-}
-
-INTERNAL VX_Draw_ID*
-VX_FindNearestDraw(Voxel_Drawer* drawer, uint32_t offset)
-{
-  // based on https://en.cppreference.com/w/cpp/algorithm/upper_bound
-  uint32_t n = drawer->num_regions_cached;
-  VX_Draw_ID* regions = drawer->regions_cached->ptr;
-  VX_Draw_ID* ptr = regions;
-  VX_Mesh_Info* prev_meshes = drawer->frames[1-drawer->frame_id].meshes->ptr;
-  while (n > 0) {
-    uint32_t step = n / 2;
-    VX_Draw_ID* it = ptr + step;
-    if (offset >= prev_meshes[it->draw_id].first_vertex) {
-      ptr = it+1;
-      n -= step + 1;
-    } else {
-      n = step;
-    }
-  }
-  return ptr;
+  drawer->num_draws = 0;
+  drawer->num_meshes = 0;
 }
 
 INTERNAL void
-PushMeshToVoxelDrawer(Voxel_Drawer* drawer, const Voxel_Grid* grid, const Transform* transform, EID entity)
+VX_Regenerate(Voxel_Drawer* drawer, Voxel_Cached* cached, Voxel_Grid* grid)
+{
+  cached->hash = grid->hash;
+  VX_Draw_Command* current_draws = drawer->draws->ptr;
+#if VX_USE_INDICES
+  uint32_t base_index = 0;
+#endif
+  for (int i = 0; i < 6; i++) {
+    VX_Draw_Command* command = &current_draws[drawer->num_draws++];
+
+#if VX_USE_INDICES
+    uint32_t index_offset = drawer->vertex_offset*3/2;
+    command->vertexCount = GenerateVoxelGridMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i,
+                                                       base_index, drawer->pIndices + index_offset);
+    base_index += command->vertexCount;
+#else
+    command->vertexCount =
+      GenerateVoxelGridMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i);
+#endif
+
+    command->firstVertex = drawer->vertex_offset;
+    if (i == 0) {
+      cached->first_vertex = command->firstVertex;
+    }
+    command->firstInstance = drawer->transform_offset;
+    command->instanceCount = 1;
+    drawer->vertex_offset += command->vertexCount;
+    cached->offsets[i] = command->vertexCount;
+  }
+}
+
+INTERNAL void
+PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
 {
   PROFILE_FUNCTION();
-  uint32_t index = drawer->frames[drawer->frame_id].num_meshes;
+  uint32_t index = drawer->num_meshes;
   // add transform
-  memcpy(&drawer->pTransforms[drawer->transform_offset], transform, sizeof(Transform));
-  VX_Mesh_Info* current_meshes = drawer->frames[drawer->frame_id].meshes->ptr;
-  VX_Draw_Command* current_draws = drawer->frames[drawer->frame_id].draws->ptr;
+  memcpy(&drawer->pTransforms[drawer->transform_offset],
+         GetComponent(Transform, entity), sizeof(Transform));
+  EID* meshes = drawer->meshes->ptr;
+  Voxel_Grid* grid = GetComponent(Voxel_Grid, entity);
+  VX_Draw_Command* draws = drawer->draws->ptr;
+
+  // try to use instancing if same mesh is pushed twice
   if (index > 0) {
-    // try to use instancing if same mesh is pushed twice
-    VX_Mesh_Info* prev_mesh = &current_meshes[index-1];
-    if (prev_mesh->hash == grid->hash) {
-      VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws->ptr;
+    Voxel_Cached* prev = GetComponent(Voxel_Cached, meshes[index-1]);
+    if (prev->hash == grid->hash) {
       for (uint32_t i = 0; i < 6; i++) {
-        draws[prev_mesh->first_draw_id+i].instanceCount++;
+        draws[drawer->num_draws-6+i].instanceCount++;
       }
-      drawer->transform_offset++;
-      return;
+      goto end;
     }
   }
-  const uint32_t* draw_id = VX_FindDrawByHash(drawer, grid->hash);
-  VX_Mesh_Info* prev_meshes = drawer->frames[1-drawer->frame_id].meshes->ptr;
-  VX_Mesh_Info* mesh = &current_meshes[drawer->frames[drawer->frame_id].num_meshes++];
-  if (draw_id) {
-    // if we found that a grid with exact same hash was rendered in previous frame then
-    // we use previous frame's vertices in this frame.
-    // This helps to not waste time generating same vertices every frame.
-    VX_Draw_Command* prev_draws = drawer->frames[1-drawer->frame_id].draws->ptr;
-    memcpy(mesh, &prev_meshes[*draw_id], sizeof(VX_Mesh_Info));
-    for (int i = 0; i < 6; i++) {
-      VX_Draw_Command* dst = &current_draws[drawer->frames[drawer->frame_id].num_draws++];
-      VX_Draw_Command* src = &prev_draws[prev_meshes[*draw_id].first_draw_id + i];
-      dst->firstVertex = src->firstVertex;
-      dst->vertexCount = src->vertexCount;
-      dst->firstInstance = drawer->transform_offset;
-      dst->instanceCount = 1;
+
+  // try to use cache
+  Voxel_Cached* cached = GetComponent(Voxel_Cached, entity);
+  if (cached) {
+    if (cached->hash != grid->hash) {
+      // regenerate if grid changed
+      VX_Regenerate(drawer, cached, grid);
+      goto end;
     }
-  } else {
-    // if hash not found then generate new vertices and draw data.
-    mesh->first_vertex = drawer->vertex_offset;
-    // upper_bound is first vertex position which will be untouched in worst case scenario
-    uint32_t upper_bound = drawer->vertex_offset + GetVoxelGridMaxGeneratedVertices(grid);
-    VX_Draw_ID* d = VX_FindNearestDraw(drawer, drawer->vertex_offset);
-#if VX_USE_INDICES
-    uint32_t base_index = 0;
-#endif
-    for (int i = 0; i < 6; i++) {
-      VX_Draw_Command* command = &current_draws[drawer->frames[drawer->frame_id].num_draws++];
-      if (upper_bound > d->first_vertex) {
-        // if we're not sure if we can write voxels safely at this position
-        // then write to a temporary buffer and see if we can fit to current free region
-#if VX_USE_INDICES
-        // TODO: do we need index_temp_buffer?
-        uint32_t index_offset = drawer->vertex_offset*3/2;
-        command->vertexCount = GenerateVoxelGridMeshGreedy(grid, (Vertex_X3C*)drawer->vertex_temp_buffer->ptr, i,
-                                                           base_index, (uint32_t*)drawer->index_temp_buffer + index_offset);
-        base_index += command->vertexCount;
-#else
-        command->vertexCount = GenerateVoxelGridMeshGreedy(grid, drawer->vertex_temp_buffer, i);
-#endif
-        while (drawer->vertex_offset + command->vertexCount > prev_meshes[d->draw_id].first_vertex) {
-          drawer->vertex_offset = prev_meshes[d->draw_id].last_vertex;
-          d = VX_FindNearestDraw(drawer, drawer->vertex_offset);
-        }
-        // copy temporary buffer to newly found free region
-        memcpy(drawer->pVertices + drawer->vertex_offset,
-               drawer->vertex_temp_buffer,
-               command->vertexCount * sizeof(Vertex_X3C));
-      } else {
-        // if there's enough space we can write vertices directly to buffer
-#if VX_USE_INDICES
-        uint32_t index_offset = drawer->vertex_offset*3/2;
-        command->vertexCount = GenerateVoxelGridMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i,
-                                                           base_index, drawer->pIndices + index_offset);
-        base_index += command->vertexCount;
-#else
-        command->vertexCount =
-          GenerateVoxelGridMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i);
-#endif
-      }
-      command->firstVertex = drawer->vertex_offset;
+    uint32_t vertex_offset = cached->first_vertex;
+    for (uint32_t i = 0; i < 6; i++) {
+      VX_Draw_Command* command = &draws[drawer->num_draws++];
+      command->firstVertex = vertex_offset;
+      command->vertexCount = cached->offsets[i];
       command->firstInstance = drawer->transform_offset;
       command->instanceCount = 1;
-      drawer->vertex_offset += command->vertexCount;
+      vertex_offset += cached->offsets[i];
     }
-    mesh->last_vertex = drawer->vertex_offset;
-    mesh->hash = grid->hash;
+  } else {
+    // didn't succeed, generate new vertices
+    cached = AddComponent(ecs, Voxel_Cached, entity);
+    VX_Regenerate(drawer, cached, grid);
   }
-  // this information will be used for culling
-#if VX_USE_CULLING
-  CalculateVoxelGridSize(grid, &mesh->half_size);
-  mesh->entity = entity;
-#endif
-  mesh->first_draw_id = 6 * index;
+ end:
   drawer->transform_offset++;
+  meshes[drawer->num_meshes++] = entity;
 }
 
 // return: number of drawcalls
@@ -869,9 +724,9 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
 #if VX_USE_INDICES
   vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
 #endif
-  VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws->ptr;
+  VX_Draw_Command* draws = drawer->draws->ptr;
   uint32_t draw_calls = 0;
-  for (uint32_t i = 0; i < drawer->frames[drawer->frame_id].num_draws; i += 6) {
+  for (uint32_t i = 0; i < drawer->num_draws; i += 6) {
     VX_Draw_Command* command = &draws[i];
     // merge draw calls
 #if VX_USE_INDICES
@@ -909,17 +764,17 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
 #if VX_USE_INDICES
   vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
 #endif
-  VX_Draw_Command* draws = drawer->frames[drawer->frame_id].draws->ptr;
-  VX_Mesh_Info* meshes = drawer->frames[drawer->frame_id].meshes->ptr;
+  VX_Draw_Command* draws = drawer->draws->ptr;
+  EID* meshes = drawer->meshes->ptr;
   uint32_t draw_calls = 0;
 
-  for (uint32_t i = normal_id; i < drawer->frames[drawer->frame_id].num_draws; i += 6) {
+  for (uint32_t i = normal_id; i < drawer->num_draws; i += 6) {
     VX_Draw_Command* command = &draws[i];
 #if VX_USE_CULLING
-    VX_Mesh_Info* mesh = &meshes[i/6];
+    EID mesh = meshes[i/6];
     // TODO(render): find a way to cull instanced objects.
     if (command->instanceCount == 1) {
-      Transform* transform = GetComponent(Transform, mesh->entity);
+      Transform* transform = GetComponent(Transform, mesh);
       // try to backface cull this face
       Vec3 dist = VEC3_SUB(transform->position, camera->position);
       Vec3 normal = f_vox_normals[normal_id];

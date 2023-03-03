@@ -83,6 +83,7 @@ GLOBAL EID grid_2;
 #define X_ALL_COMPONENTS()                      \
   X(Voxel_Grid);                                \
   X(Transform);                                 \
+  X(Voxel_Cached);                              \
   X(OBB);                                       \
   X(Pipeline_Program);                          \
   X(Font);                                      \
@@ -360,43 +361,6 @@ EngineUpdateAndRender()
 
   Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
 
-  #if 0
-  if (g_window->frame_counter == 0) {
-    // Generate frustum planes
-    // using Gribb & Hartmann method
-    Mat4* mat = &sc_data->camera_projview;
-    float left[4], right[4], bottom[4], top[4], near[4];
-    left[0] = mat->m03 + mat->m00;
-    left[1] = mat->m13 + mat->m10;
-    left[2] = mat->m23 + mat->m20;
-    left[3] = mat->m33 + mat->m30;
-    LOG_DEBUG("left: [%f %f %f %f]", left[0], left[1], left[2], left[3]);
-    right[0] = mat->m03 - mat->m00;
-    right[1] = mat->m13 - mat->m10;
-    right[2] = mat->m23 - mat->m20;
-    right[3] = mat->m33 - mat->m30;
-    LOG_DEBUG("right: [%f %f %f %f]", right[0], right[1], right[2], right[3]);
-    bottom[0] = mat->m03 + mat->m01;
-    bottom[1] = mat->m13 + mat->m11;
-    bottom[2] = mat->m23 + mat->m21;
-    bottom[3] = mat->m33 + mat->m31;
-    LOG_DEBUG("bottom: [%f %f %f %f]", bottom[0], bottom[1], bottom[2], bottom[3]);
-    top[0] = mat->m03 - mat->m01;
-    top[1] = mat->m13 - mat->m11;
-    top[2] = mat->m23 - mat->m21;
-    top[3] = mat->m33 - mat->m31;
-    LOG_DEBUG("top: [%f %f %f %f]", top[0], top[1], top[2], top[3]);
-    near[0] = mat->m03 - mat->m02;
-    near[1] = mat->m13 - mat->m12;
-    near[2] = mat->m23 - mat->m22;
-    near[3] = mat->m33 - mat->m32;
-    LOG_DEBUG("near: [%f %f %f %f]", near[0], near[1], near[2], near[3]);
-    Vec3_Normalize((Vec3*)near, (Vec3*)near);
-    LOG_DEBUG("test1: %d", TestPointPlane(&VEC3_CREATE(0.0f, 1.0f, 5.0f), near));
-    LOG_DEBUG("test2: %d", TestPointPlane(&VEC3_CREATE(-100.0f, 1.0f, -50.0f), near));
-  }
-  #endif
-
   // rotate one of the voxel models
   {
     Transform* transform = GetComponent(Transform, grid_1);
@@ -418,7 +382,7 @@ EngineUpdateAndRender()
     if (TestFrustumOBB(&camera->projview_matrix, obb) == 0)
       continue;
     // draw
-    PushMeshToVoxelDrawer(&g_context->vox_drawer, &components[i], transform, entities[i]);
+    PushMeshToVoxelDrawer(&g_context->vox_drawer, &g_context->ecs, entities[i]);
     // draw wireframe
     int* opt = GetVar_Int(g_config, "Render.debug_voxel_obb");
     if (opt && *opt) {
