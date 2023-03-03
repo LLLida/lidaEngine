@@ -572,10 +572,11 @@ TestFrustumOBB(const Mat4* projview, const OBB* obb)
     // NOTE: no upper check for z because we have inifinite z
     if (-points[i].w <= points[i].x && points[i].x <= points[i].w &&
         -points[i].w <= points[i].y && points[i].y <= points[i].w &&
-          0.0f <= pos.z) {
+          0.0f <= points[i].z) {
       return 1;
     }
   }
+  // TODO: SIMD version of this
   // clip against right plane
   if (points[0].x > points[0].w &&
       points[1].x > points[1].w &&
