@@ -124,8 +124,6 @@ EngineInit(const Engine_Startup_Info* info)
   INIT_ALLOCATOR(vox_allocator, 4);
   INIT_ALLOCATOR(entity_allocator, 1);
 
-  REGISTER_TYPE(CVar, HashConfigEntry, CompareConfigEntries);
-
   CreateECS(&g_context->entity_allocator, &g_context->ecs, 8);
 
 #define X(a) REGISTER_COMPONENT(a)

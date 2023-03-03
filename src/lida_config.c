@@ -10,7 +10,6 @@ enum CVar_Type {
 
 typedef struct {
 
-  char* name;
   union {
     int int_;
     float float_;
@@ -22,10 +21,24 @@ typedef struct {
 
 DECLARE_TYPE(CVar);
 
+typedef struct Ternary_Tree_Node Ternary_Tree_Node;
+
+struct Ternary_Tree_Node {
+
+  Ternary_Tree_Node* left;
+  Ternary_Tree_Node* mid;
+  Ternary_Tree_Node* right;
+  int is_end;
+  char splitchar;
+
+};
+
+typedef void(*Traverse_String_Func)(char* str);
+
 typedef struct {
 
-  Fixed_Hash_Table vars;
-  char buff[2048];
+  Ternary_Tree_Node* root;
+  char buff[8192];
   uint32_t buff_offset;
 
 } Config_File;
@@ -79,18 +92,86 @@ SkipSpacesLeft(char* s)
   return (char*)s;
 }
 
-INTERNAL uint32_t
-HashConfigEntry(const void* obj)
+INTERNAL Ternary_Tree_Node*
+TST_New(Config_File* config, char c)
 {
-  const CVar* entry = obj;
-  return HashString32(entry->name);
+  if (config->buff_offset >= sizeof(config->buff)) {
+    LOG_WARN("out of memory when parsing INI file");
+    config->buff_offset = 0;
+  }
+  Ternary_Tree_Node* node = (void*)&config->buff[config->buff_offset];
+  config->buff_offset += sizeof(Ternary_Tree_Node);
+  node->splitchar = c;
+  node->left = NULL;
+  node->right = NULL;
+  node->mid = NULL;
+  node->is_end = 0;
+  return node;
 }
 
-INTERNAL int
-CompareConfigEntries(const void* lhs, const void* rhs)
+// return: pointer to value
+INTERNAL void*
+TST_Insert(Config_File* config, Ternary_Tree_Node** root, const char* word)
 {
-  const CVar* l = lhs, *r = rhs;
-  return strcmp(l->name, r->name);
+  // we don't need this to be fast, using recursion is just fine
+  if (!(*root))
+    *root = TST_New(config, *word);
+  if ((*word) < (*root)->splitchar) {
+    return TST_Insert(config, &((*root)->left), word);
+  } else if ((*word) > (*root)->splitchar) {
+    return TST_Insert(config, &((*root)->right), word);
+  } else {
+    if (*(word + 1)) {
+      return TST_Insert(config, &((*root)->mid), word + 1);
+    }
+    (*root)->is_end = 1;
+    config->buff_offset += sizeof(Ternary_Tree_Node);
+    return (*root) + 1;
+  }
+}
+
+INTERNAL void*
+TST_Search(Config_File* config, Ternary_Tree_Node* root, const char* word)
+{
+  if (!root)
+    return NULL;
+  if (*word < root->splitchar)
+    return TST_Search(config, root->left, word);
+  else if (*word > root->splitchar)
+    return TST_Search(config, root->right, word);
+  else {
+    if (*(word + 1) == '\0') {
+      if (root->is_end) {
+        return root + 1;
+      }
+      return NULL;
+    }
+    return TST_Search(config, root->mid, word + 1);
+  }
+}
+
+INTERNAL size_t
+TST_Traverse(Ternary_Tree_Node* root, Traverse_String_Func func,
+             char* buff, int depth)
+{
+  if (root == NULL)
+    return 0;
+  size_t ret = 0;
+
+  ret += TST_Traverse(root->left, func, buff, depth);
+
+  buff[depth] = root->splitchar;
+  if (root->is_end) {
+    ret++;
+    buff[depth + 1] = '\0';
+    ret++;
+    func(buff);
+  }
+
+  ret += TST_Traverse(root->mid, func, buff, depth + 1);
+  ret += TST_Traverse(root->right, func, buff, depth);
+
+  return ret;
 }
 
 
@@ -149,13 +230,9 @@ ParseConfig(const char* filename, Config_File* config)
           LOG_ERROR("error at line %d in file '%s': variable must be below [Section] statement",
                     lineno, filename);
         } else {
-          // allocate a string for name
           CVar entry;
-          entry.name = config->buff + config->buff_offset;
-          config->buff_offset += stbsp_sprintf(entry.name, "%s.%s", current_section, name) + 1;
-          if (config->buff_offset >= buff_size) {
-            LOG_WARN("out of memory when parsing file '%s'", filename);
-          }
+          char name_full[64];
+          stbsp_snprintf(name_full, sizeof(name_full), "%s.%s", current_section, name);
           // parse value
           if ((value[0] >= '0' && value[0] <= '9') ||
               value[0] == '-') {
@@ -183,12 +260,12 @@ ParseConfig(const char* filename, Config_File* config)
             config->buff_offset += strlen(value) + 1;
             if (config->buff_offset >= buff_size) {
               LOG_WARN("out of memory when parsing file '%s'", filename);
+              config->buff_offset = 0;
             }
             strcpy(entry.value.str, value);
           }
-          // insert to hash table
-          // TODO: check if hash table is out of space
-          FHT_Insert(&config->vars, GET_TYPE_INFO(CVar), &entry);
+          CVar* var = TST_Insert(config, &config->root, name_full);
+          memcpy(var, &entry, sizeof(CVar));
         }
       }
     }
@@ -204,7 +281,7 @@ ConfigFile_ReloadFunc(void* component, const char* path, void* udata)
 {
   (void)udata;
   Config_File* config = component;
-  FHT_Clear(&config->vars, GET_TYPE_INFO(CVar));
+  // FHT_Clear(&config->vars, GET_TYPE_INFO(CVar));
   ParseConfig(path, config);
 }
 
@@ -212,10 +289,10 @@ INTERNAL Config_File*
 CreateConfig(ECS* ecs, Asset_Manager* am, EID entity, const char* name)
 {
   Config_File* config = AddComponent(ecs, Config_File, entity);
-  const int max_vars = 32;
-  FHT_Init(&config->vars,
-           config->buff+sizeof(config->buff) - FHT_CALC_SIZE(GET_TYPE_INFO(CVar), max_vars),
-           max_vars, GET_TYPE_INFO(CVar));
+  // const int max_vars = 32;
+  // FHT_Init(&config->vars,
+  //          config->buff+sizeof(config->buff) - FHT_CALC_SIZE(GET_TYPE_INFO(CVar), max_vars),
+  //          max_vars, GET_TYPE_INFO(CVar));
   ParseConfig(name, config);
   AddAsset(am, entity, name, &g_sparse_set_Config_File,
            ConfigFile_ReloadFunc, NULL);
@@ -225,7 +302,8 @@ CreateConfig(ECS* ecs, Asset_Manager* am, EID entity, const char* name)
 INTERNAL int*
 GetVar_Int(Config_File* config, const char* var)
 {
-  CVar* entry = FHT_Search(&config->vars, GET_TYPE_INFO(CVar), &var);
+  // CVar* entry = FHT_Search(&config->vars, GET_TYPE_INFO(CVar), &var);
+  CVar* entry = TST_Search(config, config->root, var);
   if (entry) {
     if (entry->type == CONFIG_INTEGER) {
       return &entry->value.int_;
@@ -238,7 +316,8 @@ GetVar_Int(Config_File* config, const char* var)
 INTERNAL float*
 GetVar_Float(Config_File* config, const char* var)
 {
-  CVar* entry = FHT_Search(&config->vars, GET_TYPE_INFO(CVar), &var);
+  // CVar* entry = FHT_Search(&config->vars, GET_TYPE_INFO(CVar), &var);
+  CVar* entry = TST_Search(config, config->root, var);
   if (entry) {
     if (entry->type == CONFIG_FLOAT) {
       return &entry->value.float_;
@@ -251,7 +330,8 @@ GetVar_Float(Config_File* config, const char* var)
 INTERNAL const char*
 GetVar_String(Config_File* config, const char* var)
 {
-  CVar* entry = FHT_Search(&config->vars, GET_TYPE_INFO(CVar), &var);
+  // CVar* entry = FHT_Search(&config->vars, GET_TYPE_INFO(CVar), &var);
+  CVar* entry = TST_Search(config, config->root, var);
   if (entry) {
     if (entry->type == CONFIG_STRING) {
       return entry->value.str;
@@ -259,4 +339,18 @@ GetVar_String(Config_File* config, const char* var)
     LOG_WARN("typecheck failed");
   }
   return NULL;
+}
+
+INTERNAL size_t
+ListVars(Config_File* config, Traverse_String_Func func)
+{
+  char buff[256];
+  return TST_Traverse(config->root, func, buff, 0);
+}
+
+INTERNAL size_t
+ListVarsPrefix(Config_File* config, Traverse_String_Func func, const char* prefix)
+{
+  // TODO: implement
+  return 0;
 }

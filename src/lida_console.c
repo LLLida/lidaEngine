@@ -329,6 +329,7 @@ INTERNAL void CMD_info(uint32_t num, char** args);
 INTERNAL void CMD_FPS(uint32_t num, char** args);
 INTERNAL void CMD_get(uint32_t num, char** args);
 INTERNAL void CMD_set(uint32_t num, char** args);
+INTERNAL void CMD_list_vars(uint32_t num, char** args);
 
 
 /// public functions
@@ -365,6 +366,8 @@ InitConsole()
                    " Print value of configuration variable.");
   ADD_COMMAND(set, "set VARIABLE-NAME [INTEGER FLOAT STRING]\n"
                    " Set value of configuration variable.");
+  ADD_COMMAND(list_vars, "list_vars\n"
+                         " List all configuration variables.");
 #undef ADD_COMMAND
 }
 
@@ -428,7 +431,8 @@ CMD_get(uint32_t num, char** args)
     LOG_WARN("command 'get' accepts only 1 argument; for detailed explanation type 'info get'");
     return;
   }
-  CVar* var = FHT_Search(&g_config->vars, GET_TYPE_INFO(CVar), &args[0]);
+  // CVar* var = FHT_Search(&g_config->vars, GET_TYPE_INFO(CVar), &args[0]);
+  CVar* var = TST_Search(g_config, g_config->root, args[0]);
   if (var == NULL) {
     LOG_WARN("variable '%s' does not exist", args[0]);
     return;
@@ -459,11 +463,12 @@ CMD_set(uint32_t num, char** args)
     LOG_WARN("command 'get' accepts only 2 arguments; for detailed explanation type 'info set'");
     return;
   }
-  CVar* var = FHT_Search(&g_config->vars, GET_TYPE_INFO(CVar), &args[0]);
+  CVar* var = TST_Search(g_config, g_config->root, args[0]);
   if (var == NULL) {
     LOG_WARN("variable '%s' does not exist", args[0]);
     return;
   }
+  char buff[16];
   const char* val = args[1];
   if ((val[0] >= '0' && val[0] <= '9') || val[0] == '-') {
     // TODO(quality): check for parse errors
@@ -473,12 +478,16 @@ CMD_set(uint32_t num, char** args)
         return;
       }
       var->value.float_ = strtof(val, NULL);
+      stbsp_sprintf(buff, "%f", var->value.float_);
+      ConsolePutLine(buff, 0);
     } else {
       if (var->type != CONFIG_INTEGER) {
         LOG_WARN("set: '%s' is not a integer", args[0]);
         return;
       }
       var->value.int_ = atoi(val);
+      stbsp_sprintf(buff, "%d", var->value.int_);
+      ConsolePutLine(buff, 0);
     }
   } else {
     if (var->type != CONFIG_STRING) {
@@ -488,5 +497,24 @@ CMD_set(uint32_t num, char** args)
     var->value.str = g_config->buff + g_config->buff_offset;
     g_config->buff_offset += strlen(val) + 1;
     strcpy(var->value.str, val);
+    ConsolePutLine(val, 0);
   }
+}
+
+INTERNAL void
+list_vars_Traverse_Func(char* str)
+{
+  // TODO(convenience): print value of variable
+  ConsolePutLine(str, 0);
+}
+
+void
+CMD_list_vars(uint32_t num, char** args)
+{
+  (void)args;
+  if (num != 0) {
+    LOG_WARN("command 'list_vars' accepts no arguments; for detailed explanation type 'info list_vars'");
+    return;
+  }
+  ListVars(g_config, &list_vars_Traverse_Func);
 }
