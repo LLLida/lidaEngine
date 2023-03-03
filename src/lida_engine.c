@@ -336,11 +336,12 @@ EngineUpdateAndRender()
   CameraUpdate(camera, dt, g_window->swapchain_extent.width, g_window->swapchain_extent.height);
   CameraUpdateProjection(camera);
   CameraUpdateView(camera);
+  Mat4_Mul(&camera->projection_matrix, &camera->view_matrix, &camera->projview_matrix);
 
   Scene_Data_Struct* sc_data = g_context->forward_pass.uniform_buffer_mapped;
   memcpy(&sc_data->camera_projection, &camera->projection_matrix, sizeof(Mat4));
   memcpy(&sc_data->camera_view, &camera->view_matrix, sizeof(Mat4));
-  Mat4_Mul(&sc_data->camera_projection, &sc_data->camera_view, &sc_data->camera_projview);
+  memcpy(&sc_data->camera_projview, &camera->projview_matrix, sizeof(Mat4));
   sc_data->sun_dir = VEC3_CREATE(0.03f, 0.9f, 0.09f);
   sc_data->sun_ambient = 0.1f;
   Vec3_Normalize(&sc_data->sun_dir, &sc_data->sun_dir);
@@ -359,6 +360,43 @@ EngineUpdateAndRender()
 
   Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
 
+  #if 0
+  if (g_window->frame_counter == 0) {
+    // Generate frustum planes
+    // using Gribb & Hartmann method
+    Mat4* mat = &sc_data->camera_projview;
+    float left[4], right[4], bottom[4], top[4], near[4];
+    left[0] = mat->m03 + mat->m00;
+    left[1] = mat->m13 + mat->m10;
+    left[2] = mat->m23 + mat->m20;
+    left[3] = mat->m33 + mat->m30;
+    LOG_DEBUG("left: [%f %f %f %f]", left[0], left[1], left[2], left[3]);
+    right[0] = mat->m03 - mat->m00;
+    right[1] = mat->m13 - mat->m10;
+    right[2] = mat->m23 - mat->m20;
+    right[3] = mat->m33 - mat->m30;
+    LOG_DEBUG("right: [%f %f %f %f]", right[0], right[1], right[2], right[3]);
+    bottom[0] = mat->m03 + mat->m01;
+    bottom[1] = mat->m13 + mat->m11;
+    bottom[2] = mat->m23 + mat->m21;
+    bottom[3] = mat->m33 + mat->m31;
+    LOG_DEBUG("bottom: [%f %f %f %f]", bottom[0], bottom[1], bottom[2], bottom[3]);
+    top[0] = mat->m03 - mat->m01;
+    top[1] = mat->m13 - mat->m11;
+    top[2] = mat->m23 - mat->m21;
+    top[3] = mat->m33 - mat->m31;
+    LOG_DEBUG("top: [%f %f %f %f]", top[0], top[1], top[2], top[3]);
+    near[0] = mat->m03 - mat->m02;
+    near[1] = mat->m13 - mat->m12;
+    near[2] = mat->m23 - mat->m22;
+    near[3] = mat->m33 - mat->m32;
+    LOG_DEBUG("near: [%f %f %f %f]", near[0], near[1], near[2], near[3]);
+    Vec3_Normalize((Vec3*)near, (Vec3*)near);
+    LOG_DEBUG("test1: %d", TestPointPlane(&VEC3_CREATE(0.0f, 1.0f, 5.0f), near));
+    LOG_DEBUG("test2: %d", TestPointPlane(&VEC3_CREATE(-100.0f, 1.0f, -50.0f), near));
+  }
+  #endif
+
   // rotate one of the voxel models
   {
     Transform* transform = GetComponent(Transform, grid_1);
@@ -376,7 +414,8 @@ EngineUpdateAndRender()
     // update OBB
     CalculateVoxelGridOBB(&components[i], transform, obb);
     // frustum culling
-    if (TestFrustumOBB(&sc_data->camera_projview, obb) == 0)
+    // if (TestFrustumOBB(&sc_data->camera_projview, obb) == 0)
+    if (TestFrustumOBB(&camera->projview_matrix, obb) == 0)
       continue;
     // draw
     PushMeshToVoxelDrawer(&g_context->vox_drawer, &components[i], transform, entities[i]);

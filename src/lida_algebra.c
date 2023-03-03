@@ -71,6 +71,8 @@ typedef struct {
   // NOTE: need to update before access
   Mat4 projection_matrix;
   Mat4 view_matrix;
+  // projection_matrix * view_matrix
+  Mat4 projview_matrix;
   Vec3 front;
 
   Vec3 position;
@@ -557,16 +559,77 @@ CalculateObjectOBB(const Vec3* half_size, const Transform* transform, OBB* obb)
 INTERNAL int
 TestFrustumOBB(const Mat4* projview, const OBB* obb)
 {
+  // modified version of
+  // https://gamedev.ru/code/articles/FrustumCulling
+  Vec4 points[8];
   for (size_t i = 0; i < 8; i++) {
+    // transform to clip space
     Vec4 pos = { obb->corners[i].x, obb->corners[i].y, obb->corners[i].z, 1.0f };
-    Mat4_Mul_Vec4(projview, &pos, &pos);
-    // check pos against clip space bounds
+    Mat4_Mul_Vec4(projview, &pos, &points[i]);
+    // try to early test visible objects. This check is not necessary,
+    // in fact if there're many objects that are not visible you may
+    // consider to remove this check.
     // NOTE: no upper check for z because we have inifinite z
-    if (-pos.w <= pos.x && pos.x <= pos.w &&
-        -pos.w <= pos.y && pos.y <= pos.w &&
+    if (-points[i].w <= points[i].x && points[i].x <= points[i].w &&
+        -points[i].w <= points[i].y && points[i].y <= points[i].w &&
           0.0f <= pos.z) {
       return 1;
     }
   }
-  return 0;
+  // clip against right plane
+  if (points[0].x > points[0].w &&
+      points[1].x > points[1].w &&
+      points[2].x > points[2].w &&
+      points[3].x > points[3].w &&
+      points[4].x > points[4].w &&
+      points[5].x > points[5].w &&
+      points[6].x > points[6].w &&
+      points[7].x > points[7].w) {
+    return 0;
+  }
+  // clip against left plane
+  if (points[0].x < -points[0].w &&
+      points[1].x < -points[1].w &&
+      points[2].x < -points[2].w &&
+      points[3].x < -points[3].w &&
+      points[4].x < -points[4].w &&
+      points[5].x < -points[5].w &&
+      points[6].x < -points[6].w &&
+      points[7].x < -points[7].w) {
+    return 0;
+  }
+  // clip against bottom plane
+  if (points[0].y > points[0].w &&
+      points[1].y > points[1].w &&
+      points[2].y > points[2].w &&
+      points[3].y > points[3].w &&
+      points[4].y > points[4].w &&
+      points[5].y > points[5].w &&
+      points[6].y > points[6].w &&
+      points[7].y > points[7].w) {
+    return 0;
+  }
+  // clip against top plane
+  if (points[0].y < -points[0].w &&
+      points[1].y < -points[1].w &&
+      points[2].y < -points[2].w &&
+      points[3].y < -points[3].w &&
+      points[4].y < -points[4].w &&
+      points[5].y < -points[5].w &&
+      points[6].y < -points[6].w &&
+      points[7].y < -points[7].w) {
+    return 0;
+  }
+  // clip against near plane
+  if (points[0].z < 0.0f &&
+      points[1].z < 0.0f &&
+      points[2].z < 0.0f &&
+      points[3].z < 0.0f &&
+      points[4].z < 0.0f &&
+      points[5].z < 0.0f &&
+      points[6].z < 0.0f &&
+      points[7].z < 0.0f) {
+    return 0;
+  }
+  return 1;
 }
