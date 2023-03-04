@@ -22,6 +22,14 @@ DECLARE_TYPE(Console_Command);
 
 typedef struct {
 
+  char buff[512];
+  char* completions[32];
+  uint32_t buff_offset;
+
+} Console_Completion_Context;
+
+typedef struct {
+
   Keymap keymap;
   float bottom;
   float target_y;
@@ -177,6 +185,22 @@ DrawConsole(Quad_Renderer* renderer)
   DrawText(renderer, font, g_console->prompt, &size, g_console->fg_color1, &pos);
 }
 
+INTERNAL void
+ConsoleAddCompletionCandidate(const Traverse_String_Info* info)
+{
+  Console_Completion_Context* context = info->udata;
+  size_t len = strlen(info->buff);
+  if (info->id > ARR_SIZE(context->completions) ||
+      context->buff_offset + len > sizeof(context->buff)) {
+    // out of memory
+    LOG_WARN("too many completions");
+    return;
+  }
+  strcpy(&context->buff[context->buff_offset], info->buff);
+  context->completions[info->id] = &context->buff[context->buff_offset];
+  context->buff_offset += len+1;
+}
+
 INTERNAL int
 ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
 {
@@ -255,6 +279,60 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
         // clear prompt
         g_console->prompt[0] = '\0';
         g_console->cursor_pos = 0;
+      } break;
+
+    case PlatformKey_TAB:
+      {
+        // tokenize prompt
+        char buff[512];
+        char* words[8];
+        uint32_t offset = 0;
+        uint32_t num_words = 0;
+        // TODO(bug): search until g_console->cursor_pos
+        char* prompt = strcpy(buff+255, g_console->prompt);
+        char* word = strtok(prompt, " ");
+        while (word != NULL) {
+          if (num_words == ARR_SIZE(words)) {
+            LOG_WARN("maximum number of arguments is exceeded(which is %lu)", ARR_SIZE(words)-1);
+            break;
+          }
+          size_t len = strlen(word);
+          strcpy(buff+offset, word);
+          words[num_words++] = buff+offset;
+          offset += len+1;
+          word = strtok(NULL, " ");
+        }
+        if (num_words == 0)
+          break;
+        // perform autcompletion
+        Console_Completion_Context context = { .buff_offset = 0 };
+        if (num_words == 1) {
+          // TODO: complete command name.
+          // This would need us to store commands in search trees also.
+        } else {
+          // complete variable name
+          size_t num_completions = ListVarsPrefix(g_config, &ConsoleAddCompletionCandidate,
+                                                  words[num_words-1], &context);
+          if (num_completions == 0) {
+            ConsolePutLine("No completions", PACK_COLOR(30, 30, 30, 150));
+          } else if (num_completions == 1) {
+            uint32_t base = g_console->cursor_pos;
+            while (g_console->prompt[base] != ' ') {
+              base--;
+            }
+            uint32_t offset = g_console->cursor_pos - 1 - base;
+            strcpy(g_console->prompt + g_console->cursor_pos,
+                   context.completions[0] + offset);
+            g_console->cursor_pos += strlen(context.completions[0]) - offset;
+          } else {
+            // list completions
+            ConsolePutLine("---", PACK_COLOR(30, 30, 30, 150));
+            for (size_t i = 0; i < num_completions; i++) {
+              ConsolePutLine(context.completions[i], 0);
+            }
+            // TODO(convenience): complete common part like Emacs does
+          }
+        }
       } break;
 
     default:
@@ -436,7 +514,6 @@ CMD_get(uint32_t num, char** args)
     LOG_WARN("command 'get' accepts only 1 argument; for detailed explanation type 'info get'");
     return;
   }
-  // CVar* var = FHT_Search(&g_config->vars, GET_TYPE_INFO(CVar), &args[0]);
   CVar* var = TST_Search(g_config, g_config->root, args[0]);
   if (var == NULL) {
     LOG_WARN("variable '%s' does not exist", args[0]);
