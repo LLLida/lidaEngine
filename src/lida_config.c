@@ -104,6 +104,8 @@ SkipSpacesLeft(char* s)
 INTERNAL Ternary_Tree_Node*
 TST_New(Config_File* config, char c)
 {
+  // align to 8 bytes
+  config->buff_offset = ALIGN_TO(config->buff_offset, 8);
   if (config->buff_offset >= sizeof(config->buff)) {
     LOG_WARN("out of memory when parsing INI file");
     config->buff_offset = 0;
@@ -214,6 +216,7 @@ ParseConfig(const char* filename, Config_File* config)
   int lineno = 1;
   char* current_section = NULL;
   config->buff_offset = 0;
+  config->root = NULL;
   size_t buff_size = sizeof(config->buff);
   // https://stackoverflow.com/questions/17983005/c-how-to-read-a-string-line-by-line
   while (line) {

@@ -328,35 +328,6 @@ RotationMatrixEulerAngles(Mat4* out, const Vec3* euler_angles)
 }
 
 INTERNAL void
-OrthographicMatrix(float left, float right, float bottom, float top,
-                        float z_near, float z_far, Mat4* out)
-{
-  for (size_t i = 0; i < 16; i++)
-    ((float*)out)[i] = 0.0f;
-  // TODO: current implementation is not correct, write a proper one
-  // *out = (Mat4) {
-  //   2.0f / (right - left), 0.0f, 0.0f, 0.0f,
-  //   0.0f, 2.0f / (top - bottom), 0.0f, 0.0f,
-  //   0.0f, 0.0f, -1.0f / (z_far - z_near), 0.0f,
-  // };
-#if 1
-  out->m00 = 2.0f / (right - left);
-  out->m11 = -2.0f / (top - bottom);
-  out->m22 = -1.0f / (z_far - z_near);
-  out->m30 = -(right + left) / (right - left);
-  out->m31 = -(top + bottom) / (top - bottom);
-  out->m32 = -z_near / (z_far - z_near);
-#else
-  out->m00 = 2.0f / (right - left);
-  out->m11 = 2.0f / (top - bottom);
-  out->m22 = -1.0f / (z_far - z_near);
-  out->m00 = -(right + left) / (right - left);
-  out->m13 = -(top + bottom) / (top - bottom);
-  out->m23 = -z_near / (z_far - z_near);
-#endif
-}
-
-INTERNAL void
 PerspectiveMatrix(float fov_y, float aspect_ratio, float z_near, Mat4* out)
 {
   // z far is inifinity, depth is one to zero
@@ -547,9 +518,9 @@ CalculateObjectOBB(const Vec3* half_size, const Transform* transform, OBB* obb)
   };
   for (size_t i = 0; i < 8; i++) {
     Vec3 basis[3];
-    basis[0] = VEC3_MUL(box[0], muls[i].x * (transform->scale + 0.1f));
-    basis[1] = VEC3_MUL(box[1], muls[i].y * (transform->scale + 0.1f));
-    basis[2] = VEC3_MUL(box[2], muls[i].z * (transform->scale + 0.1f));
+    basis[0] = VEC3_MUL(box[0], muls[i].x * (transform->scale + 0.01f));
+    basis[1] = VEC3_MUL(box[1], muls[i].y * (transform->scale + 0.01f));
+    basis[2] = VEC3_MUL(box[2], muls[i].z * (transform->scale + 0.01f));
     obb->corners[i].x = basis[0].x + basis[1].x + basis[2].x + transform->position.x;
     obb->corners[i].y = basis[0].y + basis[1].y + basis[2].y + transform->position.y;
     obb->corners[i].z = basis[0].z + basis[1].z + basis[2].z + transform->position.z;

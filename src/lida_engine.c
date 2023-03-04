@@ -126,6 +126,7 @@ EngineInit(const Engine_Startup_Info* info)
 
   CreateECS(&g_context->entity_allocator, &g_context->ecs, 8);
 
+  // register all components
 #define X(a) REGISTER_COMPONENT(a)
   X_ALL_COMPONENTS();
 #undef X
@@ -341,29 +342,28 @@ EngineUpdateAndRender()
   memcpy(&sc_data->camera_projection, &camera->projection_matrix, sizeof(Mat4));
   memcpy(&sc_data->camera_view, &camera->view_matrix, sizeof(Mat4));
   memcpy(&sc_data->camera_projview, &camera->projview_matrix, sizeof(Mat4));
-  sc_data->sun_dir = VEC3_CREATE(0.03f, 0.9f, 0.09f);
+  // sc_data->sun_dir = VEC3_CREATE(0.03f, 0.9f, 0.09f);
+  sc_data->sun_dir = VEC3_CREATE(0.03f, 1.9f, 0.09f);
   sc_data->sun_ambient = 0.1f;
   Vec3_Normalize(&sc_data->sun_dir, &sc_data->sun_dir);
 
   Mat4 light_proj, light_view;
-  // const float b = 4.0f;
-  // OrthographicMatrix(-b, b, -b, b, 1.0f, 10.0f, &light_proj);
-  GLOBAL float light_fov = 3.14f / 5.0f;
-  PerspectiveMatrix(light_fov, 1.0f, 1.0f, &light_proj);
-
-  GLOBAL Vec3 light_off = {0.03f, -0.95f, 0.0f};
-  Vec3 light_pos = VEC3_MUL(sc_data->sun_dir, 3.0f);
-  Vec3 light_target = VEC3_SUB(light_pos, light_off);
-  LookAtMatrix(&light_pos, &light_target, &camera->up,
-               &light_view);
-
+  {
+    float fov = *GetVar_Float(g_config, "Render.shadow_fov");
+    float near = *GetVar_Float(g_config, "Render.shadow_near");
+    PerspectiveMatrix(RADIANS(fov), 1.0f, near, &light_proj);
+    Vec3 light_pos = { 0.0f, 10.0f, 0.0f };
+    Vec3 light_target = { 0.05f, 11.0f, 0.1f };
+    Vec3 up = { 1.0f, 0.0f, 0.0f };
+    LookAtMatrix(&light_pos, &light_target, &up, &light_view);
+  }
   Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
 
   // rotate one of the voxel models
   {
     Transform* transform = GetComponent(Transform, grid_1);
     Quat rot;
-    QuatFromEulerAngles(dt * 0.1f, 0.0f, 0.0f, &rot);
+    QuatFromEulerAngles(dt * 0.1f, dt * 0.03f, dt * 0.01f, &rot);
     MultiplyQuats(&transform->rotation, &rot, &transform->rotation);
   }
 
@@ -425,7 +425,7 @@ EngineUpdateAndRender()
     //   DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
     // }
 
-    // FIXME(test): draw !!! where grid_1 is located
+    // TEMP: draw !!! where grid_1 is located
     {
       Vec4 position;
       Transform* transform = GetComponent(Transform, grid_1);
@@ -815,6 +815,7 @@ void CreateShadowPipeline(Pipeline_Desc* description)
     .depth_test = VK_TRUE,
     .depth_write = VK_TRUE,
     .depth_compare_op = VK_COMPARE_OP_GREATER,
+    // .depth_compare_op = VK_COMPARE_OP_LESS,
     .blend_logic_enable = VK_FALSE,
     .attachment_count = 0,
     .dynamic_state_count = 1,
