@@ -358,17 +358,22 @@ InitConsole()
            PersistentAllocate(FHT_CALC_SIZE(GET_TYPE_INFO(Console_Command), max_commands)),
            max_commands, GET_TYPE_INFO(Console_Command));
 #define ADD_COMMAND(cmd, doc) ConsoleAddCommand(#cmd, CMD_##cmd, doc)
-  ADD_COMMAND(info, "info COMMAND-NAME\n"
-                    " Print information about command.");
-  ADD_COMMAND(FPS, "FPS\n"
-                   " Print number of frames per second we're running at.");
-  ADD_COMMAND(get, "get VARIABLE-NAME\n"
-                   " Print value of configuration variable.");
-  ADD_COMMAND(set, "set VARIABLE-NAME [INTEGER FLOAT STRING]\n"
-                   " Set value of configuration variable.");
-  ADD_COMMAND(list_vars, "list_vars\n"
-                         " List all configuration variables.");
-#undef ADD_COMMAND
+  ADD_COMMAND(info,
+              "info COMMAND-NAME\n"
+              " Print information about command.");
+  ADD_COMMAND(FPS,
+              "FPS\n"
+              " Print number of frames per second we're running at.");
+  ADD_COMMAND(get,
+              "get VARIABLE-NAME\n"
+              " Print value of configuration variable.");
+  ADD_COMMAND(set,
+              "set VARIABLE-NAME [INTEGER FLOAT STRING]\n"
+              " Set value of configuration variable.");
+  ADD_COMMAND(list_vars,
+              "list_vars [PREFIX]\n"
+              " List all configuration variables beginning with prefix.\n"
+              " If prefix not specified than list all variables.");
 }
 
 INTERNAL void
@@ -502,19 +507,22 @@ CMD_set(uint32_t num, char** args)
 }
 
 INTERNAL void
-list_vars_Traverse_Func(char* str)
+list_vars_Traverse_Func(const Traverse_String_Info* str)
 {
   // TODO(convenience): print value of variable
-  ConsolePutLine(str, 0);
+  ConsolePutLine(str->buff, 0);
 }
 
 void
 CMD_list_vars(uint32_t num, char** args)
 {
-  (void)args;
-  if (num != 0) {
+  if (num > 1) {
     LOG_WARN("command 'list_vars' accepts no arguments; for detailed explanation type 'info list_vars'");
     return;
   }
-  ListVars(g_config, &list_vars_Traverse_Func);
+  if (num == 0) {
+    ListVars(g_config, &list_vars_Traverse_Func, NULL);
+  } else {
+    ListVarsPrefix(g_config, &list_vars_Traverse_Func, args[0], NULL);
+  }
 }

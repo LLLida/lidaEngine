@@ -19,8 +19,6 @@ typedef struct {
 
 } CVar;
 
-DECLARE_TYPE(CVar);
-
 typedef struct Ternary_Tree_Node Ternary_Tree_Node;
 
 struct Ternary_Tree_Node {
@@ -33,7 +31,18 @@ struct Ternary_Tree_Node {
 
 };
 
-typedef void(*Traverse_String_Func)(char* str);
+typedef struct Traverse_String_Info Traverse_String_Info;
+
+typedef void(*Traverse_String_Func)(const Traverse_String_Info* str);
+
+struct Traverse_String_Info {
+
+  char* buff;
+  Traverse_String_Func func;
+  void* udata;
+  size_t id;
+
+};
 
 typedef struct {
 
@@ -150,28 +159,46 @@ TST_Search(Config_File* config, Ternary_Tree_Node* root, const char* word)
   }
 }
 
-INTERNAL size_t
-TST_Traverse(Ternary_Tree_Node* root, Traverse_String_Func func,
-             char* buff, int depth)
+INTERNAL void
+TST_Traverse(Ternary_Tree_Node* root, Traverse_String_Info* info,
+             char* buff)
 {
   if (root == NULL)
-    return 0;
-  size_t ret = 0;
+    return;
 
-  ret += TST_Traverse(root->left, func, buff, depth);
+  TST_Traverse(root->left, info, buff);
 
-  buff[depth] = root->splitchar;
+  buff[0] = root->splitchar;
   if (root->is_end) {
-    ret++;
-    buff[depth + 1] = '\0';
-    ret++;
-    func(buff);
+    buff[1] = '\0';
+    info->func(info);
+    info->id++;
   }
 
-  ret += TST_Traverse(root->mid, func, buff, depth + 1);
-  ret += TST_Traverse(root->right, func, buff, depth);
+  TST_Traverse(root->mid, info, buff+1);
+  TST_Traverse(root->right, info, buff);
+}
 
-  return ret;
+INTERNAL void
+TST_TraversePrefix(Ternary_Tree_Node* root, Traverse_String_Info* info,
+                   const char* prefix, char* buff)
+{
+  if (root == NULL)
+    return;
+  if (*prefix == '\0') {
+    TST_Traverse(root, info, buff);
+  }
+
+  if (*prefix < root->splitchar) {
+    // traverse left node
+    TST_TraversePrefix(root->left, info, prefix, buff);
+  } else if (*prefix > root->splitchar) {
+    // traverse right node
+    TST_TraversePrefix(root->right, info, prefix, buff);
+  } else {
+    buff[0] = root->splitchar;
+    TST_TraversePrefix(root->mid, info, prefix+1, buff+1);
+  }
 }
 
 
@@ -342,15 +369,30 @@ GetVar_String(Config_File* config, const char* var)
 }
 
 INTERNAL size_t
-ListVars(Config_File* config, Traverse_String_Func func)
+ListVars(Config_File* config, Traverse_String_Func func, void* udata)
 {
   char buff[256];
-  return TST_Traverse(config->root, func, buff, 0);
+  Traverse_String_Info info = {
+    .buff = buff,
+    .func = func,
+    .udata = udata,
+    .id = 0,
+  };
+  TST_Traverse(config->root, &info, buff);
+  return info.id;
 }
 
+// return: number of matches
 INTERNAL size_t
-ListVarsPrefix(Config_File* config, Traverse_String_Func func, const char* prefix)
+ListVarsPrefix(Config_File* config, Traverse_String_Func func, const char* prefix, void* udata)
 {
-  // TODO: implement
-  return 0;
+  char buff[256];
+  Traverse_String_Info info = {
+    .buff = buff,
+    .func = func,
+    .udata = udata,
+    .id = 0,
+  };
+  TST_TraversePrefix(config->root, &info, prefix, buff);
+  return info.id;
 }
