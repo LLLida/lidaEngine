@@ -815,11 +815,12 @@ void CreateVoxelPipeline(Pipeline_Desc* description)
 
 void CreateShadowPipeline(Pipeline_Desc* description)
 {
+  // NOTE: use depth bias < 0 because our depth is inverted
   static VkDynamicState dynamic_state = VK_DYNAMIC_STATE_DEPTH_BIAS;
   *description = (Pipeline_Desc) {
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     .polygonMode = VK_POLYGON_MODE_FILL,
-    .cullMode = VK_CULL_MODE_BACK_BIT,
+    .cullMode = VK_CULL_MODE_FRONT_BIT,
     .depth_bias_enable = VK_TRUE,
     .msaa_samples = VK_SAMPLE_COUNT_1_BIT,
     .depth_test = VK_TRUE,
