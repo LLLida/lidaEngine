@@ -408,6 +408,7 @@ INTERNAL void CMD_FPS(uint32_t num, char** args);
 INTERNAL void CMD_get(uint32_t num, char** args);
 INTERNAL void CMD_set(uint32_t num, char** args);
 INTERNAL void CMD_list_vars(uint32_t num, char** args);
+INTERNAL void CMD_clear_voxels(uint32_t num, char** args);
 
 
 /// public functions
@@ -452,6 +453,9 @@ InitConsole()
               "list_vars [PREFIX]\n"
               " List all configuration variables beginning with prefix.\n"
               " If prefix not specified than list all variables.");
+  ADD_COMMAND(clear_voxels,
+              "clear_voxels\n"
+              " Destroy all voxel models.");
 }
 
 INTERNAL void
@@ -594,7 +598,7 @@ void
 CMD_list_vars(uint32_t num, char** args)
 {
   if (num > 1) {
-    LOG_WARN("command 'list_vars' accepts no arguments; for detailed explanation type 'info list_vars'");
+    LOG_WARN("command 'list_vars' accepts 0 or 1 argument; for detailed explanation type 'info list_vars'");
     return;
   }
   if (num == 0) {

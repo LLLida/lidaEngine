@@ -31,6 +31,7 @@
 #include "lida_asset.c"
 #include "lida_input.c"
 #include "lida_config.c"
+#include "lida_package.c"
 #include "lida_console.c"
 
 typedef struct {
@@ -730,6 +731,24 @@ CameraKeymap_Mouse(int x, int y, float xrel, float yrel, void* udata)
   (void)y;
   CameraRotate(camera, yrel, xrel, 0.0f);
   return 0;
+}
+
+
+/// commands
+
+void
+CMD_clear_voxels(uint32_t num, char** args)
+{
+  (void)args;
+  if (num != 0) {
+    LOG_WARN("command 'clear_voxels' accepts no arguments; for detailed explanation type 'info clear_voxels'");
+    return;
+  }
+  UNREGISTER_COMPONENT(&g_context->ecs, Voxel_Grid);
+  UNREGISTER_COMPONENT(&g_context->ecs, Transform);
+  UNREGISTER_COMPONENT(&g_context->ecs, OBB);
+  UNREGISTER_COMPONENT(&g_context->ecs, Voxel_Cached);
+  DestroyEmptyEntities(&g_context->ecs);
 }
 
 

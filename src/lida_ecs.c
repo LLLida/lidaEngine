@@ -243,6 +243,19 @@ IsEntityValid(ECS* ecs, EID entity)
     ((entities[entity] & ENTITY_DEAD_MASK) == 0);
 }
 
+INTERNAL void
+DestroyEmptyEntities(ECS* ecs)
+{
+  uint32_t* entities = ecs->entities->ptr;
+  for (uint32_t i = 0; i < ecs->num_entities; i++) {
+    if (entities[i] == 0) {
+      entities[i] = ecs->next_dead;
+      ecs->next_dead = i | ENTITY_DEAD_MASK;
+      ecs->num_dead++;
+    }
+  }
+}
+
 INTERNAL void*
 AddComponent_ECS(ECS* ecs, Sparse_Set* set, EID entity)
 {

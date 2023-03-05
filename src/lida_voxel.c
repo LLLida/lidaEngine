@@ -33,12 +33,6 @@ typedef struct {
 } VX_Draw_Command;
 
 typedef struct {
-  EID entity;
-  uint32_t first_vertex;
-  uint32_t last_vertex;
-} VX_Draw_ID;
-
-typedef struct {
 
   Video_Memory memory;
   VkBuffer vertex_buffer;
@@ -610,13 +604,6 @@ DestroyVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator)
   FreeVideoMemory(&drawer->memory);
 }
 
-INTERNAL int
-CompareVX_DrawID(const void* lhs, const void* rhs)
-{
-  const VX_Draw_ID* l = lhs, *r = rhs;
-  return COMPARE(l->first_vertex, r->first_vertex);
-}
-
 INTERNAL void
 NewVoxelDrawerFrame(Voxel_Drawer* drawer)
 {
@@ -630,6 +617,12 @@ NewVoxelDrawerFrame(Voxel_Drawer* drawer)
   }
   drawer->num_draws = 0;
   drawer->num_meshes = 0;
+}
+
+INTERNAL void
+ClearVoxelDrawerCache(Voxel_Drawer* drawer)
+{
+  drawer->vertex_offset = 0;
 }
 
 INTERNAL void
@@ -690,7 +683,7 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
   // try to use cache
   Voxel_Cached* cached = GetComponent(Voxel_Cached, entity);
   if (cached) {
-    if (cached->hash != grid->hash) {
+    if (cached->hash != grid->hash || cached->first_vertex > drawer->vertex_offset) {
       // regenerate if grid changed
       VX_Regenerate(drawer, cached, grid);
       goto end;

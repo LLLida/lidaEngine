@@ -296,8 +296,9 @@ PlatformFreeLoadedFile(void* data)
 void*
 PlatformOpenFileForWrite(const char* path)
 {
-  // TODO: prepend data_dir
-  SDL_RWops* file = SDL_RWFromFile(path, "wb");
+  char real_path[128];
+  stbsp_snprintf(real_path, sizeof(real_path), "%s/%s", data_dir.path, path);
+  SDL_RWops* file = SDL_RWFromFile(real_path, "wb");
   return file;
 }
 
