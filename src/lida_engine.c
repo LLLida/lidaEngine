@@ -371,17 +371,26 @@ EngineUpdateAndRender()
   NewVoxelDrawerFrame(&g_context->vox_drawer);
   NewDebugDrawerFrame(&g_context->debug_drawer);
 
+  enum CULL_PASS {
+    CULL_MAIN = 0,
+    CULL_SHADOW1 = 1
+  };
+
   FOREACH_COMPONENT(Voxel_Grid) {
     Transform* transform = GetComponent(Transform, entities[i]);
     OBB* obb = GetComponent(OBB, entities[i]);
     // update OBB
     CalculateVoxelGridOBB(&components[i], transform, obb);
     // frustum culling
-    // if (TestFrustumOBB(&sc_data->camera_projview, obb) == 0)
-    if (TestFrustumOBB(&camera->projview_matrix, obb) == 0)
+    int cull_mask = 0;
+    cull_mask |= TestFrustumOBB(&camera->projview_matrix, obb) << CULL_MAIN;
+    cull_mask |= TestFrustumOBB(&sc_data->light_space, obb) << CULL_SHADOW1;
+    if (cull_mask == 0)
       continue;
     // draw
     PushMeshToVoxelDrawer(&g_context->vox_drawer, &g_context->ecs, entities[i]);
+    Voxel_Cached* cached = GetComponent(Voxel_Cached, entities[i]);
+    cached->cull_mask = cull_mask;
     // draw wireframe
     int* opt = GetVar_Int(g_config, "Render.debug_voxel_obb");
     if (opt && *opt) {
@@ -474,7 +483,7 @@ EngineUpdateAndRender()
     Pipeline_Program* prog = GetComponent(Pipeline_Program, g_context->shadow_pipeline);
     ds_set = g_context->shadow_pass.scene_data_set;
     cmdBindProgram(cmd, prog, 1, &ds_set);
-    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd);
+    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, 1<<CULL_SHADOW1);
   }
   vkCmdEndRenderPass(cmd);
 
@@ -510,7 +519,7 @@ EngineUpdateAndRender()
     for (uint32_t i = 0; i < 6; i++) {
       vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
       g_context->voxel_draw_calls += DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i,
-                                                           &g_context->camera);
+                                                           &g_context->camera.position, 1<<CULL_MAIN);
     }
     // draw debug lines
     prog = GetComponent(Pipeline_Program, g_context->debug_pipeline);

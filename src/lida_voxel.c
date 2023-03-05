@@ -75,6 +75,7 @@ typedef struct {
   uint64_t hash;
   uint32_t first_vertex;
   uint32_t offsets[6];
+  int cull_mask;
 
 } Voxel_Cached;
 DECLARE_COMPONENT(Voxel_Cached);
@@ -715,7 +716,7 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
 
 // return: number of drawcalls
 INTERNAL uint32_t
-DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
+DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, int cull_flag)
 {
   PROFILE_FUNCTION();
   VkDeviceSize offsets[] = { 0, 0 };
@@ -725,8 +726,17 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
   vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
 #endif
   VX_Draw_Command* draws = drawer->draws->ptr;
+#if VX_USE_CULLING
+  EID* meshes = drawer->meshes->ptr;
+#endif
   uint32_t draw_calls = 0;
   for (uint32_t i = 0; i < drawer->num_draws; i += 6) {
+#if VX_USE_CULLING
+    Voxel_Cached* cached = GetComponent(Voxel_Cached, meshes[i/6]);
+    if ((cached->cull_mask & cull_flag) == 0) {
+      continue;
+    }
+#endif
     VX_Draw_Command* command = &draws[i];
     // merge draw calls
 #if VX_USE_INDICES
@@ -754,7 +764,7 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd)
 // return: number of drawcalls
 INTERNAL uint32_t
 DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal_id,
-                      const Camera* camera)
+                      const Vec3* camera_position, int cull_flag)
 {
   PROFILE_FUNCTION();
   Assert(normal_id < 6);
@@ -772,11 +782,15 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
     VX_Draw_Command* command = &draws[i];
 #if VX_USE_CULLING
     EID mesh = meshes[i/6];
+    Voxel_Cached* cached = GetComponent(Voxel_Cached, mesh);
+    if ((cached->cull_mask & cull_flag) == 0) {
+      continue;
+    }
     // TODO(render): find a way to cull instanced objects.
     if (command->instanceCount == 1) {
       Transform* transform = GetComponent(Transform, mesh);
       // try to backface cull this face
-      Vec3 dist = VEC3_SUB(transform->position, camera->position);
+      Vec3 dist = VEC3_SUB(transform->position, *camera_position);
       Vec3 normal = f_vox_normals[normal_id];
       RotateByQuat(&normal, &transform->rotation, &normal);
       float dot = VEC3_DOT(dist, normal);
