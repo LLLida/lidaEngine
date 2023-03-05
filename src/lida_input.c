@@ -6,7 +6,7 @@
 
 // return 1 to pass event to parent keymap
 typedef int(*Keyboard_Callback)(PlatformKeyCode key, void* udata);
-typedef int(*Mouse_Callback)(int x, int y, int xrel, int yrel, void* udata);
+typedef int(*Mouse_Callback)(int x, int y, float xrel, float yrel, void* udata);
 typedef void(*TextInput_Callback)(const char* text);
 
 typedef struct {
@@ -92,7 +92,7 @@ KeyReleased(PlatformKeyCode key) {
 }
 
 INTERNAL void
-MouseMotion(int x, int y, int xrel, int yrel)
+MouseMotion(int x, int y, float xrel, float yrel)
 {
   Assert(g_keymap_count > 0 && "No keymaps are bound");
   Keymap* curr = &g_keymap_stack[g_keymap_count-1];

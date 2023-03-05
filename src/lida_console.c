@@ -343,7 +343,7 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
 }
 
 INTERNAL int
-ConsoleKeymap_Mouse(int x, int y, int xrel, int yrel, void* udata)
+ConsoleKeymap_Mouse(int x, int y, float xrel, float yrel, void* udata)
 {
   (void)x;
   (void)y;

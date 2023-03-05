@@ -95,7 +95,7 @@ GLOBAL EID grid_2;
 INTERNAL int RootKeymap_Pressed(PlatformKeyCode key, void* udata);
 INTERNAL int CameraKeymap_Pressed(PlatformKeyCode key, void* udata);
 INTERNAL int CameraKeymap_Released(PlatformKeyCode key, void* udata);
-INTERNAL int CameraKeymap_Mouse(int x, int y, int xrel, int yrel, void* udata);
+INTERNAL int CameraKeymap_Mouse(int x, int y, float xrel, float yrel, void* udata);
 
 INTERNAL void CreateRectPipeline(Pipeline_Desc* description);
 INTERNAL void CreateTrianglePipeline(Pipeline_Desc* description);
@@ -163,9 +163,9 @@ EngineInit(const Engine_Startup_Info* info)
   g_context->camera.position = VEC3_CREATE(0.0f, 0.0f, -2.0f);
   g_context->camera.rotation = VEC3_CREATE(0.0f, 3.141f, 0.0f);
   g_context->camera.up = VEC3_CREATE(0.0f, 1.0f, 0.0f);
-  g_context->camera.fovy = RADIANS(45.0f);
-  g_context->camera.rotation_speed = 0.005f;
-  g_context->camera.movement_speed = 1.0f;
+  g_context->camera.fovy = RADIANS(*GetVar_Float(g_config, "Camera.fovy"));
+  g_context->camera.rotation_speed = *GetVar_Float(g_config, "Camera.rotation_speed");
+  g_context->camera.movement_speed = *GetVar_Float(g_config, "Camera.movement_speed");
 
   g_context->prev_time = PlatformGetTicks();
   g_context->curr_time = g_context->prev_time;
@@ -323,6 +323,9 @@ EngineUpdateAndRender()
       // get file notifications every 32 frame
       UpdateAssets(&g_context->asset_manager);
       g_profiler.enabled = *GetVar_Int(g_config, "Misc.profiling");
+      g_context->camera.fovy = RADIANS(*GetVar_Float(g_config, "Camera.fovy"));
+      g_context->camera.rotation_speed = *GetVar_Float(g_config, "Camera.rotation_speed");
+      g_context->camera.movement_speed = *GetVar_Float(g_config, "Camera.movement_speed");
       break;
 
     case 30:
@@ -353,8 +356,10 @@ EngineUpdateAndRender()
     float near = *GetVar_Float(g_config, "Render.shadow_near");
     float far = *GetVar_Float(g_config, "Render.shadow_far");
     OrthographicMatrix(-extent, extent, -extent, extent, near, far, &light_proj);
-    Vec3 light_pos = { 0.0f, 10.0f, 0.0f };
-    Vec3 light_target = { 0.05f, 11.0f, 0.1f };
+    // Vec3 light_pos = { 0.0f, 10.0f, 0.0f };
+    // Vec3 light_target = { 0.05f, 11.0f, 0.1f };
+    Vec3 light_pos = VEC3_MUL(sc_data->sun_dir, 10.0f);
+    Vec3 light_target = VEC3_ADD(light_pos, sc_data->sun_dir);
     Vec3 up = { 1.0f, 0.0f, 0.0f };
     LookAtMatrix(&light_pos, &light_target, &up, &light_view);
   }
@@ -583,7 +588,9 @@ EngineKeyReleased(PlatformKeyCode key)
 void
 EngineMouseMotion(int x, int y, int xrel, int yrel)
 {
-  MouseMotion(x, y, xrel, yrel);
+  float xn = (float)xrel / g_window->swapchain_extent.width;
+  float yn = (float)yrel / g_window->swapchain_extent.height;
+  MouseMotion(x, y, xn, yn);
 }
 
 void
@@ -716,7 +723,7 @@ CameraKeymap_Released(PlatformKeyCode key, void* udata)
 }
 
 int
-CameraKeymap_Mouse(int x, int y, int xrel, int yrel, void* udata)
+CameraKeymap_Mouse(int x, int y, float xrel, float yrel, void* udata)
 {
   Camera* camera = udata;
   (void)x;
