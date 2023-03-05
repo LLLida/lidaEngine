@@ -9,7 +9,7 @@ PLATFORM ?= lida_platform1
 GLSLANG ?= glslangValidator
 
 CFLAGS = -O0 -g -Wall -Wextra -Wpedantic
-# CFLAGS = -O3 -march=native
+# CFLAGS = -O3 -march=native -Wall -Wextra -Wpedantic
 CFLAGS += $(shell pkg-config --cflags freetype2)
 
 LDFLAGS := -g -lm $(shell pkg-config --libs freetype2)
