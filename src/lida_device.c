@@ -108,6 +108,7 @@ typedef struct {
 
   VkFilter filter;
   VkSamplerAddressMode mode;
+  VkBorderColor border_color;
   VkSampler handle;
 
 } Sampler_Info;
@@ -1526,11 +1527,12 @@ GetDescriptorSetLayout(const VkDescriptorSetLayoutBinding* bindings, size_t num_
 }
 
 INTERNAL VkSampler
-GetSampler(VkFilter filter, VkSamplerAddressMode mode)
+GetSampler(VkFilter filter, VkSamplerAddressMode mode, VkBorderColor border_color)
 {
   Sampler_Info sampler;
   sampler.filter = filter;
   sampler.mode = mode;
+  sampler.border_color = border_color;
   // try to look if have this sampler in cache
   Sampler_Info* it = FHT_Search(&g_device->sampler_cache, &g_device->sampler_info_type, &sampler);
   if (it) {
@@ -1547,7 +1549,7 @@ GetSampler(VkFilter filter, VkSamplerAddressMode mode)
     .addressModeW = mode,
     .minLod = 0.0f,
     .maxLod = 1.0f,
-    .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE
+    .borderColor = border_color
   };
   VkResult err = vkCreateSampler(g_device->logical_device, &sampler_info, NULL, &sampler.handle);
   if (err != VK_SUCCESS) {

@@ -349,7 +349,8 @@ CreateFontAtlas(Quad_Renderer* renderer, Font_Atlas* atlas, uint32_t width, uint
     return err;
   }
   VkDescriptorImageInfo ds_image_info = {
-    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE),
+    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                          VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE),
     .imageView = atlas->image_view,
     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
   };

@@ -405,7 +405,8 @@ FWD_AllocateDescriptorSets(Forward_Pass* pass)
   VkDescriptorImageInfo image_info = {
     .imageView = (pass->msaa_samples == VK_SAMPLE_COUNT_1_BIT) ? pass->color_image_view : pass->resolve_image_view,
     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                          VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE)
   };
   write_sets[1] = (VkWriteDescriptorSet) {
     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -571,7 +572,8 @@ SH_AllocateDescriptorSets(Shadow_Pass* pass, const Forward_Pass* fwd_pass)
   VkDescriptorImageInfo image_info = {
     .imageView = pass->image_view,
     .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+                          VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
   };
   write_sets[1] = (VkWriteDescriptorSet) {
     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -674,7 +676,8 @@ ResizeForwardPass(Forward_Pass* pass, uint32_t width, uint32_t height)
   VkDescriptorImageInfo image_info = {
     .imageView = (pass->msaa_samples == VK_SAMPLE_COUNT_1_BIT) ? pass->color_image_view : pass->resolve_image_view,
     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                          VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE)
   };
   VkWriteDescriptorSet write_set = {
     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,

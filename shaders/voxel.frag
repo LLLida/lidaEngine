@@ -17,10 +17,12 @@ void main() {
   // perspective division
   shadow_coord /= shadow_coord.w;
 
-  float depth = texture(shadow_map, shadow_coord.xy).r;
   float shadow = 1.0;
-  // we use inverted depth; i.e. objects with smaller depth are farther
-  if (depth > shadow_coord.z) shadow = g.sun_ambient;
+  if (shadow_coord.z >= 0.0 && shadow_coord.z <= 1.0) {
+    float depth = texture(shadow_map, shadow_coord.xy).r;
+    // we use inverted depth; i.e. objects with smaller depth are farther
+    if (depth > shadow_coord.z) shadow = g.sun_ambient;
+  }
 
   // float shadow = texture(shadow_map, (shadow_coord/shadow_coord.w).xy).r;
 

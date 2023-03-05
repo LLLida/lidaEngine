@@ -349,9 +349,10 @@ EngineUpdateAndRender()
 
   Mat4 light_proj, light_view;
   {
-    float fov = *GetVar_Float(g_config, "Render.shadow_fov");
+    float extent = *GetVar_Float(g_config, "Render.shadow_extent");
     float near = *GetVar_Float(g_config, "Render.shadow_near");
-    PerspectiveMatrix(RADIANS(fov), 1.0f, near, &light_proj);
+    float far = *GetVar_Float(g_config, "Render.shadow_far");
+    OrthographicMatrix(-extent, extent, -extent, extent, near, far, &light_proj);
     Vec3 light_pos = { 0.0f, 10.0f, 0.0f };
     Vec3 light_target = { 0.05f, 11.0f, 0.1f };
     Vec3 up = { 1.0f, 0.0f, 0.0f };
@@ -815,7 +816,6 @@ void CreateShadowPipeline(Pipeline_Desc* description)
     .depth_test = VK_TRUE,
     .depth_write = VK_TRUE,
     .depth_compare_op = VK_COMPARE_OP_GREATER,
-    // .depth_compare_op = VK_COMPARE_OP_LESS,
     .blend_logic_enable = VK_FALSE,
     .attachment_count = 0,
     .dynamic_state_count = 1,

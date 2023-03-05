@@ -328,6 +328,24 @@ RotationMatrixEulerAngles(Mat4* out, const Vec3* euler_angles)
 }
 
 INTERNAL void
+OrthographicMatrix(float left, float right, float bottom, float top,
+                   float z_near, float z_far, Mat4* out)
+{
+  memset(out, 0, sizeof(float) * 16);
+  // check https://www.youtube.com/watch?v=JiudfB4z1DM&t=411s to see
+  // how I got this matrix.  In video they use OpenGL(depth [-1..1])
+  // but our depth is [1..0]. Our equation for Z becomes
+  // z_{ndc} = \frac{z}{f-n} + \frac{f}{f-n}
+  out->m00 = 2.0f / (right - left);
+  out->m11 = -2.0f / (top - bottom);
+  out->m22 = 1.0f / (z_far - z_near);
+  out->m03 = -(right+left) / (right-left);
+  out->m13 = -(top+bottom) / (top-bottom);
+  out->m23 = z_far / (z_far - z_near);
+  out->m33 = 1.0f;
+}
+
+INTERNAL void
 PerspectiveMatrix(float fov_y, float aspect_ratio, float z_near, Mat4* out)
 {
   // z far is inifinity, depth is one to zero
