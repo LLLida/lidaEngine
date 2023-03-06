@@ -41,6 +41,7 @@ SaveState(const Camera* camera, const char* filename)
     .num_vox_components = ComponentCount(Voxel_Grid),
     .vox_components_offset = sizeof(Scene_Info) + sizeof(uint64_t)
   };
+  PlatformWriteToFile(file, &info, sizeof(Scene_Info));
 
   EID* ids = ComponentIDs(Voxel_Grid);
   for (uint32_t i = 0; i < info.num_vox_components; i++) {
@@ -64,6 +65,11 @@ LoadState(ECS* ecs, Allocator* va, Camera* camera, const char* filename)
 {
   size_t buffer_size;
   void* buffer = PlatformLoadEntireFile(filename, &buffer_size);
+  if (buffer == NULL) {
+    LOG_ERROR("failed to load package '%s'", filename);
+    return;
+  }
+
   if (*(uint64_t*)buffer == PACKAGE_MAGIC) {
 
     Scene_Info* info = (void*)((uint64_t*)buffer + 1);

@@ -373,7 +373,7 @@ INTERNAL VkResult
 CreateVkInstance(int enable_debug_layers,
                  const char* app_name, uint32_t app_version)
 {
-  const char** validation_layers;
+  const char** validation_layers = NULL;
   uint32_t layer_count = 0;
   if (enable_debug_layers) {
     validation_layers = PersistentAllocate(sizeof(const char*));

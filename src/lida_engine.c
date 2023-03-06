@@ -197,7 +197,6 @@ EngineInit(const Engine_Startup_Info* info)
   grid_2 = CreateEntity(&g_context->ecs);
 
   // entity 1
-  Voxel_Grid* vox;
   AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
                         grid_1, "3x3x3.vox");
   Transform* transform = AddComponent(&g_context->ecs, Transform, grid_1);
@@ -215,7 +214,7 @@ EngineInit(const Engine_Startup_Info* info)
   AddComponent(&g_context->ecs, OBB, grid_2);
   // floor
   EID floor = CreateEntity(&g_context->ecs);
-  vox = AddComponent(&g_context->ecs, Voxel_Grid, floor);
+  Voxel_Grid* vox = AddComponent(&g_context->ecs, Voxel_Grid, floor);
   transform = AddComponent(&g_context->ecs, Transform, floor);
   AddComponent(&g_context->ecs, OBB, floor);
   // manually write voxels
@@ -367,7 +366,7 @@ EngineUpdateAndRender()
   Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
 
   // rotate one of the voxel models
-  {
+  if (GetComponent(Transform, grid_1)) {
     Transform* transform = GetComponent(Transform, grid_1);
     Quat rot;
     QuatFromEulerAngles(dt * 0.1f, dt * 0.03f, dt * 0.01f, &rot);
@@ -388,6 +387,7 @@ EngineUpdateAndRender()
     // update OBB
     CalculateVoxelGridOBB(&components[i], transform, obb);
     // frustum culling
+    // TODO(render): set cached's cull_mask to 0
     int cull_mask = 0;
     cull_mask |= TestFrustumOBB(&camera->projview_matrix, obb) << CULL_MAIN;
     cull_mask |= TestFrustumOBB(&sc_data->light_space, obb) << CULL_SHADOW1;
@@ -440,22 +440,6 @@ EngineUpdateAndRender()
     //                 g_context->camera.position.x, g_context->camera.position.y, g_context->camera.position.z);
     //   DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
     // }
-
-    // TEMP: draw !!! where grid_1 is located
-    {
-      Vec4 position;
-      Transform* transform = GetComponent(Transform, grid_1);
-      position.x = transform->position.x;
-      position.y = transform->position.y;
-      position.z = transform->position.z;
-      position.w = 1.0f;
-      Mat4_Mul_Vec4(&sc_data->camera_projview, &position, &position);
-      position.x /= position.w;
-      position.y /= position.w;
-      position.x = (position.x + 1.0f) * 0.5f;
-      position.y = (position.y + 1.0f) * 0.5f;
-      DrawText(&g_context->quad_renderer, font, "!!!", &text_size, PACK_COLOR(0, 0, 255, 255), (Vec2*)&position);
-    }
 
     // draw call info
     {
@@ -741,14 +725,63 @@ CMD_clear_voxels(uint32_t num, char** args)
 {
   (void)args;
   if (num != 0) {
-    LOG_WARN("command 'clear_voxels' accepts no arguments; for detailed explanation type 'info clear_voxels'");
+    LOG_WARN("command 'clear_voxels' accepts no arguments; see 'info clear_voxels'");
     return;
+  }
+  FOREACH_COMPONENT(Voxel_Grid) {
+    FreeVoxelGrid(&g_context->vox_allocator, &components[i]);
   }
   UNREGISTER_COMPONENT(&g_context->ecs, Voxel_Grid);
   UNREGISTER_COMPONENT(&g_context->ecs, Transform);
   UNREGISTER_COMPONENT(&g_context->ecs, OBB);
   UNREGISTER_COMPONENT(&g_context->ecs, Voxel_Cached);
   DestroyEmptyEntities(&g_context->ecs);
+}
+
+void
+CMD_add_voxel(uint32_t num, char** args)
+{
+  if (num != 5 && num != 4) {
+    LOG_WARN("command 'add_voxel' accepts 4 arguments; see 'info add_voxel'");
+    return;
+  }
+  EID entity = CreateEntity(&g_context->ecs);
+  if (AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
+                            entity, args[0]) == NULL) {
+    return;
+  }
+  Transform* transform = AddComponent(&g_context->ecs, Transform, entity);
+  transform->rotation = QUAT_IDENTITY();
+  // TODO(convenience): check for parse errors
+  transform->position.x = strtof(args[1], NULL);
+  transform->position.y = strtof(args[2], NULL);
+  transform->position.z = strtof(args[3], NULL);
+  if (num == 5) {
+    transform->scale = strtof(args[4], NULL);
+  } else {
+    transform->scale = 1.0f;
+  }
+  AddComponent(&g_context->ecs, OBB, entity);
+}
+
+void
+CMD_save_state(uint32_t num, char** args)
+{
+  if (num != 1) {
+    LOG_WARN("command 'save_state' accepts 1 argument; see 'info save_state'");
+    return;
+  }
+  SaveState(&g_context->camera, args[0]);
+}
+
+void
+CMD_load_state(uint32_t num, char** args)
+{
+  if (num != 1) {
+    LOG_WARN("command 'load_state' accepts 1 argument; see 'info load_state'");
+    return;
+  }
+  LoadState(&g_context->ecs, &g_context->vox_allocator, &g_context->camera, args[0]);
 }
 
 

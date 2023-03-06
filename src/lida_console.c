@@ -409,6 +409,9 @@ INTERNAL void CMD_get(uint32_t num, char** args);
 INTERNAL void CMD_set(uint32_t num, char** args);
 INTERNAL void CMD_list_vars(uint32_t num, char** args);
 INTERNAL void CMD_clear_voxels(uint32_t num, char** args);
+INTERNAL void CMD_add_voxel(uint32_t num, char** args);
+INTERNAL void CMD_save_state(uint32_t num, char** args);
+INTERNAL void CMD_load_state(uint32_t num, char** args);
 
 
 /// public functions
@@ -456,6 +459,16 @@ InitConsole()
   ADD_COMMAND(clear_voxels,
               "clear_voxels\n"
               " Destroy all voxel models.");
+  ADD_COMMAND(add_voxel,
+              "add_voxel FILE X Y Z [S]\n"
+              " Load voxel model from FILE and translate to position [X Y Z].\n"
+              " S is scale. Default value is 1.0.");
+  ADD_COMMAND(save_state,
+              "save_state FILE\n"
+              " Save this scene to FILE.");
+  ADD_COMMAND(load_state,
+              "load_state FILE\n"
+              " Load scene from FILE.");
 }
 
 INTERNAL void
@@ -486,7 +499,7 @@ CMD_info(uint32_t num, char** args)
     return;
   }
   char buff[512];
-  strncpy(buff, command->doc, sizeof(buff));
+  strncpy(buff, command->doc, sizeof(buff)-1);
   begin = buff;
   char* it = begin;
   while (*it) {

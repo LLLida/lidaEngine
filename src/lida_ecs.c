@@ -50,6 +50,9 @@ ClearSparseSet(Allocator* allocator, Sparse_Set* set)
   FreeAllocation(allocator, set->dense);
   FreeAllocation(allocator, set->packed);
   FreeAllocation(allocator, set->sparse);
+  set->dense = NULL;
+  set->packed = NULL;
+  set->sparse = NULL;
   set->max_id = 0;
   set->capacity = 0;
   set->size = 0;
@@ -291,7 +294,11 @@ RemoveComponent_ECS(ECS* ecs, Sparse_Set* set, EID entity)
 
 // TODO: figure out how we can append __LINE__ to set's name so we can
 // call multiple FOREACH_COMPONENT()s in 1 scope
-#define FOREACH_COMPONENT(type) type* components = ComponentData(type); \
-  EID* entities = ComponentIDs(type);                                   \
-  (void)entities;                                                       \
+#define FOREACH_COMPONENT(type) type* components;       \
+  EID* entities;                                        \
+  (void)entities;                                       \
+  if (ComponentCount(type)) {                           \
+    components = ComponentData(type);                   \
+    entities = ComponentIDs(type);                      \
+  }                                                     \
   for (uint32_t i = 0; i < ComponentCount(type); i++)

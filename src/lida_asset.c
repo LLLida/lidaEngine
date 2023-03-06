@@ -157,7 +157,8 @@ AddVoxelGridComponent(ECS* ecs, Asset_Manager* am, Allocator* allocator,
                       EID entity, const char* name)
 {
   Voxel_Grid* vox = AddComponent(ecs, Voxel_Grid, entity);
-  LoadVoxelGridFromFile(allocator, vox, name);
+  if (LoadVoxelGridFromFile(allocator, vox, name) != 0)
+    return NULL;
   AddAsset(am, entity, name, &g_sparse_set_Voxel_Grid,
            VoxelGrid_ReloadFunc, allocator);
   return vox;
