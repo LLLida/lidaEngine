@@ -460,11 +460,7 @@ QuickSort(void* ptr, size_t num, size_t sizeof_, Compare_Function cmp)
   }
 }
 
-INTERNAL void
-QuickSort2(void* ptr, size_t num, const Type_Info* type)
-{
-  QuickSortHelper(ptr, type->size, 0, num-1, type->cmp);
-}
+#define QuickSort2(ptr, num, type) QuickSort(ptr, type->size, 0, num, type->cmp)
 
 INTERNAL uint32_t
 HashString32(const char* str)

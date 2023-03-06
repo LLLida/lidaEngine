@@ -32,6 +32,7 @@
 #include "lida_input.c"
 #include "lida_config.c"
 #include "lida_package.c"
+#include "lida_script.c"
 #include "lida_console.c"
 
 typedef struct {
@@ -48,6 +49,7 @@ typedef struct {
   Debug_Drawer debug_drawer;
   Deletion_Queue deletion_queue;
   Asset_Manager asset_manager;
+  Script_Manager script_manager;
   Keymap root_keymap;
   Keymap camera_keymap;
 
@@ -88,7 +90,8 @@ GLOBAL EID grid_2;
   X(OBB);                                       \
   X(Pipeline_Program);                          \
   X(Font);                                      \
-  X(Config_File)
+  X(Config_File);                               \
+  X(Script)
 
 
 /// Engine general functions
@@ -189,6 +192,8 @@ EngineInit(const Engine_Startup_Info* info)
 
   CreateDebugDrawer(&g_context->debug_drawer, 1024);
 
+  InitScripts(&g_context->script_manager);
+
   g_context->arial_font = CreateEntity(&g_context->ecs);
   g_context->pixel_font = CreateEntity(&g_context->ecs);
 
@@ -204,6 +209,15 @@ EngineInit(const Engine_Startup_Info* info)
   transform->position = VEC3_CREATE(3.1f, 2.6f, 1.0f);
   transform->scale = 3.0f;
   AddComponent(&g_context->ecs, OBB, grid_1);
+  Script* script = AddComponent(&g_context->ecs, Script, grid_1);
+  {
+    script->func = GetScript(&g_context->script_manager, "rotate_voxel");
+    float constants[] = { 0.1f, 0.04f, 0.01f };
+    script->arg0 = *(uint64_t*)&constants[0];
+    script->arg1 = *(uint64_t*)&constants[1];
+    script->arg2 = *(uint64_t*)&constants[2];
+    script->frequency = 1;
+  }
   // entity 2
   AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
                         grid_2, "chr_beau.vox");
@@ -366,11 +380,20 @@ EngineUpdateAndRender()
   Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
 
   // rotate one of the voxel models
-  if (GetComponent(Transform, grid_1)) {
-    Transform* transform = GetComponent(Transform, grid_1);
-    Quat rot;
-    QuatFromEulerAngles(dt * 0.1f, dt * 0.03f, dt * 0.01f, &rot);
-    MultiplyQuats(&transform->rotation, &rot, &transform->rotation);
+  // if (GetComponent(Transform, grid_1)) {
+  //   Transform* transform = GetComponent(Transform, grid_1);
+  //   Quat rot;
+  //   QuatFromEulerAngles(dt * 0.1f, dt * 0.03f, dt * 0.01f, &rot);
+  //   MultiplyQuats(&transform->rotation, &rot, &transform->rotation);
+  // }
+
+  // run scripts
+  {
+    FOREACH_COMPONENT(Script) {
+      if (g_window->frame_counter % components[i].frequency != 0)
+        continue;
+      components[i].func(&components[i], entities[i], dt);
+    }
   }
 
   NewVoxelDrawerFrame(&g_context->vox_drawer);
