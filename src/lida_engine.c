@@ -16,7 +16,7 @@
 
 #include "lida_platform.h"
 
-#define LIDA_ENGINE_VERSION 202302
+#define LIDA_ENGINE_VERSION 202303
 #define INTERNAL static
 #define GLOBAL static
 
