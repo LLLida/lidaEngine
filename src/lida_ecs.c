@@ -286,6 +286,7 @@ RemoveComponent_ECS(ECS* ecs, Sparse_Set* set, EID entity)
 #define UNREGISTER_COMPONENT(ecs, type) ClearSparseSet((ecs)->allocator, &g_sparse_set_##type)
 
 #define GetComponent(type, entity) (type*)SearchSparseSet(&g_sparse_set_##type, entity)
+// NULL is returned if entity already has this component
 #define AddComponent(ecs, type, entity) (type*)AddComponent_ECS(ecs, &g_sparse_set_##type, entity)
 #define RemoveComponent(ecs, type, entity) RemoveComponent_ECS(ecs, &g_sparse_set_##type, entity)
 #define ComponentCount(type) (g_sparse_set_##type .size)

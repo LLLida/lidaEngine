@@ -1,5 +1,8 @@
 /*
   Builtin console.
+
+  TODO: implement scrollback.
+
  */
 
 typedef struct {
@@ -9,7 +12,7 @@ typedef struct {
 
 } Console_Line;
 
-typedef void(*Console_Command_Func)(uint32_t num, char** args);
+typedef void(*Console_Command_Func)(uint32_t num, const char** args);
 
 typedef struct {
 
@@ -117,6 +120,8 @@ UpdateConsoleState(float dt)
   // use lerp, it looks ugly)
   // NOTE: I found solution: just increase open_speed😎
   float dir = g_console->target_y - g_console->bottom;
+  // HACK: this doesn't make console flicker when it's close to target_y
+  if (fabs(dir) < 0.001f) g_console->bottom = g_console->target_y;
   g_console->bottom += dir * dt * g_console->open_speed;
 }
 
@@ -273,7 +278,7 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
         if (command == NULL) {
           LOG_WARN("command '%s' does not exist", words[0]);
         } else {
-          command->func(num_words-1, words+1);
+          command->func(num_words-1, (const char**)words+1);
         }
         // ConsolePutLine(g_console->prompt, 0);
         // clear prompt
@@ -403,15 +408,17 @@ CompareConsoleCommands(const void* lhs, const void* rhs)
 }
 
 /// list of commands
-INTERNAL void CMD_info(uint32_t num, char** args);
-INTERNAL void CMD_FPS(uint32_t num, char** args);
-INTERNAL void CMD_get(uint32_t num, char** args);
-INTERNAL void CMD_set(uint32_t num, char** args);
-INTERNAL void CMD_list_vars(uint32_t num, char** args);
-INTERNAL void CMD_clear_scene(uint32_t num, char** args);
-INTERNAL void CMD_add_voxel(uint32_t num, char** args);
-INTERNAL void CMD_save_scene(uint32_t num, char** args);
-INTERNAL void CMD_load_scene(uint32_t num, char** args);
+INTERNAL void CMD_info(uint32_t num, const char** args);
+INTERNAL void CMD_FPS(uint32_t num, const char** args);
+INTERNAL void CMD_get(uint32_t num, const char** args);
+INTERNAL void CMD_set(uint32_t num, const char** args);
+INTERNAL void CMD_list_vars(uint32_t num, const char** args);
+INTERNAL void CMD_clear_scene(uint32_t num, const char** args);
+INTERNAL void CMD_add_voxel(uint32_t num, const char** args);
+INTERNAL void CMD_save_scene(uint32_t num, const char** args);
+INTERNAL void CMD_load_scene(uint32_t num, const char** args);
+INTERNAL void CMD_make_voxel_rotate(uint32_t num, const char** args);
+INTERNAL void CMD_list_entities(uint32_t num, const char** args);
 
 
 /// public functions
@@ -432,7 +439,8 @@ InitConsole()
                                  ConsoleKeymap_Mouse,
                                  ConsoleKeymap_TextInput,
                                  NULL };
-  stbsp_sprintf(g_console->prompt, "I'm so hungry :(");
+  g_console->prompt[0] = '\0';
+  ConsolePutLine("lida engine console. Use command 'info' for help.", 0);
   EngineAddLogger(&ConsoleLogCallback, 0, NULL);
   REGISTER_TYPE(Console_Command, HashConsoleCommand, CompareConsoleCommands);
   const uint32_t max_commands = 64;
@@ -469,6 +477,15 @@ InitConsole()
   ADD_COMMAND(load_scene,
               "load_scene FILE\n"
               " Load scene from FILE.");
+  ADD_COMMAND(make_voxel_rotate,
+              "make_voxel_rotate ENTITY X Y Z\n"
+              " Make ENTITY rotate.\n"
+              " X - yaw.\n"
+              " Y - pitch.\n"
+              " Z - roll.");
+  ADD_COMMAND(list_entities,
+              "list_entities\n"
+              " List all entities in this scene.");
 }
 
 INTERNAL void
@@ -486,13 +503,25 @@ UpdateAndDrawConsole(Quad_Renderer* renderer, float dt)
 }
 
 void
-CMD_info(uint32_t num, char** args)
+CMD_info(uint32_t num, const char** args)
 {
-  if (num != 1) {
-    LOG_WARN("command 'info' accepts only 1 argument; for detailed explanation type 'info info'");
+  if (num > 1) {
+    LOG_WARN("command 'info' accepts 0 or 1 argument; see 'info info'");
     return;
   }
-  char* begin = args[0];
+  if (num == 0) {
+    // list all commands
+    ConsolePutLine("Listing all commands:", 0);
+    FHT_Iterator it;
+    FHT_FOREACH(&g_console->env, GET_TYPE_INFO(Console_Command), &it) {
+      Console_Command* command = FHT_IteratorGet(&it);
+      // HACK: recursively call CMD_info
+      CMD_info(1, &command->name);
+      ConsolePutLine("---", 0);
+    }
+    return;
+  }
+  char* begin = (char*)args[0];
   Console_Command* command = FHT_Search(&g_console->env, GET_TYPE_INFO(Console_Command), &begin);
   if (command == 0) {
     LOG_WARN("command '%s' does not exist", begin);
@@ -514,7 +543,7 @@ CMD_info(uint32_t num, char** args)
 }
 
 void
-CMD_FPS(uint32_t num, char** args)
+CMD_FPS(uint32_t num, const char** args)
 {
   (void)args;
   if (num != 0) {
@@ -525,7 +554,7 @@ CMD_FPS(uint32_t num, char** args)
 }
 
 void
-CMD_get(uint32_t num, char** args)
+CMD_get(uint32_t num, const char** args)
 {
   if (num != 1) {
     LOG_WARN("command 'get' accepts only 1 argument; for detailed explanation type 'info get'");
@@ -556,7 +585,7 @@ CMD_get(uint32_t num, char** args)
 }
 
 void
-CMD_set(uint32_t num, char** args)
+CMD_set(uint32_t num, const char** args)
 {
   if (num != 2) {
     LOG_WARN("command 'get' accepts only 2 arguments; for detailed explanation type 'info set'");
@@ -608,7 +637,7 @@ list_vars_Traverse_Func(const Traverse_String_Info* str)
 }
 
 void
-CMD_list_vars(uint32_t num, char** args)
+CMD_list_vars(uint32_t num, const char** args)
 {
   if (num > 1) {
     LOG_WARN("command 'list_vars' accepts 0 or 1 argument; for detailed explanation type 'info list_vars'");

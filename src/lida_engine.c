@@ -79,9 +79,6 @@ enum {
 
 GLOBAL Engine_Context* g_context;
 
-GLOBAL EID grid_1;
-GLOBAL EID grid_2;
-
 // simple X macro to do operation on all components
 #define X_ALL_COMPONENTS()                      \
   X(Voxel_Grid);                                \
@@ -197,52 +194,11 @@ EngineInit(const Engine_Startup_Info* info)
   g_context->arial_font = CreateEntity(&g_context->ecs);
   g_context->pixel_font = CreateEntity(&g_context->ecs);
 
-  // create some entities
-  grid_1 = CreateEntity(&g_context->ecs);
-  grid_2 = CreateEntity(&g_context->ecs);
-
-  // entity 1
-  AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
-                        grid_1, "3x3x3.vox");
-  Transform* transform = AddComponent(&g_context->ecs, Transform, grid_1);
-  transform->rotation = QUAT_IDENTITY();
-  transform->position = VEC3_CREATE(3.1f, 2.6f, 1.0f);
-  transform->scale = 3.0f;
-  AddComponent(&g_context->ecs, OBB, grid_1);
-  Script* script = AddComponent(&g_context->ecs, Script, grid_1);
-  script->name = "rotate_voxel";
-  script->func = GetScript(&g_context->script_manager, "rotate_voxel");
-  script->arg0.float_32 = 0.1f;
-  script->arg1.float_32 = 0.04f;
-  script->arg2.float_32 = 0.02f;
-  script->frequency = 1;
-  // entity 2
-  AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
-                        grid_2, "chr_beau.vox");
-  transform = AddComponent(&g_context->ecs, Transform, grid_2);
-  transform->rotation = QUAT_IDENTITY();
-  transform->position = VEC3_CREATE(-1.1f, -1.6f, 7.0f);
-  transform->scale = 0.9f;
-  AddComponent(&g_context->ecs, OBB, grid_2);
-  // floor
-  EID floor = CreateEntity(&g_context->ecs);
-  Voxel_Grid* vox = AddComponent(&g_context->ecs, Voxel_Grid, floor);
-  transform = AddComponent(&g_context->ecs, Transform, floor);
-  AddComponent(&g_context->ecs, OBB, floor);
-  // manually write voxels
-  AllocateVoxelGrid(&g_context->vox_allocator, vox, 128, 1, 128);
-  // арбузовое счастье
-  vox->palette[1] = 0x00004C00;
-  vox->palette[2] = 0x00003C00;
-  for (size_t i = 0; i < 128 * 128; i++) {
-    Voxel* voxels = vox->data->ptr;
-    if ((i >> 3) & 1) voxels[i] = 1;
-    else voxels[i] = 2;
+  {
+    // run CMD by hand. I know this looks ugly but it gets job done.
+    const char* args[] = { GetVar_String(g_config, "Misc.initial_scene") };
+    CMD_load_scene(1, args);
   }
-  vox->hash = HashMemory64(vox->data->ptr, 128*128);
-  transform->rotation = QUAT_IDENTITY();
-  transform->position = VEC3_CREATE(0.0f, -4.0f, 0.0f);
-  transform->scale = 1.0f;
 
   g_context->deletion_queue.left = 0;
   g_context->deletion_queue.count = 0;
@@ -255,9 +211,6 @@ EngineInit(const Engine_Startup_Info* info)
 
   InitConsole();
   g_console->font = g_context->pixel_font;
-  ConsolePutLine("En passant is forced in all positions", 0);
-  ConsolePutLine("I want to eat", 0);
-  ConsolePutLine("Hungry I am!", 0);
 
   // create pipelines
   BatchCreatePipelines();
@@ -734,7 +687,7 @@ CameraKeymap_Mouse(int x, int y, float xrel, float yrel, void* udata)
 /// commands
 
 void
-CMD_clear_scene(uint32_t num, char** args)
+CMD_clear_scene(uint32_t num, const char** args)
 {
   (void)args;
   if (num != 0) {
@@ -755,7 +708,7 @@ CMD_clear_scene(uint32_t num, char** args)
 }
 
 void
-CMD_add_voxel(uint32_t num, char** args)
+CMD_add_voxel(uint32_t num, const char** args)
 {
   if (num != 5 && num != 4) {
     LOG_WARN("command 'add_voxel' accepts 4 arguments; see 'info add_voxel'");
@@ -781,7 +734,7 @@ CMD_add_voxel(uint32_t num, char** args)
 }
 
 void
-CMD_save_scene(uint32_t num, char** args)
+CMD_save_scene(uint32_t num, const char** args)
 {
   if (num != 1) {
     LOG_WARN("command 'save_scene' accepts 1 argument; see 'info save_scene'");
@@ -791,13 +744,51 @@ CMD_save_scene(uint32_t num, char** args)
 }
 
 void
-CMD_load_scene(uint32_t num, char** args)
+CMD_load_scene(uint32_t num, const char** args)
 {
   if (num != 1) {
     LOG_WARN("command 'load_scene' accepts 1 argument; see 'info load_scene'");
     return;
   }
   LoadScene(&g_context->ecs, &g_context->vox_allocator, &g_context->camera, &g_context->script_manager, args[0]);
+}
+
+void
+CMD_make_voxel_rotate(uint32_t num, const char** args)
+{
+  if (num != 4) {
+    LOG_WARN("command 'make_voxel_rotate' accepts 4 arguments; see 'info make_voxel_rotate'");
+    return;
+  }
+  EID entity = atoi(args[0]);
+  Script* script = AddComponent(&g_context->ecs, Script, entity);
+  if (script == NULL) {
+    script = GetComponent(Script, entity);
+    LOG_WARN("entity %u already has script component '%s'", entity, script->name);
+    return;
+  }
+  script->name = "rotate_voxel";
+  script->func = GetScript(&g_context->script_manager, "rotate_voxel");
+  script->arg0.float_32 = strtof(args[0], NULL);
+  script->arg1.float_32 = strtof(args[1], NULL);
+  script->arg2.float_32 = strtof(args[2], NULL);
+  script->frequency = 1;
+}
+
+void
+CMD_list_entities(uint32_t num, const char** args)
+{
+  (void)args;
+  if (num > 0) {
+    LOG_WARN("command 'list_entities' accepts no arguments; see 'info list_entities'");
+    return;
+  }
+  uint32_t* entities = g_context->ecs.entities->ptr;
+  for (EID eid = 0; eid < g_context->ecs.max_entities; eid++) {
+    if (entities[eid] & ENTITY_ALIVE_MASK) {
+      LOG_INFO("entity %u has %u components", eid, entities[eid]);
+    }
+  }
 }
 
 
