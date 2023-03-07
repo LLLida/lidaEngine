@@ -13,14 +13,25 @@ typedef struct Script Script;
 // TODO: make dt a global variable
 typedef void(*Script_Func)(Script* script, EID entity, float dt);
 
+typedef union {
+
+  int64_t  int_64;
+  int32_t int_32;
+  uint64_t uint_64;
+  uint32_t uint_32;
+  float float_32;
+
+} Script_Arg;
+
 struct Script {
 
+  const char* name;
   Script_Func func;
   void* udata;
-  uint64_t arg0;
-  uint64_t arg1;
-  uint64_t arg2;
-  uint64_t arg3;
+  Script_Arg arg0;
+  Script_Arg arg1;
+  Script_Arg arg2;
+  Script_Arg arg3;
   // FIXME: do we really need this? Time will show.
   int frequency;
 
@@ -84,9 +95,9 @@ DEFSCRIPT(rotate_voxel)
 {
   Transform* transform = GetComponent(Transform, entity);
   Quat rot;
-  float vx = *(float*)&self->arg0;
-  float vy = *(float*)&self->arg1;
-  float vz = *(float*)&self->arg2;
+  float vx = self->arg0.float_32;
+  float vy = self->arg1.float_32;
+  float vz = self->arg2.float_32;
   QuatFromEulerAngles(dt * vx, dt * vy, dt * vz, &rot);
   MultiplyQuats(&transform->rotation, &rot, &transform->rotation);
 }

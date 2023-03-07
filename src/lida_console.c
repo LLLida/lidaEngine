@@ -408,10 +408,10 @@ INTERNAL void CMD_FPS(uint32_t num, char** args);
 INTERNAL void CMD_get(uint32_t num, char** args);
 INTERNAL void CMD_set(uint32_t num, char** args);
 INTERNAL void CMD_list_vars(uint32_t num, char** args);
-INTERNAL void CMD_clear_voxels(uint32_t num, char** args);
+INTERNAL void CMD_clear_scene(uint32_t num, char** args);
 INTERNAL void CMD_add_voxel(uint32_t num, char** args);
-INTERNAL void CMD_save_state(uint32_t num, char** args);
-INTERNAL void CMD_load_state(uint32_t num, char** args);
+INTERNAL void CMD_save_scene(uint32_t num, char** args);
+INTERNAL void CMD_load_scene(uint32_t num, char** args);
 
 
 /// public functions
@@ -456,18 +456,18 @@ InitConsole()
               "list_vars [PREFIX]\n"
               " List all configuration variables beginning with prefix.\n"
               " If prefix not specified than list all variables.");
-  ADD_COMMAND(clear_voxels,
-              "clear_voxels\n"
+  ADD_COMMAND(clear_scene,
+              "clear_scene\n"
               " Destroy all voxel models.");
   ADD_COMMAND(add_voxel,
               "add_voxel FILE X Y Z [S]\n"
               " Load voxel model from FILE and translate to position [X Y Z].\n"
               " S is scale. Default value is 1.0.");
-  ADD_COMMAND(save_state,
+  ADD_COMMAND(save_scene,
               "save_state FILE\n"
               " Save this scene to FILE.");
-  ADD_COMMAND(load_state,
-              "load_state FILE\n"
+  ADD_COMMAND(load_scene,
+              "load_scene FILE\n"
               " Load scene from FILE.");
 }
 

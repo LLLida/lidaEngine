@@ -319,10 +319,6 @@ INTERNAL Config_File*
 CreateConfig(ECS* ecs, Asset_Manager* am, EID entity, const char* name)
 {
   Config_File* config = AddComponent(ecs, Config_File, entity);
-  // const int max_vars = 32;
-  // FHT_Init(&config->vars,
-  //          config->buff+sizeof(config->buff) - FHT_CALC_SIZE(GET_TYPE_INFO(CVar), max_vars),
-  //          max_vars, GET_TYPE_INFO(CVar));
   ParseConfig(name, config);
   AddAsset(am, entity, name, &g_sparse_set_Config_File,
            ConfigFile_ReloadFunc, NULL);

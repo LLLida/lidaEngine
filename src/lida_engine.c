@@ -31,8 +31,8 @@
 #include "lida_asset.c"
 #include "lida_input.c"
 #include "lida_config.c"
-#include "lida_package.c"
 #include "lida_script.c"
+#include "lida_package.c"
 #include "lida_console.c"
 
 typedef struct {
@@ -138,7 +138,7 @@ EngineInit(const Engine_Startup_Info* info)
   InitAssetManager(&g_context->asset_manager);
 
   g_config = CreateConfig(&g_context->ecs, &g_context->asset_manager,
-                        CreateEntity(&g_context->ecs), "variables.ini");
+                          CreateEntity(&g_context->ecs), "variables.ini");
   g_profiler.enabled = *GetVar_Int(g_config, "Misc.profiling");
 
   int options[] = { 1, 2, 4, 8, 16, 32 };
@@ -210,14 +210,12 @@ EngineInit(const Engine_Startup_Info* info)
   transform->scale = 3.0f;
   AddComponent(&g_context->ecs, OBB, grid_1);
   Script* script = AddComponent(&g_context->ecs, Script, grid_1);
-  {
-    script->func = GetScript(&g_context->script_manager, "rotate_voxel");
-    float constants[] = { 0.1f, 0.04f, 0.01f };
-    script->arg0 = *(uint64_t*)&constants[0];
-    script->arg1 = *(uint64_t*)&constants[1];
-    script->arg2 = *(uint64_t*)&constants[2];
-    script->frequency = 1;
-  }
+  script->name = "rotate_voxel";
+  script->func = GetScript(&g_context->script_manager, "rotate_voxel");
+  script->arg0.float_32 = 0.1f;
+  script->arg1.float_32 = 0.04f;
+  script->arg2.float_32 = 0.02f;
+  script->frequency = 1;
   // entity 2
   AddVoxelGridComponent(&g_context->ecs, &g_context->asset_manager, &g_context->vox_allocator,
                         grid_2, "chr_beau.vox");
@@ -262,7 +260,7 @@ EngineInit(const Engine_Startup_Info* info)
   ConsolePutLine("Hungry I am!", 0);
 
   // create pipelines
-  BatchCreatePipelines(&g_context->ecs);
+  BatchCreatePipelines();
 }
 
 void
@@ -378,14 +376,6 @@ EngineUpdateAndRender()
     LookAtMatrix(&light_pos, &light_target, &up, &light_view);
   }
   Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
-
-  // rotate one of the voxel models
-  // if (GetComponent(Transform, grid_1)) {
-  //   Transform* transform = GetComponent(Transform, grid_1);
-  //   Quat rot;
-  //   QuatFromEulerAngles(dt * 0.1f, dt * 0.03f, dt * 0.01f, &rot);
-  //   MultiplyQuats(&transform->rotation, &rot, &transform->rotation);
-  // }
 
   // run scripts
   {
@@ -744,15 +734,18 @@ CameraKeymap_Mouse(int x, int y, float xrel, float yrel, void* udata)
 /// commands
 
 void
-CMD_clear_voxels(uint32_t num, char** args)
+CMD_clear_scene(uint32_t num, char** args)
 {
   (void)args;
   if (num != 0) {
-    LOG_WARN("command 'clear_voxels' accepts no arguments; see 'info clear_voxels'");
+    LOG_WARN("command 'clear_scene' accepts no arguments; see 'info clear_scene'");
     return;
   }
   FOREACH_COMPONENT(Voxel_Grid) {
     FreeVoxelGrid(&g_context->vox_allocator, &components[i]);
+    if (GetComponent(Script, entities[i])) {
+      RemoveComponent(&g_context->ecs, Script, entities[i]);
+    }
   }
   UNREGISTER_COMPONENT(&g_context->ecs, Voxel_Grid);
   UNREGISTER_COMPONENT(&g_context->ecs, Transform);
@@ -788,23 +781,23 @@ CMD_add_voxel(uint32_t num, char** args)
 }
 
 void
-CMD_save_state(uint32_t num, char** args)
+CMD_save_scene(uint32_t num, char** args)
 {
   if (num != 1) {
-    LOG_WARN("command 'save_state' accepts 1 argument; see 'info save_state'");
+    LOG_WARN("command 'save_scene' accepts 1 argument; see 'info save_scene'");
     return;
   }
-  SaveState(&g_context->camera, args[0]);
+  SaveScene(&g_context->camera, args[0]);
 }
 
 void
-CMD_load_state(uint32_t num, char** args)
+CMD_load_scene(uint32_t num, char** args)
 {
   if (num != 1) {
-    LOG_WARN("command 'load_state' accepts 1 argument; see 'info load_state'");
+    LOG_WARN("command 'load_scene' accepts 1 argument; see 'info load_scene'");
     return;
   }
-  LoadState(&g_context->ecs, &g_context->vox_allocator, &g_context->camera, args[0]);
+  LoadScene(&g_context->ecs, &g_context->vox_allocator, &g_context->camera, &g_context->script_manager, args[0]);
 }
 
 

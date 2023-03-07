@@ -110,10 +110,10 @@ FWD_ChooseFromats(Forward_Pass* pass, VkSampleCountFlagBits samples)
     VK_FORMAT_R8G8B8A8_UNORM,
   };
   pass->color_format = FindSupportedFormat(hdr_formats, ARR_SIZE(hdr_formats),
-                                                 VK_IMAGE_TILING_OPTIMAL,
-                                                 VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT|
-                                                 VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT|
-                                                 VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT);
+                                           VK_IMAGE_TILING_OPTIMAL,
+                                           VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT|
+                                           VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT|
+                                           VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT);
   VkFormat depth_formats[] = {
     VK_FORMAT_D32_SFLOAT,
     VK_FORMAT_D32_SFLOAT_S8_UINT,
@@ -121,9 +121,9 @@ FWD_ChooseFromats(Forward_Pass* pass, VkSampleCountFlagBits samples)
     VK_FORMAT_D16_UNORM,
   };
   pass->depth_format = FindSupportedFormat(depth_formats, ARR_SIZE(depth_formats),
-                                                 VK_IMAGE_TILING_OPTIMAL,
-                                                 VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT|
-                                                 VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
+                                           VK_IMAGE_TILING_OPTIMAL,
+                                           VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT|
+                                           VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
   pass->msaa_samples = MaxSampleCount(samples);
   LOG_TRACE("Renderer formats(samples=%d): color=%s, depth=%s",
             (int)pass->msaa_samples,
