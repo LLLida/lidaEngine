@@ -105,7 +105,8 @@ MouseMotion(int x, int y, float xrel, float yrel)
   } while (pass && curr >= g_keymap_stack);
 }
 
-void TextInput(const char* text)
+INTERNAL void
+TextInput(const char* text)
 {
   Assert(g_keymap_count > 0 && "No keymaps are bound");
   Keymap* curr = &g_keymap_stack[g_keymap_count-1];

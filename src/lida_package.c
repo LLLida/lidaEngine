@@ -91,6 +91,7 @@ SaveScene(const Camera* camera, const char* filename)
   }
 
   PlatformCloseFileForWrite(file);
+  LOG_INFO("Saved current scene to file '%s'", filename);
 }
 
 INTERNAL void
@@ -157,4 +158,5 @@ LoadScene(ECS* ecs, Allocator* va, Camera* camera, Script_Manager* sm, const cha
 
   }
   PlatformFreeLoadedFile(buffer);
+  LOG_INFO("Loaded scene from file '%s'", filename);
 }
