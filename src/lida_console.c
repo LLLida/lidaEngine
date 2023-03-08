@@ -88,8 +88,10 @@ ConsolePutLine(const char* str, uint32_t color)
 {
   size_t len = strlen(str);
   if (g_console->buff_offset + len >= sizeof(g_console->buffer)) {
-    LOG_WARN("console buffer is out of space, rewriting from begin...");
     g_console->buff_offset = 0;
+    // Fixed a horrible bug... If this log is put before buff_offset = 0
+    // then we would have infinite recursion calls to ConsolePutLine.
+    LOG_WARN("console buffer is out of space, rewriting from begin...");
   }
   g_console->last_line = (g_console->last_line+1) % ARR_SIZE(g_console->lines);
   if (color == 0) {
@@ -419,6 +421,7 @@ INTERNAL void CMD_save_scene(uint32_t num, const char** args);
 INTERNAL void CMD_load_scene(uint32_t num, const char** args);
 INTERNAL void CMD_make_voxel_rotate(uint32_t num, const char** args);
 INTERNAL void CMD_list_entities(uint32_t num, const char** args);
+INTERNAL void CMD_make_voxel_change(uint32_t num, const char** args);
 
 
 /// public functions
@@ -486,6 +489,10 @@ InitConsole()
   ADD_COMMAND(list_entities,
               "list_entities\n"
               " List all entities in this scene.");
+  ADD_COMMAND(make_voxel_change,
+              "make_voxel_change ENTITY [FREQUENCY]\n"
+              " Make a random voxel change in ENTITY's grid.\n"
+              " Each FREQUENCY frames a random voxel will be changed.");
 }
 
 INTERNAL void

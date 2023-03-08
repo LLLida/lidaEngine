@@ -185,7 +185,9 @@ EngineInit(const Engine_Startup_Info* info)
   ADD_PIPELINE(shadow_pipeline, "shadow_voxel.vert.spv", NULL, CreateShadowPipeline);
   ADD_PIPELINE(debug_pipeline, "debug_draw.vert.spv", "debug_draw.frag.spv", CreateDebugDrawPipeline);
 
-  CreateVoxelDrawer(&g_context->vox_drawer, &g_context->vox_allocator, 128*1024, 32);
+  const uint32_t max_vertices = 1024*1024;
+  const uint32_t max_draws = 32;
+  CreateVoxelDrawer(&g_context->vox_drawer, &g_context->vox_allocator, max_vertices, max_draws);
 
   CreateDebugDrawer(&g_context->debug_drawer, 1024);
 
@@ -339,6 +341,11 @@ EngineUpdateAndRender()
     }
   }
 
+  if (g_context->vox_drawer.vertex_offset >= g_context->vox_drawer.max_vertices * 9 / 10) {
+    // reset cache when 90% of it is filled.
+    // This is kind of dumb but it works.
+    ClearVoxelDrawerCache(&g_context->vox_drawer);
+  }
   NewVoxelDrawerFrame(&g_context->vox_drawer);
   NewDebugDrawerFrame(&g_context->debug_drawer);
 
@@ -705,6 +712,7 @@ CMD_clear_scene(uint32_t num, const char** args)
   UNREGISTER_COMPONENT(&g_context->ecs, OBB);
   UNREGISTER_COMPONENT(&g_context->ecs, Voxel_Cached);
   DestroyEmptyEntities(&g_context->ecs);
+  ClearVoxelDrawerCache(&g_context->vox_drawer);
 }
 
 void
@@ -788,6 +796,29 @@ CMD_list_entities(uint32_t num, const char** args)
     if (entities[eid] & ENTITY_ALIVE_MASK) {
       LOG_INFO("entity %u has %u components", eid, entities[eid]);
     }
+  }
+}
+
+void
+CMD_make_voxel_change(uint32_t num, const char** args)
+{
+  if (num > 2) {
+    LOG_WARN("command 'make_voxel_rotate' accepts 1 argument; see 'info make_voxel_change'");
+    return;
+  }
+  EID entity = atoi(args[0]);
+  Script* script = AddComponent(&g_context->ecs, Script, entity);
+  if (script == NULL) {
+    script = GetComponent(Script, entity);
+    LOG_WARN("entity %u already has script component '%s'", entity, script->name);
+    return;
+  }
+  script->name = "change_voxel";
+  script->func = GetScript(&g_context->script_manager, "change_voxel");
+  if (num == 2) {
+    script->frequency = atoi(args[1]);
+  } else {
+    script->frequency = 100;
   }
 }
 

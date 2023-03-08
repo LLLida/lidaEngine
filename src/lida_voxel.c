@@ -264,14 +264,15 @@ CalculateVoxelGridSize(const Voxel_Grid* grid, Vec3* half_size)
 }
 
 INTERNAL uint32_t
-GenerateVoxelGridMeshNaive(const Voxel_Grid* grid, Vertex_X3C* vertices, int face)
+GenerateVoxelGridMeshNaive(const Voxel_Grid* grid, Vertex_X3C* vertices, int face
+#if VX_USE_INDICES
+                           , uint32_t base_index, uint32_t* indices
+#endif
+                           )
 {
-  Vertex_X3C* begin = vertices;
-  Vec3 half_size = {
-    grid->width *  0.5f,
-    grid->height * 0.5f,
-    grid->depth * 0.5f
-  };
+  Vertex_X3C* const first_vertex = vertices;
+  Vec3 half_size;
+  float inv_size = CalculateVoxelGridSize(grid, &half_size);
   int offsetX = vox_normals[face].x;
   int offsetY = vox_normals[face].y;
   int offsetZ = vox_normals[face].z;
@@ -293,17 +294,34 @@ GenerateVoxelGridMeshNaive(const Voxel_Grid* grid, Vertex_X3C* vertices, int fac
             voxel &&
             // check if near voxel is air
             near_voxel == 0) {
-          Vec3 pos = VEC3_SUB(VEC3_CREATE((float)x, (float)y, (float)z), half_size);
-          // TODO: use index buffers
+          Vec3 pos = VEC3_CREATE((float)x, (float)y, (float)z);
+#if VX_USE_INDICES
+           // write 4 vertices and 6 indices for this quad
           for (uint32_t i = 0; i < 6; i++) {
-            vertices[i].position = VEC3_ADD(pos, vox_positions[face*6 + i]);
-            vertices[i].color = grid->palette[voxel];
+            *(indices++) = base_index + (vertices - first_vertex) + vox_indices[i];
           }
-          vertices += 6;
+          for (uint32_t vert_index = 0; vert_index < 4; vert_index++) {
+            *(vertices++) = (Vertex_X3C) {
+              .position.x = (pos.x + vox_positions[face*4+vert_index].x) * inv_size - half_size.x,
+              .position.y = (pos.y + vox_positions[face*4+vert_index].y) * inv_size - half_size.y,
+              .position.z = (pos.z + vox_positions[face*4+vert_index].z) * inv_size - half_size.z,
+              .color = grid->palette[voxel],
+            };
+          }
+#else
+          for (uint32_t vert_index = 0; vert_index < 6; vert_index++) {
+            *(vertices++) = (Vertex_X3C) {
+              .position.x = (pos.x + vox_positions[face*6 + vert_index].x) * inv_size - half_size.x,
+              .position.y = (pos.y + vox_positions[face*6 + vert_index].y) * inv_size - half_size.y,
+              .position.z = (pos.z + vox_positions[face*6 + vert_index].z) * inv_size - half_size.z,
+              .color = grid->palette[voxel],
+            };
+          }
+#endif
         }
       }
-  LOG_DEBUG("wrote %u vertices", (uint32_t)(vertices - begin));
-  return vertices - begin;
+  LOG_DEBUG("wrote %u vertices", (uint32_t)(vertices - first_vertex));
+  return vertices - first_vertex;
 }
 
 INTERNAL Voxel
@@ -596,9 +614,7 @@ DestroyVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator)
   FreeAllocation(allocator, drawer->vertex_temp_buffer);
   FreeAllocation(allocator, drawer->meshes);
   FreeAllocation(allocator, drawer->draws);
-#if VX_USE_INDICES
   vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
-#endif
   vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
   vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
   FreeVideoMemory(&drawer->memory);
@@ -636,14 +652,28 @@ VX_Regenerate(Voxel_Drawer* drawer, Voxel_Cached* cached, Voxel_Grid* grid)
   for (int i = 0; i < 6; i++) {
     VX_Draw_Command* command = &current_draws[drawer->num_draws++];
 
-#if VX_USE_INDICES
+#if 0
+    // use greedy meshing
+# if VX_USE_INDICES
     uint32_t index_offset = drawer->vertex_offset*3/2;
     command->vertexCount = GenerateVoxelGridMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i,
                                                        base_index, drawer->pIndices + index_offset);
     base_index += command->vertexCount;
-#else
+# else
     command->vertexCount =
       GenerateVoxelGridMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i);
+# endif
+#else
+    // use naive meshing algorithm
+# if VX_USE_INDICES
+    uint32_t index_offset = drawer->vertex_offset*3/2;
+    command->vertexCount = GenerateVoxelGridMeshNaive(grid, drawer->pVertices + drawer->vertex_offset, i,
+                                                      base_index, drawer->pIndices + index_offset);
+    base_index += command->vertexCount;
+# else
+    command->vertexCount =
+      GenerateVoxelGridMeshNaive(grid, drawer->pVertices + drawer->vertex_offset, i);
+# endif
 #endif
 
     command->firstVertex = drawer->vertex_offset;

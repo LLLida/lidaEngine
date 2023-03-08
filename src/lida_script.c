@@ -102,6 +102,19 @@ DEFSCRIPT(rotate_voxel)
   MultiplyQuats(&transform->rotation, &rot, &transform->rotation);
 }
 
+// changes a random position each 100 frames
+DEFSCRIPT(change_voxel)
+{
+  (void)self;
+  (void)dt;
+  Voxel_Grid* grid = GetComponent(Voxel_Grid, entity);
+  uint32_t x = (grid->hash ^ 0xf9432aa84beb) % grid->width;
+  uint32_t y = (grid->hash ^ 0x48db57c487a3) % grid->width;
+  uint32_t z = (grid->hash ^ 0x98aff843be81) % grid->width;
+  Voxel vox = grid->hash % 256;
+  SetInVoxelGrid(grid, x, y, z, vox);
+}
+
 
 /// public functions
 
@@ -116,4 +129,5 @@ InitScripts(Script_Manager* sm)
   // insert all scripts to hash table
 #define REGISTER_SCRIPT(sm, name) RegisterScript(sm, #name, SCRIPT_##name)
   REGISTER_SCRIPT(sm, rotate_voxel);
+  REGISTER_SCRIPT(sm, change_voxel);
 }
