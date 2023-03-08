@@ -377,7 +377,17 @@ EngineUpdateAndRender()
     }
   }
 
+  enum {
+    TIMESTAMP_SHADOW_PASS_BEGIN = 0,
+    TIMESTAMP_FORWARD_PASS_BEGIN,
+    TIMESTAMP_MAIN_PASS_BEGIN,
+    TIMESTAMP_FRAME_END,
+    TIMESTAMP_COUNT
+  };
+
   VkCommandBuffer cmd = BeginCommands();
+  uint64_t timestamps[TIMESTAMP_COUNT];
+  VkQueryPool query_pool = GetTimestampsGPU(TIMESTAMP_COUNT, timestamps);
 
   if (g_window->frame_counter == 0) {
     Font* font = AddComponent(&g_context->ecs, Font, g_context->arial_font);
@@ -424,6 +434,27 @@ EngineUpdateAndRender()
       DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
     }
 
+    // GPU timestamps
+    if (g_window->frame_counter > 2) {
+      char buffer[256];
+      char* buff = buffer;
+      float period = g_device->properties.limits.timestampPeriod;
+      const char* passes[] = {
+        "shadow",
+        "forward",
+        "main"
+      };
+      for (uint32_t i = 0; i < ARR_SIZE(passes); i++) {
+        // (queryResults[i+1] - queryResults[i]) * period / 1_000_000.0f;
+        float time = (timestamps[i+1] - timestamps[i]) * period / 1000000.0f;
+        buff += stbsp_sprintf(buff, "%s=%.3fms ", passes[i], time);
+      }
+      pos = VEC2_CREATE(0.005f, 0.95f);
+      text_size = (Vec2) { 0.025f, 0.025f };
+      color = PACK_COLOR(170, 255, 210, 160);
+      DrawText(&g_context->quad_renderer, font, buffer, &text_size, color, &pos);
+    }
+
     pos = (Vec2) { 0.7f, 0.02f };
     text_size = (Vec2) { 0.05f, 0.1f };
     color = PACK_COLOR(4, 59, 200, 254);
@@ -437,6 +468,8 @@ EngineUpdateAndRender()
   VkDescriptorSet ds_set;
   g_context->voxel_draw_calls = 0;
 
+  vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool,
+                      TIMESTAMP_SHADOW_PASS_BEGIN);
   // render to shadow map
   BeginShadowPass(&g_context->shadow_pass, cmd);
   {
@@ -450,6 +483,8 @@ EngineUpdateAndRender()
   }
   vkCmdEndRenderPass(cmd);
 
+  vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool,
+                      TIMESTAMP_FORWARD_PASS_BEGIN);
   // render to offscreen buffer
   float clear_color[4] = { 0.08f, 0.2f, 0.25f, 1.0f };
   BeginForwardPass(&g_context->forward_pass, cmd, clear_color);
@@ -493,6 +528,8 @@ EngineUpdateAndRender()
   }
   vkCmdEndRenderPass(cmd);
 
+  vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool,
+                      TIMESTAMP_MAIN_PASS_BEGIN);
   // render to screen
   BeginRenderingToWindow();
   {
@@ -514,6 +551,9 @@ EngineUpdateAndRender()
     RenderQuads(&g_context->quad_renderer, cmd);
   }
   vkCmdEndRenderPass(cmd);
+
+  vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool,
+                      TIMESTAMP_FRAME_END);
 
   // end of frame
   vkEndCommandBuffer(cmd);

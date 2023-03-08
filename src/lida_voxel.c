@@ -652,7 +652,7 @@ VX_Regenerate(Voxel_Drawer* drawer, Voxel_Cached* cached, Voxel_Grid* grid)
   for (int i = 0; i < 6; i++) {
     VX_Draw_Command* command = &current_draws[drawer->num_draws++];
 
-#if 0
+#if 1
     // use greedy meshing
 # if VX_USE_INDICES
     uint32_t index_offset = drawer->vertex_offset*3/2;

@@ -19,6 +19,8 @@ typedef struct {
 typedef struct {
   VkCommandBuffer cmd;
   VkSemaphore image_available;
+  // measures time spent on GPU
+  VkQueryPool query_pool;
   uint64_t submit_time;
 } Window_Frame;
 
@@ -300,6 +302,7 @@ CreateWindowFrames()
       LOG_ERROR("failed to create semaphore with error %s", ToString_VkResult(err));
       return err;
     }
+    g_window->frames[i].query_pool = VK_NULL_HANDLE;
   }
   err = vkCreateSemaphore(g_device->logical_device, &semaphore_info, NULL, &g_window->render_finished_semaphore);
   if (err != VK_SUCCESS) {
@@ -350,6 +353,8 @@ DestroyWindow(int free_memory)
 {
   for (int i = 0; i < 2; i++) {
     vkDestroySemaphore(g_device->logical_device, g_window->frames[i].image_available, NULL);
+    if (g_window->frames[i].query_pool)
+      vkDestroyQueryPool(g_device->logical_device, g_window->frames[i].query_pool, NULL);
   }
   vkDestroyFence(g_device->logical_device, g_window->resources_available_fence, NULL);
   vkDestroySemaphore(g_device->logical_device, g_window->render_finished_semaphore, NULL);
@@ -500,4 +505,39 @@ PresentToScreen()
   g_window->frame_counter++;
   g_window->current_image = UINT32_MAX;
   return err;
+}
+
+INTERNAL VkQueryPool
+GetTimestampsGPU(uint32_t count, uint64_t* results)
+{
+  Window_Frame* frame = &g_window->frames[g_window->frame_counter % 2];
+  if (frame->query_pool == VK_NULL_HANDLE) {
+    // create query pool
+    VkQueryPoolCreateInfo query_pool_info = {
+      .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+      .queryType = VK_QUERY_TYPE_TIMESTAMP,
+      .queryCount = count
+    };
+    VkResult err = vkCreateQueryPool(g_device->logical_device, &query_pool_info, NULL,
+                                     &frame->query_pool);
+    if (err != VK_SUCCESS) {
+      LOG_ERROR("failed to create query pool for timestamps with error %s",
+                ToString_VkResult(err));
+      return VK_NULL_HANDLE;
+    }
+  } else {
+    VkResult err = vkGetQueryPoolResults(g_device->logical_device, frame->query_pool,
+                                         0,
+                                         count,
+                                         sizeof(uint64_t) * count,
+                                         results,
+                                         sizeof(uint64_t),
+                                         VK_QUERY_RESULT_64_BIT);
+    if (err != VK_SUCCESS) {
+      LOG_ERROR("failed to get query pool timestampts with error %s", ToString_VkResult(err));
+      return VK_NULL_HANDLE;
+    }
+  }
+  vkCmdResetQueryPool(frame->cmd, frame->query_pool, 0, count);
+  return frame->query_pool;
 }
