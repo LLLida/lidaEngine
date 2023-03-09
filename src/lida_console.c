@@ -255,7 +255,7 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
         // collect arguments
         // NOTE: overflow can't happen because prompt's max size is 256
         char buff[512];
-        char* words[8];
+        char* words[16];
         uint32_t offset = 0;
         uint32_t num_words = 0;
         char* word = strtok(g_console->prompt, " ");
@@ -292,7 +292,7 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
       {
         // tokenize prompt
         char buff[512];
-        char* words[8];
+        char* words[16];
         uint32_t offset = 0;
         uint32_t num_words = 0;
         // TODO(bug): search until g_console->cursor_pos
@@ -422,6 +422,9 @@ INTERNAL void CMD_load_scene(uint32_t num, const char** args);
 INTERNAL void CMD_make_voxel_rotate(uint32_t num, const char** args);
 INTERNAL void CMD_list_entities(uint32_t num, const char** args);
 INTERNAL void CMD_make_voxel_change(uint32_t num, const char** args);
+INTERNAL void CMD_spawn_sphere(uint32_t num, const char** args);
+INTERNAL void CMD_spawn_cube(uint32_t num, const char** args);
+INTERNAL void CMD_remove_script(uint32_t num, const char** args);
 
 
 /// public functions
@@ -475,7 +478,7 @@ InitConsole()
               " Load voxel model from FILE and translate to position [X Y Z].\n"
               " S is scale. Default value is 1.0.");
   ADD_COMMAND(save_scene,
-              "save_state FILE\n"
+              "save_scene FILE\n"
               " Save this scene to FILE.");
   ADD_COMMAND(load_scene,
               "load_scene FILE\n"
@@ -493,6 +496,22 @@ InitConsole()
               "make_voxel_change ENTITY [FREQUENCY]\n"
               " Make a random voxel change in ENTITY's grid.\n"
               " Each FREQUENCY frames a random voxel will be changed.");
+  ADD_COMMAND(spawn_sphere,
+              "spawn_sphere RADIUS [R G B] [X Y Z] [S]\n"
+              " Spawn sphere built from voxels with RADIUS.\n"
+              " R, G, B - color components of sphere.\n"
+              " X, Y, Z - position in global space.\n"
+              " S - scale.");
+  ADD_COMMAND(remove_script,
+              "remove_script ENTITY\n"
+              " Deattach script from ENTITY.");
+  ADD_COMMAND(spawn_cube,
+              "spawn_cube [W H D] [R G B] [X Y Z] [S]\n"
+              " Spawn cube.\n"
+              " W, H, D - cube extents.\n"
+              " R, G, B - color components of cube.\n"
+              " X, Y, Z - position in global space.\n"
+              " S - scale.");
 }
 
 INTERNAL void

@@ -79,6 +79,8 @@ DECLARE_COMPONENT(Voxel_Cached);
 // consider using SetInVoxelGrid
 #define GetInVoxelGrid(grid, x, y, z) ((Voxel*)(grid)->data->ptr)[(x) + (y)*(grid)->width + (z)*(grid)->width*(grid)->height]
 
+// TODO: compress voxels on disk using RLE(Run length Encoding)
+
 
 /// Voxel grid
 

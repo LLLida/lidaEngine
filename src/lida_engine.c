@@ -817,9 +817,9 @@ CMD_make_voxel_rotate(uint32_t num, const char** args)
   }
   script->name = "rotate_voxel";
   script->func = GetScript(&g_context->script_manager, "rotate_voxel");
-  script->arg0.float_32 = strtof(args[0], NULL);
-  script->arg1.float_32 = strtof(args[1], NULL);
-  script->arg2.float_32 = strtof(args[2], NULL);
+  script->arg0.float_32 = strtof(args[1], NULL);
+  script->arg1.float_32 = strtof(args[2], NULL);
+  script->arg2.float_32 = strtof(args[3], NULL);
   script->frequency = 1;
 }
 
@@ -860,6 +860,112 @@ CMD_make_voxel_change(uint32_t num, const char** args)
   } else {
     script->frequency = 100;
   }
+}
+
+void
+CMD_spawn_sphere(uint32_t num, const char** args)
+{
+  if (num != 1 && num != 4 && num != 7 && num != 8) {
+    LOG_WARN("command 'spawn_sphere' accepts 1, 4, 7 or 8  arguments; see 'info spawn_sphere'");
+    return;
+  }
+  EID entity = CreateEntity(&g_context->ecs);
+  Voxel_Grid* grid = AddComponent(&g_context->ecs, Voxel_Grid, entity);
+  int radius = atoi(args[0]);
+  AllocateVoxelGrid(&g_context->vox_allocator, grid, radius*2+1, radius*2+1, radius*2+1);
+  if (num == 1) {
+    grid->palette[1] = PACK_COLOR(240, 240, 240, 255);
+  } else {
+    int r = atoi(args[1]);
+    int g = atoi(args[2]);
+    int b = atoi(args[3]);
+    grid->palette[1] = PACK_COLOR(r, g, b, 255);
+  }
+  for (int z = 0; z < radius*2+1; z++)
+    for (int y = 0; y < radius*2+1; y++)
+      for (int x = 0; x < radius*2+1; x++) {
+        int xr = abs(x-radius);
+        int yr = abs(y-radius);
+        int zr = abs(z-radius);
+        if (xr*xr + yr*yr + zr*zr <= radius*radius+1) {
+          GetInVoxelGrid(grid, x, y, z) = 1;
+        }
+      }
+  // don't forget to update hash
+  grid->hash = HashMemory64(grid->data->ptr, grid->width*grid->height*grid->depth);
+  Transform* transform = AddComponent(&g_context->ecs, Transform, entity);
+  transform->rotation = QUAT_IDENTITY();
+  if (num < 4) {
+    transform->position.x = 0.0f;
+    transform->position.y = 0.0f;
+    transform->position.z = 0.0f;
+    transform->scale = 1.0f;
+  } else {
+    transform->position.x = strtof(args[4], NULL);
+    transform->position.y = strtof(args[5], NULL);
+    transform->position.z = strtof(args[6], NULL);
+    if (num == 8) {
+      transform->scale = strtof(args[7], NULL);
+    } else {
+      transform->scale = 1.0f;
+    }
+  }
+  AddComponent(&g_context->ecs, OBB, entity);
+}
+
+void
+CMD_spawn_cube(uint32_t num, const char** args)
+{
+  if (num != 3 && num != 6 && num != 9 && num != 10) {
+    LOG_WARN("command 'spawn_cube' accepts 3, 6, 9 or 10  arguments; see 'info spawn_cube'");
+    return;
+  }
+  EID entity = CreateEntity(&g_context->ecs);
+  uint32_t width = atoi(args[0]);
+  uint32_t height = atoi(args[1]);
+  uint32_t depth = atoi(args[2]);
+  Voxel_Grid* grid = AddComponent(&g_context->ecs, Voxel_Grid, entity);
+  AllocateVoxelGrid(&g_context->vox_allocator, grid, width, height, depth);
+  if (num == 3) {
+    grid->palette[1] = PACK_COLOR(240, 240, 240, 255);
+  } else {
+    int r = atoi(args[3]);
+    int g = atoi(args[4]);
+    int b = atoi(args[5]);
+    grid->palette[1] = PACK_COLOR(r, g, b, 255);
+  }
+  memset(grid->data->ptr, 1, width*height*depth);
+  // don't forget to update hash
+  grid->hash = HashMemory64(grid->data->ptr, grid->width*grid->height*grid->depth);
+  Transform* transform = AddComponent(&g_context->ecs, Transform, entity);
+  transform->rotation = QUAT_IDENTITY();
+  if (num < 6) {
+    transform->position.x = 0.0f;
+    transform->position.y = 0.0f;
+    transform->position.z = 0.0f;
+    transform->scale = 1.0f;
+  } else {
+    transform->position.x = strtof(args[6], NULL);
+    transform->position.y = strtof(args[7], NULL);
+    transform->position.z = strtof(args[8], NULL);
+    if (num == 8) {
+      transform->scale = strtof(args[9], NULL);
+    } else {
+      transform->scale = 1.0f;
+    }
+  }
+  AddComponent(&g_context->ecs, OBB, entity);
+}
+
+void
+CMD_remove_script(uint32_t num, const char** args)
+{
+  if (num != 1) {
+    LOG_WARN("command 'remove_script' accepts 1 argument; see 'info remove_script'");
+    return;
+  }
+  EID entity = atoi(args[0]);
+  RemoveComponent(&g_context->ecs, Script, entity);
 }
 
 
