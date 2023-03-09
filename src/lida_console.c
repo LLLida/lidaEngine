@@ -52,6 +52,11 @@ typedef struct {
   char prompt[256];
   Console_Line lines[128];
   char buffer[8*1024];
+  char history_buffer[512];
+  uint32_t hst_offset;
+  uint32_t last_hst;
+  char* hst_lines[16];
+  uint32_t num_hst_lines;
 
 } Console;
 
@@ -252,6 +257,18 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
 
     case PlatformKey_RETURN:
       {
+        // put prompt to history
+        if (strlen(g_console->prompt) > 0) {
+          size_t len = strlen(g_console->prompt);
+          if (g_console->hst_offset + len >= sizeof(g_console->history_buffer)) {
+            g_console->hst_offset = 0;
+          }
+          g_console->last_hst = (g_console->last_hst + 1) % ARR_SIZE(g_console->hst_lines);
+          g_console->hst_lines[g_console->last_hst] = strcpy(g_console->history_buffer+g_console->hst_offset, g_console->prompt);
+          g_console->hst_offset += len+1;
+          if (g_console->num_hst_lines < ARR_SIZE(g_console->hst_lines))
+            g_console->num_hst_lines++;
+        }
         // collect arguments
         // NOTE: overflow can't happen because prompt's max size is 256
         char buff[512];
@@ -341,6 +358,18 @@ ConsoleKeymap_Pressed(PlatformKeyCode key, void* udata)
           }
         }
       } break;
+
+    case PlatformKey_UP:
+      strcpy(g_console->prompt, g_console->hst_lines[g_console->last_hst]);
+      g_console->cursor_pos = 0;
+      if (g_console->last_hst == 0) {
+        if (g_console->num_hst_lines != ARR_SIZE(g_console->hst_lines)) {
+          g_console->last_hst = ARR_SIZE(g_console->hst_lines)-1;
+        }
+      } else {
+        g_console->last_hst--;
+      }
+      break;
 
     default:
       break;
@@ -440,6 +469,9 @@ InitConsole()
   g_console->num_lines = 0;
   g_console->buff_offset = 0;
   g_console->cursor_pos = 0;
+  g_console->hst_offset = 0;
+  g_console->last_hst = ARR_SIZE(g_console->hst_lines)-1;
+  g_console->num_hst_lines = 0;
   g_console->keymap = (Keymap) { ConsoleKeymap_Pressed,
                                  NULL,
                                  ConsoleKeymap_Mouse,
