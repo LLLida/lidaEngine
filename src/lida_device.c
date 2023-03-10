@@ -1835,6 +1835,50 @@ CreateGraphicsPipelines(VkPipeline* pipelines, size_t count, const Pipeline_Desc
 }
 
 INTERNAL VkResult
+CreateComputePipelines(VkPipeline* pipelines, size_t count, const char* shaders[], VkPipelineLayout* layouts)
+{
+  PROFILE_FUNCTION();
+  // allocate some structures
+  VkComputePipelineCreateInfo* create_infos = PersistentAllocate(count * sizeof(VkComputePipelineCreateInfo));
+  VkPipelineShaderStageCreateInfo* stages = PersistentAllocate(count * sizeof(VkPipelineShaderStageCreateInfo));
+  VkShaderModule* modules = PersistentAllocate(count * sizeof(VkShaderModule));
+  const Shader_Reflect** reflects = PersistentAllocate(count * sizeof(Shader_Reflect*));
+  for (size_t i = 0; i < count; i++) {
+    modules[i] = LoadShader(shaders[i], &reflects[i]);
+    layouts[i] = CreatePipelineLayout(&reflects[i], 1);
+    create_infos[i] = (VkComputePipelineCreateInfo) {
+      .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+      .stage = (VkPipelineShaderStageCreateInfo) {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+        .module = modules[i],
+        .pName = "main"
+      },
+      .layout = layouts[i]
+    };
+  }
+  VkResult err = vkCreateComputePipelines(g_device->logical_device, VK_NULL_HANDLE,
+                                          count, create_infos, VK_NULL_HANDLE, pipelines);
+  PersistentRelease(reflects);
+  PersistentRelease(modules);
+  PersistentRelease(stages);
+  PersistentRelease(create_infos);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to create compute pipelines with error %s", ToString_VkResult(err));
+  } else {
+    for (size_t i = 0; i < count; i++) {
+      err = DebugMarkObject(VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT, (uint64_t)pipelines[i],
+                            shaders[i]);
+      if (err != VK_SUCCESS) {
+        LOG_WARN("failed to debug mark graphics pipeline '%s' with error %s", shaders[i],
+                 ToString_VkResult(err));
+      }
+    }
+  }
+  return err;
+}
+
+INTERNAL VkResult
 AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, size_t num_bindings,
                        VkDescriptorSet* sets, size_t num_sets, int dynamic,
                        const char* marker)

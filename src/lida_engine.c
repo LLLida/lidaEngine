@@ -59,6 +59,8 @@ typedef struct {
   EID voxel_pipeline;
   EID shadow_pipeline;
   EID debug_pipeline;
+  VkPipeline compute_pipeline;
+  VkPipelineLayout compute_pipeline_layout;
 
   // fonts
   EID arial_font;
@@ -216,6 +218,9 @@ EngineInit(const Engine_Startup_Info* info)
 
   // create pipelines
   BatchCreatePipelines();
+
+  const char* shaders[] = { "vox_cull.comp.spv" };
+  CreateComputePipelines(&g_context->compute_pipeline, 1, shaders, &g_context->compute_pipeline_layout);
 }
 
 void
@@ -468,6 +473,22 @@ EngineUpdateAndRender()
   VkDescriptorSet ds_set;
   g_context->voxel_draw_calls = 0;
 
+#if VX_USE_INDIRECT
+  // perform culling pass
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_context->compute_pipeline_layout,
+                          0, 1, &g_context->vox_drawer.ds_set, 0, NULL);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_context->compute_pipeline);
+  vkCmdDispatch(cmd, (g_context->vox_drawer.draw_offset+63) / 64, 1, 1);
+  // insert execution barrier
+  vkCmdPipelineBarrier(cmd,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                       0,
+                       0, NULL,
+                       0, NULL,
+                       0, NULL);
+#endif
+
   vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool,
                       TIMESTAMP_SHADOW_PASS_BEGIN);
   // render to shadow map
@@ -514,11 +535,17 @@ EngineUpdateAndRender()
     prog = GetComponent(Pipeline_Program, g_context->voxel_pipeline);
     VkDescriptorSet ds_sets[] = { ds_set, g_context->shadow_pass.shadow_set };
     cmdBindProgram(cmd, prog, ARR_SIZE(ds_sets), ds_sets);
+#if VX_USE_INDIRECT
+    int i = 0;
+    vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
+    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, 1<<CULL_MAIN);
+#else
     for (uint32_t i = 0; i < 6; i++) {
       vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
       g_context->voxel_draw_calls += DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i,
                                                            &g_context->camera.position, 1<<CULL_MAIN);
     }
+#endif
     // draw debug lines
     prog = GetComponent(Pipeline_Program, g_context->debug_pipeline);
     // NOTE: forward_pass's descriptor set also has VK_SHADER_STAGE_FRAGMENT_BIT, it doesn't fit us

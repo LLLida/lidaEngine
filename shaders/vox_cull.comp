@@ -1,0 +1,89 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+layout (local_size_x = 64, local_size_y = 1) in;
+
+#include "common.h"
+
+struct Draw_Data {
+  uint first_vertex;
+  uint instance_count;
+  uint first_instance;
+  uint vertex_count0;
+  uint vertex_count1;
+  uint vertex_count2;
+  uint vertex_count3;
+  uint vertex_count4;
+  uint vertex_count5;
+};
+
+struct Draw_Command {
+  uint index_count;
+  uint instance_count;
+  uint first_index;
+  uint vertex_offset;
+  uint first_instance;
+};
+
+// storage buffer
+layout (std140, set = 0, binding = 0) readonly buffer Storage_Buffer {
+  Draw_Data in_draws[];
+};
+
+layout (std140, set = 0, binding = 1) writeonly buffer Indirect_Buffer {
+  Draw_Command out_draws[];
+};
+
+#if 0
+PUSH_CONSTANT First_Draw {
+  vec3 camera_front;
+  vec3 camera_position;
+  uint draw_offset;
+};
+
+const vec3 vox_normals[6] = {
+  {-1.0f, 0.0f, 0.0f},
+  {1.0f, 0.0f, 0.0f},
+  {0.0f, -1.0f, 0.0f},
+  {0.0f, 1.0f, 0.0f},
+  {0.0f, 0.0f, -1.0f},
+  {0.0f, 0.0f, 1.0f}
+};
+#endif
+
+void main() {
+  // uint draw_index = draw_offset + gl_GlobalInvocationID.x;
+  uint draw_index = gl_GlobalInvocationID.x;
+
+  Draw_Data d = in_draws[draw_index];
+#if 0
+  // backface culling
+  for (int i = 0; i < 6; i++) {
+    vec3 dist = d.position - camera_position;
+    vec3 normal = rotate(vox_normals[i], d.rotation);
+    if (dot(dist, normal) > 0)
+      continue;
+  }
+#endif
+  uint vertex_offset = d.first_vertex;
+  #define EMIT_DRAW(i) out_draws[draw_index*6+i].index_count = d.vertex_count##i * 3 / 2; \
+    out_draws[draw_index*6+i].instance_count = d.instance_count; \
+    out_draws[draw_index*6+i].first_index = vertex_offset * 3 / 2; \
+    out_draws[draw_index*6+i].vertex_offset = d.first_vertex; \
+    out_draws[draw_index*6+i].first_instance = d.first_instance; \
+    vertex_offset += d.vertex_count##i
+  EMIT_DRAW(0);
+  EMIT_DRAW(1);
+  EMIT_DRAW(2);
+  EMIT_DRAW(3);
+  EMIT_DRAW(4);
+  EMIT_DRAW(5);
+  // for (int i = 0; i < 6; i++) {
+  //   out_draws[draw_index*6+i].index_count = d.vertex_count[i] * 3 / 2;
+  //   out_draws[draw_index*6+i].instance_count = d.instance_count;
+  //   out_draws[draw_index*6+i].first_index = vertex_offset * 3 / 2;
+  //   out_draws[draw_index*6+i].vertex_offset = d.first_vertex;
+  //   out_draws[draw_index*6+i].first_instance = d.first_instance;
+  //   vertex_offset += d.vertex_count[i];
+  // }
+}

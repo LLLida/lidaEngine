@@ -35,16 +35,32 @@ typedef struct {
 
 typedef struct {
 
-  Video_Memory memory;
+  uint32_t first_vertex;
+  uint32_t instance_count;
+  uint32_t first_instance;
+  uint32_t vertex_count[6];
+  // HACK:
+  // TODO: mess with std140
+  char padding[12];
+
+} VX_Draw_Data;
+
+typedef struct {
+
+  Video_Memory cpu_memory;
+  Video_Memory gpu_memory;
   VkBuffer vertex_buffer;
   VkBuffer transform_buffer;
   VkBuffer index_buffer;
+  VkBuffer storage_buffer;
   VkBuffer indirect_buffer;
+
+  VkDescriptorSet ds_set;
 
   Vertex_X3C* pVertices;
   Transform* pTransforms;
   uint32_t* pIndices;
-  VkDrawIndexedIndirectCommand* pDraws;
+  VX_Draw_Data* pDraws;
   size_t max_vertices;
   size_t max_draws;
   size_t max_indices;
@@ -237,18 +253,6 @@ GLOBAL const Vec3 f_vox_normals[6] = {
   {0.0f, 0.0f, -1.0f},
   {0.0f, 0.0f, 1.0f}
 };
-
-INTERNAL uint32_t
-GetVoxelGridMaxGeneratedVertices(const Voxel_Grid* grid)
-{
-  // I made some conclusions and I certain that at most half voxels are written in worst case.
-  // However, we need a mathematical proof.
-#if VX_USE_INDICES
-  return 2 * grid->width * grid->height * grid->depth;
-#else
-  return 3 * grid->width * grid->height * grid->depth;
-#endif
-}
 
 // return: inv_size
 INTERNAL float
@@ -539,8 +543,15 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
               ToString_VkResult(err));
     return err;
   }
+  err = CreateBuffer(&drawer->storage_buffer, max_draws * sizeof(VX_Draw_Data),
+                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "voxel-draw/storage-buffer");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("faled to create storage buffer for drawing voxels with error %s",
+              ToString_VkResult(err));
+    return err;
+  }
   err = CreateBuffer(&drawer->indirect_buffer, max_draws * sizeof(VkDrawIndexedIndirectCommand),
-                     VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, "voxel-draw/indirect-buffer");
+                     VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "voxel-draw/indirect-buffer");
   if (err != VK_SUCCESS) {
     LOG_ERROR("faled to create indirect buffer for drawing voxels with error %s",
               ToString_VkResult(err));
@@ -557,7 +568,7 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
   vkGetBufferMemoryRequirements(g_device->logical_device,
                                 drawer->index_buffer, &buffer_requirements[2]);
   vkGetBufferMemoryRequirements(g_device->logical_device,
-                                drawer->indirect_buffer, &buffer_requirements[3]);
+                                drawer->storage_buffer, &buffer_requirements[3]);
 # else
   VkMemoryRequirements buffer_requirements[3];
   vkGetBufferMemoryRequirements(g_device->logical_device,
@@ -581,13 +592,13 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
   MergeMemoryRequirements(buffer_requirements, ARR_SIZE(buffer_requirements), &requirements);
   // try to allocate device local memory accessible from CPU
   VkMemoryPropertyFlags required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  err = AllocateVideoMemory(&drawer->memory, requirements.size,
+  err = AllocateVideoMemory(&drawer->cpu_memory, requirements.size,
                             required_flags|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                             requirements.memoryTypeBits,
                             "voxel-drawer/memory");
   if (err != VK_SUCCESS) {
     // if failed try to allocate any memory accessible from CPU
-    err = AllocateVideoMemory(&drawer->memory, requirements.size,
+    err = AllocateVideoMemory(&drawer->cpu_memory, requirements.size,
                               required_flags,
                               requirements.memoryTypeBits,
                               "voxel-drawer/memory");
@@ -597,29 +608,45 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
     }
   }
   LOG_TRACE("allocated %u bytes for voxels", (uint32_t)requirements.size);
+  // allocate device local memory
+  vkGetBufferMemoryRequirements(g_device->logical_device,
+                                drawer->indirect_buffer, &requirements);
+  err = AllocateVideoMemory(&drawer->gpu_memory, requirements.size,
+                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                            requirements.memoryTypeBits,
+                            "voxel-drawer/fast-memory");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to allocate video memory for voxels with error %s", ToString_VkResult(err));
+    return err;
+  }
   // bind buffers to allocated memory
-  err = BufferBindToMemory(&drawer->memory, drawer->vertex_buffer,
+  err = BufferBindToMemory(&drawer->cpu_memory, drawer->vertex_buffer,
                            &buffer_requirements[0], (void**)&drawer->pVertices, NULL);
   if (err != VK_SUCCESS) {
     LOG_WARN("failed to bind vertex buffer to memory with error %s", ToString_VkResult(err));
   }
-  err = BufferBindToMemory(&drawer->memory, drawer->transform_buffer,
+  err = BufferBindToMemory(&drawer->cpu_memory, drawer->transform_buffer,
                            &buffer_requirements[1], (void**)&drawer->pTransforms, NULL);
   if (err != VK_SUCCESS) {
     LOG_WARN("failed to bind storage buffer to memory with error %s", ToString_VkResult(err));
   }
 #if VX_USE_INDICES
-  err = BufferBindToMemory(&drawer->memory, drawer->index_buffer,
+  err = BufferBindToMemory(&drawer->cpu_memory, drawer->index_buffer,
                            &buffer_requirements[2], (void**)&drawer->pIndices, NULL);
   if (err != VK_SUCCESS) {
     LOG_WARN("failed to bind index buffer to memory with error %s", ToString_VkResult(err));
   }
 #endif
 #if VX_USE_INDIRECT
-  err = BufferBindToMemory(&drawer->memory, drawer->indirect_buffer,
+  err = BufferBindToMemory(&drawer->cpu_memory, drawer->storage_buffer,
                            &buffer_requirements[3], (void**)&drawer->pDraws, NULL);
   if (err != VK_SUCCESS) {
-    LOG_WARN("failed to bind index buffer to memory with error %s", ToString_VkResult(err));
+    LOG_WARN("failed to bind storage buffer to memory with error %s", ToString_VkResult(err));
+  }
+  err = BufferBindToMemory(&drawer->gpu_memory, drawer->indirect_buffer,
+                           &requirements, NULL, NULL);
+  if (err != VK_SUCCESS) {
+    LOG_WARN("failed to bind indirect buffer to memory with error %s", ToString_VkResult(err));
   }
 #endif
   // allocate vertex temp buffer
@@ -632,6 +659,48 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
                                            drawer->vertex_temp_buffer_size * 3 / 2 * sizeof(uint32_t),
                                            "voxel-temp-index-buffer");
 #endif
+
+#if VX_USE_INDIRECT
+  // create descriptor set
+  VkDescriptorSetLayoutBinding bindings[2];
+  for (uint32_t i = 0; i < 2; i++)
+    bindings[i] = (VkDescriptorSetLayoutBinding) {
+      .binding = i,
+      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+    };
+  err = AllocateDescriptorSets(bindings, ARR_SIZE(bindings), &drawer->ds_set, 1, 0, "voxel/cull-set");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to allocate descriptor set with error %s", ToString_VkResult(err));
+    return err;
+  }
+  // update descriptor set
+  VkWriteDescriptorSet write_sets[2];
+  VkDescriptorBufferInfo buffer_infos[2];
+  buffer_infos[0] = (VkDescriptorBufferInfo) {
+    .buffer = drawer->storage_buffer,
+    .offset = 0,
+    .range = max_draws * sizeof(VX_Draw_Data)
+  };
+  buffer_infos[1] = (VkDescriptorBufferInfo) {
+    .buffer = drawer->indirect_buffer,
+    .offset = 0,
+    .range = max_draws * sizeof(VkDrawIndexedIndirectCommand)
+  };
+  for (uint32_t i = 0; i < 2; i++) {
+    write_sets[i] = (VkWriteDescriptorSet) {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = drawer->ds_set,
+      .dstBinding = i,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      .pBufferInfo = &buffer_infos[i]
+    };
+  }
+  UpdateDescriptorSets(write_sets, ARR_SIZE(write_sets));
+#endif
+
   // init fields
   drawer->max_draws = max_draws;
   drawer->max_vertices = max_vertices;
@@ -650,10 +719,12 @@ DestroyVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator)
   FreeAllocation(allocator, drawer->meshes);
   FreeAllocation(allocator, drawer->draws);
   vkDestroyBuffer(g_device->logical_device, drawer->indirect_buffer, NULL);
+  vkDestroyBuffer(g_device->logical_device, drawer->storage_buffer, NULL);
   vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
   vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
   vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
-  FreeVideoMemory(&drawer->memory);
+  FreeVideoMemory(&drawer->cpu_memory);
+  FreeVideoMemory(&drawer->gpu_memory);
 }
 
 INTERNAL void
@@ -682,6 +753,25 @@ INTERNAL void
 VX_Regenerate(Voxel_Drawer* drawer, Voxel_Cached* cached, Voxel_Grid* grid)
 {
   cached->hash = grid->hash;
+
+#if VX_USE_INDIRECT
+
+  uint32_t base_index = 0;
+  VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset++];
+  draw->first_vertex = drawer->vertex_offset;
+  draw->instance_count = 1;
+  draw->first_instance = drawer->transform_offset;
+  cached->first_vertex = draw->first_vertex;
+  for (size_t i = 0; i < 6; i++) {
+    uint32_t index_offset = drawer->vertex_offset*3/2;
+    draw->vertex_count[i] = GenerateVoxelGridMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i,
+                                                       base_index, drawer->pIndices + index_offset);
+    base_index += draw->vertex_count[i];
+    drawer->vertex_offset += draw->vertex_count[i];
+    cached->offsets[i] = draw->vertex_count[i];
+  }
+
+#else
   VX_Draw_Command* current_draws = drawer->draws->ptr;
 #if VX_USE_INDICES
   uint32_t base_index = 0;
@@ -722,6 +812,7 @@ VX_Regenerate(Voxel_Drawer* drawer, Voxel_Cached* cached, Voxel_Grid* grid)
     drawer->vertex_offset += command->vertexCount;
     cached->offsets[i] = command->vertexCount;
   }
+#endif
 }
 
 INTERNAL void
@@ -740,9 +831,13 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
   if (index > 0) {
     Voxel_Cached* prev = GetComponent(Voxel_Cached, meshes[index-1]);
     if (prev->hash == grid->hash) {
+#if VX_USE_INDIRECT
+      drawer->pDraws[drawer->draw_offset].instance_count++;
+#else
       for (uint32_t i = 0; i < 6; i++) {
         draws[drawer->num_draws-6+i].instanceCount++;
       }
+#endif
       goto end;
     }
   }
@@ -755,6 +850,15 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
       VX_Regenerate(drawer, cached, grid);
       goto end;
     }
+#if VX_USE_INDIRECT
+    VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset++];
+    draw->first_vertex = cached->first_vertex;
+    draw->instance_count = 1;
+    draw->first_instance = drawer->transform_offset;
+    for (uint32_t i = 0; i < 6; i++) {
+      draw->vertex_count[i] = cached->offsets[i];
+    }
+#else
     uint32_t vertex_offset = cached->first_vertex;
     for (uint32_t i = 0; i < 6; i++) {
       VX_Draw_Command* command = &draws[drawer->num_draws++];
@@ -764,6 +868,7 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
       command->instanceCount = 1;
       vertex_offset += cached->offsets[i];
     }
+#endif
   } else {
     // didn't succeed, generate new vertices
     cached = AddComponent(ecs, Voxel_Cached, entity);
@@ -785,6 +890,16 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, int cull_flag)
 #if VX_USE_INDICES
   vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
 #endif
+#if VX_USE_INDIRECT
+
+  uint32_t draw_calls = drawer->draw_offset * 6;
+  vkCmdDrawIndexedIndirect(cmd, drawer->indirect_buffer, 0,
+                           draw_calls,
+                           // sizeof(VkDrawIndexedIndirectCommand)
+                           32 // HACK: I hate std140
+                           );
+
+#else
   VX_Draw_Command* draws = drawer->draws->ptr;
 #if VX_USE_CULLING
   EID* meshes = drawer->meshes->ptr;
@@ -831,10 +946,6 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, int cull_flag)
 #endif
     draw_calls++;
   }
-#if VX_USE_INDIRECT
-  vkCmdDrawIndexedIndirect(cmd, drawer->indirect_buffer, start_draw_offset*sizeof(VkDrawIndexedIndirectCommand),
-                           draw_calls,
-                           sizeof(VkDrawIndexedIndirectCommand));
 #endif
   return draw_calls;
 }
@@ -855,6 +966,9 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
   VX_Draw_Command* draws = drawer->draws->ptr;
   EID* meshes = drawer->meshes->ptr;
   uint32_t draw_calls = 0;
+#if VX_USE_INDIRECT
+  size_t start_draw_offset = drawer->draw_offset;
+#endif
 
   for (uint32_t i = normal_id; i < drawer->num_draws; i += 6) {
     VX_Draw_Command* command = &draws[i];
@@ -879,8 +993,19 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
 
 #if VX_USE_INDICES
     uint32_t vertex_offset = draws[i - i%6].firstVertex;
+#if VX_USE_INDIRECT
+    // drawer->pDraws[drawer->draw_offset++] = (VkDrawIndexedIndirectCommand) {
+    //   .indexCount = command->vertexCount*3/2,
+    //   .instanceCount = command->instanceCount,
+    //   .firstIndex = command->firstVertex*3/2,
+    //   .vertexOffset = vertex_offset,
+    //   .firstInstance = command->firstInstance,
+    // };
+    Assert(0);
+#else
     vkCmdDrawIndexed(cmd, command->vertexCount*3/2, command->instanceCount,
                      command->firstVertex*3/2, vertex_offset, command->firstInstance);
+#endif
 #else
     vkCmdDraw(cmd,
               command->vertexCount, command->instanceCount,
@@ -888,6 +1013,13 @@ DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal
 #endif
     draw_calls++;
   }
+#if VX_USE_INDIRECT
+  if (draw_calls > 0) {
+    vkCmdDrawIndexedIndirect(cmd, drawer->indirect_buffer, start_draw_offset*sizeof(VkDrawIndexedIndirectCommand),
+                             draw_calls,
+                             sizeof(VkDrawIndexedIndirectCommand));
+  }
+#endif
   return draw_calls;
 }
 
