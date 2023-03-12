@@ -1665,6 +1665,7 @@ CreatePipelineLayout(const Shader_Reflect** shader_templates, size_t count)
   };
   VkResult err = vkCreatePipelineLayout(g_device->logical_device, &pipeline_layout, NULL,
                                         &layout_info.handle);
+  VkPipelineLayout ret = layout_info.handle;
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to create pipeline layout with error %s", ToString_VkResult(err));
   } else {
@@ -1673,7 +1674,7 @@ CreatePipelineLayout(const Shader_Reflect** shader_templates, size_t count)
   }
   if (count > 1)
     PersistentRelease((void*)shader);
-  return layout_info.handle;
+  return ret;
 }
 
 INTERNAL VkResult
@@ -1840,11 +1841,11 @@ CreateComputePipelines(VkPipeline* pipelines, size_t count, const char* shaders[
   PROFILE_FUNCTION();
   // allocate some structures
   VkComputePipelineCreateInfo* create_infos = PersistentAllocate(count * sizeof(VkComputePipelineCreateInfo));
-  VkPipelineShaderStageCreateInfo* stages = PersistentAllocate(count * sizeof(VkPipelineShaderStageCreateInfo));
   VkShaderModule* modules = PersistentAllocate(count * sizeof(VkShaderModule));
   const Shader_Reflect** reflects = PersistentAllocate(count * sizeof(Shader_Reflect*));
   for (size_t i = 0; i < count; i++) {
     modules[i] = LoadShader(shaders[i], &reflects[i]);
+    LOG_DEBUG("flags = %u", reflects[0]->ranges[0].stageFlags);
     layouts[i] = CreatePipelineLayout(&reflects[i], 1);
     create_infos[i] = (VkComputePipelineCreateInfo) {
       .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
@@ -1861,7 +1862,6 @@ CreateComputePipelines(VkPipeline* pipelines, size_t count, const char* shaders[
                                           count, create_infos, VK_NULL_HANDLE, pipelines);
   PersistentRelease(reflects);
   PersistentRelease(modules);
-  PersistentRelease(stages);
   PersistentRelease(create_infos);
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to create compute pipelines with error %s", ToString_VkResult(err));

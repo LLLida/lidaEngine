@@ -385,6 +385,17 @@ typedef struct {
 #define COMPARE(lhs, rhs) ((lhs) > (rhs)) - ((lhs) < (rhs))
 
 INTERNAL uint32_t
+Log2_u32(uint32_t v)
+{
+  uint32_t ret = 0;
+  while (v) {
+    v = v>>1;
+    ret++;
+  }
+  return ret-1;
+}
+
+INTERNAL uint32_t
 NearestPow2(uint32_t v)
 {
   // https://stackoverflow.com/questions/466204/rounding-up-to-next-power-of-2

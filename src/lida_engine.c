@@ -53,6 +53,9 @@ typedef struct {
   Keymap root_keymap;
   Keymap camera_keymap;
 
+  Mesh_Pass shadow_cull;
+  Mesh_Pass main_cull;
+
   // pipelines
   EID rect_pipeline;
   EID triangle_pipeline;
@@ -216,6 +219,9 @@ EngineInit(const Engine_Startup_Info* info)
   InitConsole();
   g_console->font = g_context->pixel_font;
 
+  g_context->shadow_cull.cull_mask = 1;
+  g_context->main_cull.cull_mask = 2;
+
   // create pipelines
   BatchCreatePipelines();
 
@@ -336,6 +342,8 @@ EngineUpdateAndRender()
     LookAtMatrix(&light_pos, &light_target, &up, &light_view);
   }
   Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
+
+  g_context->main_cull.camera_pos = g_context->camera.position;
 
   // run scripts
   {
@@ -474,11 +482,9 @@ EngineUpdateAndRender()
   g_context->voxel_draw_calls = 0;
 
 #if VX_USE_INDIRECT
-  // perform culling pass
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_context->compute_pipeline_layout,
-                          0, 1, &g_context->vox_drawer.ds_set, 0, NULL);
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_context->compute_pipeline);
-  vkCmdDispatch(cmd, (g_context->vox_drawer.draw_offset+63) / 64, 1, 1);
+  MeshPass(cmd, &g_context->vox_drawer, &g_context->shadow_cull, g_context->compute_pipeline_layout);
+  MeshPass(cmd, &g_context->vox_drawer, &g_context->main_cull, g_context->compute_pipeline_layout);
   // insert execution barrier
   vkCmdPipelineBarrier(cmd,
                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -500,7 +506,11 @@ EngineUpdateAndRender()
     Pipeline_Program* prog = GetComponent(Pipeline_Program, g_context->shadow_pipeline);
     ds_set = g_context->shadow_pass.scene_data_set;
     cmdBindProgram(cmd, prog, 1, &ds_set);
-    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, 1<<CULL_SHADOW1);
+#if VX_USE_INDIRECT
+    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->shadow_cull);
+#else
+    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->shadow_cull);
+#endif
   }
   vkCmdEndRenderPass(cmd);
 
@@ -538,12 +548,12 @@ EngineUpdateAndRender()
 #if VX_USE_INDIRECT
     int i = 0;
     vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
-    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, 1<<CULL_MAIN);
+    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->main_cull);
 #else
     for (uint32_t i = 0; i < 6; i++) {
       vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
       g_context->voxel_draw_calls += DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i,
-                                                           &g_context->camera.position, 1<<CULL_MAIN);
+                                                           &g_context->main_cull);
     }
 #endif
     // draw debug lines
