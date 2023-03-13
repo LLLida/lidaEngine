@@ -924,8 +924,7 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
 #endif
 #if VX_USE_INDIRECT
 
-  uint32_t draw_calls = drawer->num_draws * 6;
-  // uint32_t draw_calls = drawer->num_draws * 3;
+  uint32_t draw_calls = drawer->num_draws * 3;
   // HACK: I hate std140
   const uint32_t stride = 32;
   uint32_t offset = Log2_u32(mesh_pass->cull_mask) * draw_calls * stride;
@@ -1084,8 +1083,7 @@ MeshPass(VkCommandBuffer cmd, Voxel_Drawer* drawer, const Mesh_Pass* mesh_pass, 
   push_constant.cull_mask = mesh_pass->cull_mask;
   push_constant.camera_front = mesh_pass->camera_dir;
   push_constant.camera_position = mesh_pass->camera_pos;
-  push_constant.out_offset = Log2_u32(mesh_pass->cull_mask) * drawer->num_draws * 6;
-  // push_constant.out_offset = Log2_u32(mesh_pass->cull_mask) * drawer->num_draws * 3;
+  push_constant.out_offset = Log2_u32(mesh_pass->cull_mask) * drawer->num_draws * 3;
   push_constant.in_offset = drawer->draw_offset - drawer->num_draws;
   push_constant.num_draws = drawer->num_draws;
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout,
