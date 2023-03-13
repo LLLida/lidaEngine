@@ -65,7 +65,6 @@ typedef struct {
   VX_Draw_Data* pDraws;
 #endif
 
-
   Vertex_X3C* pVertices;
   Transform* pTransforms;
   uint32_t* pIndices;
@@ -107,6 +106,17 @@ typedef struct {
 
 } Voxel_Cached;
 DECLARE_COMPONENT(Voxel_Cached);
+
+typedef struct {
+
+  Vec3 normal0;
+  uint32_t count0;
+  Vec3 normal1;
+  uint32_t count1;
+  Vec3 normal2;
+  uint32_t count2;
+
+} Voxel_Vertex_Table;
 
 // NOTE: this doesn't do bounds checking
 // NOTE: setting a voxel value with this macro is unsafe, hash won't be correct,
@@ -549,7 +559,7 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
     return err;
   }
   err = CreateBuffer(&drawer->transform_buffer, max_draws * sizeof(Transform),
-                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/transform-buffer");
+                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "voxel-drawer/transform-buffer");
   if (err != VK_SUCCESS) {
     LOG_ERROR("faled to create vertex buffer for storing voxel transforms with error %s",
               ToString_VkResult(err));
@@ -568,7 +578,7 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "voxel-draw/storage-buffer");
   if (err != VK_SUCCESS) {
     LOG_ERROR("faled to create storage buffer for drawing voxels with error %s",
-                ToString_VkResult(err));
+              ToString_VkResult(err));
     return err;
   }
   // NOTE: 32 is max number of passes
@@ -677,52 +687,36 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
 
 #if VX_USE_INDIRECT
   // create descriptor set
-  VkDescriptorSetLayoutBinding bindings[2];
-  for (uint32_t i = 0; i < 2; i++)
+  VkDescriptorSetLayoutBinding bindings[3];
+  for (uint32_t i = 0; i < 3; i++)
     bindings[i] = (VkDescriptorSetLayoutBinding) {
       .binding = i,
       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
       .descriptorCount = 1,
       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
     };
-  VkDescriptorSet sets[2];
-  err = AllocateDescriptorSets(bindings, ARR_SIZE(bindings), sets, 2, 0, "voxel/cull-set");
+  err = AllocateDescriptorSets(bindings, ARR_SIZE(bindings), &drawer->ds_set, 1, 0, "voxel/cull-set");
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to allocate descriptor set with error %s", ToString_VkResult(err));
     return err;
   }
-  for (int i = 0; i < 2; i++) drawer->ds_set = sets[i];
   // update descriptor set
-  VkWriteDescriptorSet write_sets[4];
-  VkDescriptorBufferInfo buffer_infos[4];
-  for (int i = 0; i < 2; i++) {
-    buffer_infos[2*i] = (VkDescriptorBufferInfo) {
-      .buffer = drawer->storage_buffer,
+  VkWriteDescriptorSet write_sets[3];
+  VkDescriptorBufferInfo buffer_infos[3];
+  VkBuffer buffers[] = { drawer->storage_buffer, drawer->transform_buffer, drawer->indirect_buffer };
+  for (int i = 0; i < 3; i++) {
+    buffer_infos[i] = (VkDescriptorBufferInfo) {
+      .buffer = buffers[i],
       .offset = 0,
       .range = VK_WHOLE_SIZE
     };
-    buffer_infos[2*i+1] = (VkDescriptorBufferInfo) {
-      .buffer = drawer->indirect_buffer,
-      .offset = 0,
-      // .range = max_draws * sizeof(VkDrawIndexedIndirectCommand)
-      // .range = 32*32*max_draws
-      .range = VK_WHOLE_SIZE
-    };
-    write_sets[2*i] = (VkWriteDescriptorSet) {
+    write_sets[i] = (VkWriteDescriptorSet) {
       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
       .dstSet = drawer->ds_set,
-      .dstBinding = 0,
+      .dstBinding = i,
       .descriptorCount = 1,
       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-      .pBufferInfo = &buffer_infos[2*i]
-    };
-    write_sets[2*i+1] = (VkWriteDescriptorSet) {
-      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-      .dstSet = drawer->ds_set,
-      .dstBinding = 1,
-      .descriptorCount = 1,
-      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-      .pBufferInfo = &buffer_infos[2*i+1]
+      .pBufferInfo = &buffer_infos[i]
     };
   }
   UpdateDescriptorSets(write_sets, ARR_SIZE(write_sets));
@@ -786,6 +780,7 @@ VX_Regenerate(Voxel_Drawer* drawer, Voxel_Cached* cached, Voxel_Grid* grid)
   draw->first_vertex = drawer->vertex_offset;
   draw->instance_count = 1;
   draw->first_instance = drawer->transform_offset;
+  draw->cull_mask = cached->cull_mask;
   cached->first_vertex = draw->first_vertex;
   for (size_t i = 0; i < 6; i++) {
     uint32_t index_offset = drawer->vertex_offset*3/2;
@@ -846,8 +841,9 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
   PROFILE_FUNCTION();
   uint32_t index = drawer->num_meshes;
   // add transform
+  Transform* transform = GetComponent(Transform, entity);
   memcpy(&drawer->pTransforms[drawer->transform_offset],
-         GetComponent(Transform, entity), sizeof(Transform));
+         transform, sizeof(Transform));
   EID* meshes = drawer->meshes->ptr;
   Voxel_Grid* grid = GetComponent(Voxel_Grid, entity);
 #if !VX_USE_INDIRECT
@@ -859,7 +855,12 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
     Voxel_Cached* prev = GetComponent(Voxel_Cached, meshes[index-1]);
     if (prev->hash == grid->hash) {
 #if VX_USE_INDIRECT
-      drawer->pDraws[drawer->draw_offset].instance_count++;
+      VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset];
+      draw->instance_count++;
+      Voxel_Cached* cached = GetComponent(Voxel_Cached, entity);
+      if (cached) {
+        draw->cull_mask |= cached->cull_mask;
+      }
 #else
       for (uint32_t i = 0; i < 6; i++) {
         draws[drawer->num_draws-6+i].instanceCount++;
@@ -882,6 +883,7 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
     draw->first_vertex = cached->first_vertex;
     draw->instance_count = 1;
     draw->first_instance = drawer->transform_offset;
+    draw->cull_mask = cached->cull_mask;
     for (uint32_t i = 0; i < 6; i++) {
       draw->vertex_count[i] = cached->offsets[i];
     }
@@ -902,7 +904,9 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
     VX_Regenerate(drawer, cached, grid);
   }
  end:
+#if VX_USE_INDIRECT
   drawer->num_draws++;
+#endif
   drawer->transform_offset++;
   meshes[drawer->num_meshes++] = entity;
 }
@@ -921,6 +925,7 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
 #if VX_USE_INDIRECT
 
   uint32_t draw_calls = drawer->num_draws * 6;
+  // uint32_t draw_calls = drawer->num_draws * 3;
   // HACK: I hate std140
   const uint32_t stride = 32;
   uint32_t offset = Log2_u32(mesh_pass->cull_mask) * draw_calls * stride;
@@ -1064,6 +1069,7 @@ CalculateVoxelGridOBB(const Voxel_Grid* grid, const Transform* transform, OBB* o
   CalculateObjectOBB(&half_size, transform, obb);
 }
 
+#if VX_USE_INDIRECT
 INTERNAL void
 MeshPass(VkCommandBuffer cmd, Voxel_Drawer* drawer, const Mesh_Pass* mesh_pass, VkPipelineLayout pipeline_layout)
 {
@@ -1079,6 +1085,7 @@ MeshPass(VkCommandBuffer cmd, Voxel_Drawer* drawer, const Mesh_Pass* mesh_pass, 
   push_constant.camera_front = mesh_pass->camera_dir;
   push_constant.camera_position = mesh_pass->camera_pos;
   push_constant.out_offset = Log2_u32(mesh_pass->cull_mask) * drawer->num_draws * 6;
+  // push_constant.out_offset = Log2_u32(mesh_pass->cull_mask) * drawer->num_draws * 3;
   push_constant.in_offset = drawer->draw_offset - drawer->num_draws;
   push_constant.num_draws = drawer->num_draws;
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout,
@@ -1087,3 +1094,4 @@ MeshPass(VkCommandBuffer cmd, Voxel_Drawer* drawer, const Mesh_Pass* mesh_pass, 
                      0, sizeof(push_constant), &push_constant);
   vkCmdDispatch(cmd, (drawer->num_draws+63) / 64, 1, 1);
 }
+#endif

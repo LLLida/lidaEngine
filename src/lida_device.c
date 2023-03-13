@@ -1519,11 +1519,12 @@ GetDescriptorSetLayout(const VkDescriptorSetLayoutBinding* bindings, size_t num_
     .pBindings = bindings,
   };
   VkResult err = vkCreateDescriptorSetLayout(g_device->logical_device, &layout_info, NULL, &key.layout);
+  VkDescriptorSetLayout ret = key.layout;
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to create descriptor layout with error %s", ToString_VkResult(err));
   }
   FHT_Insert(&g_device->ds_layout_cache, &g_device->ds_layout_info_type, &key);
-  return key.layout;
+  return ret;
 }
 
 INTERNAL VkSampler
@@ -1845,7 +1846,6 @@ CreateComputePipelines(VkPipeline* pipelines, size_t count, const char* shaders[
   const Shader_Reflect** reflects = PersistentAllocate(count * sizeof(Shader_Reflect*));
   for (size_t i = 0; i < count; i++) {
     modules[i] = LoadShader(shaders[i], &reflects[i]);
-    LOG_DEBUG("flags = %u", reflects[0]->ranges[0].stageFlags);
     layouts[i] = CreatePipelineLayout(&reflects[i], 1);
     create_infos[i] = (VkComputePipelineCreateInfo) {
       .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,

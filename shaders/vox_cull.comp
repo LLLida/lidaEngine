@@ -18,12 +18,21 @@ struct Draw_Data {
   uint cull_mask;
 };
 
+struct Transform {
+  quat rotation;
+  vec3 position;
+  float scale;
+};
+
 struct Draw_Command {
   uint index_count;
   uint instance_count;
   uint first_index;
   uint vertex_offset;
   uint first_instance;
+  // for debug
+  float dot_product;
+  uint face_index;
 };
 
 // storage buffer
@@ -31,11 +40,15 @@ layout (std140, set = 0, binding = 0) readonly buffer Storage_Buffer {
   Draw_Data in_draws[];
 };
 
-layout (std140, set = 0, binding = 1) writeonly buffer Indirect_Buffer {
+layout (std140, set = 0, binding = 1) readonly buffer Transform_Buffer {
+  Transform transforms[];
+};
+
+layout (std140, set = 0, binding = 2) writeonly buffer Indirect_Buffer {
   Draw_Command out_draws[];
 };
 
-PUSH_CONSTANT First_Draw {
+PUSH_CONSTANT Pass_Info {
   vec3 camera_front;
   uint cull_mask;
   vec3 camera_position;
@@ -45,12 +58,12 @@ PUSH_CONSTANT First_Draw {
 };
 
 const vec3 vox_normals[6] = {
-  {-1.0f, 0.0f, 0.0f},
-  {1.0f, 0.0f, 0.0f},
-  {0.0f, -1.0f, 0.0f},
-  {0.0f, 1.0f, 0.0f},
-  {0.0f, 0.0f, -1.0f},
-  {0.0f, 0.0f, 1.0f}
+  {-1.0,  0.0,  0.0},
+  { 1.0,  0.0,  0.0},
+  { 0.0, -1.0,  0.0},
+  { 0.0,  1.0,  0.0},
+  { 0.0,  0.0, -1.0},
+  { 0.0,  0.0,  1.0}
 };
 
 void main() {
@@ -61,15 +74,115 @@ void main() {
     return;
 
   Draw_Data d = in_draws[draw_index + in_offset];
-#if 0
+
+#if 1
+
+#define DRAW_CALLS 6
+
+  Transform transform = transforms[d.first_instance];
+
+  uint vertex_count[6] = {
+    d.vertex_count0,
+    d.vertex_count1,
+    d.vertex_count2,
+    d.vertex_count3,
+    d.vertex_count4,
+    d.vertex_count5,
+  };
+
+  uint vertex_offset = d.first_vertex;
+  uint out_id = draw_index*DRAW_CALLS + draw_offset;
+
+#define FILL_ZEROS(i)                                 \
+  out_draws[out_id + i].index_count = 0;        \
+  out_draws[out_id + i].instance_count = 0;     \
+  out_draws[out_id + i].first_index = 0;        \
+  out_draws[out_id + i].vertex_offset = 0;      \
+  out_draws[out_id + i].first_instance = 0
+
+#define EMIT_DRAW(i, id)                                           \
+  out_draws[out_id + i].index_count = vertex_count[id] * 3 / 2; \
+  out_draws[out_id + i].instance_count = d.instance_count;      \
+  out_draws[out_id + i].first_index = vertex_offset * 3 / 2;    \
+  out_draws[out_id + i].vertex_offset = d.first_vertex;         \
+  out_draws[out_id + i].first_instance = d.first_instance; \
+  out_draws[out_id + i].face_index = id
+
+#if 1
+
+  if ((d.cull_mask & cull_mask) == 0) {
+    FILL_ZEROS(0);
+    FILL_ZEROS(1);
+    FILL_ZEROS(2);
+#if DRAW_CALLS == 6
+    FILL_ZEROS(3);
+    FILL_ZEROS(4);
+    FILL_ZEROS(5);
+#endif
+    return;
+  }
   // backface culling
+#if DRAW_CALLS == 6
   for (int i = 0; i < 6; i++) {
-    vec3 dist = d.position - camera_position;
-    vec3 normal = rotate(vox_normals[i], d.rotation);
-    if (dot(dist, normal) > 0)
-      continue;
+    vec3 dist = transform.position - camera_position;
+    vec3 normal = rotate(vox_normals[i], transform.rotation);
+    if (dot(dist, normal) < 0) {
+      EMIT_DRAW(i, i);
+    } else {
+      FILL_ZEROS(i);
+    }
+    vertex_offset += vertex_count[i];
+  }
+#else
+  vec3 dist = transform.position - camera_position;
+
+  for (int i = 0; i < 3; i++) {
+    vec3 normal = rotate(vox_normals[2*i], transform.rotation);
+    if (dot(dist, normal) <= 0) {
+      EMIT_DRAW(i, 2*i);
+      out_draws[out_id + i].dot_product = dot(dist, normal);
+    } else {
+      normal = rotate(vox_normals[2*i+1], transform.rotation);
+      if (dot(dist, normal) <= 0) {
+        EMIT_DRAW(i, 2*i+1);
+        out_draws[out_id + i].dot_product = dot(dist, normal);
+      } else {
+        FILL_ZEROS(i);
+        out_draws[out_id + i].dot_product = dot(dist, normal);
+      }
+/*      EMIT_DRAW(i, 2*i+1);
+      out_draws[out_id + i].dot_product = -dot(dist, normal);*/
+    }
+    vertex_offset += vertex_count[2*i] + vertex_count[2*i+1];
   }
 #endif
+
+#else
+
+  if ((d.cull_mask & cull_mask) == 0) {
+    FILL_ZEROS(0);
+    FILL_ZEROS(1);
+    FILL_ZEROS(2);
+    FILL_ZEROS(3);
+    FILL_ZEROS(4);
+    FILL_ZEROS(5);
+    return;
+  }
+
+  EMIT_DRAW(0, 0);
+  vertex_offset += vertex_count[0];
+  EMIT_DRAW(1, 1);
+  vertex_offset += vertex_count[1];
+  EMIT_DRAW(2, 2);
+  vertex_offset += vertex_count[2];
+  EMIT_DRAW(3, 3);
+  vertex_offset += vertex_count[3];
+  EMIT_DRAW(4, 4);
+  vertex_offset += vertex_count[4];
+  EMIT_DRAW(5, 5);
+#endif
+
+#else
   uint vertex_offset = d.first_vertex;
   uint out_id;
   out_id = draw_index*6 + draw_offset;
@@ -88,4 +201,5 @@ void main() {
   EMIT_DRAW(3);
   EMIT_DRAW(4);
   EMIT_DRAW(5);
+#endif
 }

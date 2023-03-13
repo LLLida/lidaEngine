@@ -318,6 +318,8 @@ EngineUpdateAndRender()
   CameraUpdateProjection(camera);
   CameraUpdateView(camera);
   Mat4_Mul(&camera->projection_matrix, &camera->view_matrix, &camera->projview_matrix);
+  g_context->main_cull.camera_pos = g_context->camera.position;
+  g_context->main_cull.camera_dir = g_context->camera.front;
 
   Scene_Data_Struct* sc_data = g_context->forward_pass.uniform_buffer_mapped;
   memcpy(&sc_data->camera_projection, &camera->projection_matrix, sizeof(Mat4));
@@ -340,10 +342,10 @@ EngineUpdateAndRender()
     Vec3 light_target = VEC3_ADD(light_pos, sc_data->sun_dir);
     Vec3 up = { 1.0f, 0.0f, 0.0f };
     LookAtMatrix(&light_pos, &light_target, &up, &light_view);
+    g_context->shadow_cull.camera_pos = light_pos;
+    Vec3_Normalize(&VEC3_MUL(light_target, -1.0f), &g_context->shadow_cull.camera_dir);
   }
   Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
-
-  g_context->main_cull.camera_pos = g_context->camera.position;
 
   // run scripts
   {
@@ -362,11 +364,6 @@ EngineUpdateAndRender()
   NewVoxelDrawerFrame(&g_context->vox_drawer);
   NewDebugDrawerFrame(&g_context->debug_drawer);
 
-  enum CULL_PASS {
-    CULL_MAIN = 0,
-    CULL_SHADOW1 = 1
-  };
-
   FOREACH_COMPONENT(Voxel_Grid) {
     Transform* transform = GetComponent(Transform, entities[i]);
     OBB* obb = GetComponent(OBB, entities[i]);
@@ -375,8 +372,8 @@ EngineUpdateAndRender()
     // frustum culling
     // TODO(render): set cached's cull_mask to 0
     int cull_mask = 0;
-    cull_mask |= TestFrustumOBB(&camera->projview_matrix, obb) << CULL_MAIN;
-    cull_mask |= TestFrustumOBB(&sc_data->light_space, obb) << CULL_SHADOW1;
+    cull_mask |= TestFrustumOBB(&camera->projview_matrix, obb) * g_context->main_cull.cull_mask;
+    cull_mask |= TestFrustumOBB(&sc_data->light_space, obb) * g_context->shadow_cull.cull_mask;
     if (cull_mask == 0)
       continue;
     // draw
@@ -546,7 +543,7 @@ EngineUpdateAndRender()
     VkDescriptorSet ds_sets[] = { ds_set, g_context->shadow_pass.shadow_set };
     cmdBindProgram(cmd, prog, ARR_SIZE(ds_sets), ds_sets);
 #if VX_USE_INDIRECT
-    int i = 0;
+    int i = 3;
     vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
     g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->main_cull);
 #else
