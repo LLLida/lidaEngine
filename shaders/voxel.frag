@@ -34,4 +34,5 @@ void main() {
   outColor = vec4(light, 1.0);
   // outColor = vec4(vec3(shadow), 1.0);
   // outColor = vec4(shadow_coord.xyz, 1.0);
+  // outColor = vec4(inNormal, 1.0);
 }

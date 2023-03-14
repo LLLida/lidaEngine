@@ -32,6 +32,14 @@ struct Draw_Command {
   uint first_instance;
 };
 
+struct Vertex_Count {
+  uint count0;
+  uint count1;
+  uint count2;
+  uint count3;
+  uint count4;
+};
+
 // storage buffer
 layout (std140, set = 0, binding = 0) readonly buffer Storage_Buffer {
   Draw_Data in_draws[];
@@ -43,6 +51,11 @@ layout (std140, set = 0, binding = 1) readonly buffer Transform_Buffer {
 
 layout (std140, set = 0, binding = 2) writeonly buffer Indirect_Buffer {
   Draw_Command out_draws[];
+};
+
+// TODO: move this to vox_cull_persp.comp
+layout (std140, set = 0, binding = 3) writeonly buffer Vertex_Buffer {
+  Vertex_Count vertex_counts[];
 };
 
 PUSH_CONSTANT Pass_Info {
@@ -84,7 +97,7 @@ void main() {
   };
 
   uint vertex_offset = d.first_vertex;
-  uint out_id = draw_index*3 + draw_offset;
+  uint out_id = (draw_index + draw_offset) * 3;
 
 #define FILL_ZEROS(i)                                 \
   out_draws[out_id + i].index_count = 0;        \
@@ -119,4 +132,11 @@ void main() {
       vertex_offset += vertex_count[2*i+1];
     }
   }
+
+  vertex_offset = d.first_vertex;
+  vertex_counts[draw_offset + d.first_instance].count0 = (vertex_offset + d.vertex_count0); vertex_offset += d.vertex_count0;
+  vertex_counts[draw_offset + d.first_instance].count1 = (vertex_offset + d.vertex_count1); vertex_offset += d.vertex_count1;
+  vertex_counts[draw_offset + d.first_instance].count2 = (vertex_offset + d.vertex_count2); vertex_offset += d.vertex_count2;
+  vertex_counts[draw_offset + d.first_instance].count3 = (vertex_offset + d.vertex_count3); vertex_offset += d.vertex_count3;
+  vertex_counts[draw_offset + d.first_instance].count4 = (vertex_offset + d.vertex_count4); vertex_offset += d.vertex_count4;
 }

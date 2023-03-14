@@ -54,7 +54,7 @@ INTERNAL void
 PipelineProgram_ReloadFunc(void* component, const char* path, void* data)
 {
   (void)path;
-  Pipeline_Program* program = component;
+  Graphics_Pipeline* program = component;
   VkPipeline old_pipeline = program->pipeline;
   Pipeline_Desc desc;
   program->create_func(&desc);
@@ -164,21 +164,21 @@ AddVoxelGridComponent(ECS* ecs, Asset_Manager* am, Allocator* allocator,
   return vox;
 }
 
-INTERNAL Pipeline_Program*
+INTERNAL Graphics_Pipeline*
 AddPipelineProgramComponent(ECS* ecs, Asset_Manager* am, EID entity,
                             const char* vertex_shader, const char* fragment_shader,
                             Pipeline_Create_Func create_func, Deletion_Queue* dq)
 {
-  Pipeline_Program* prog = AddComponent(ecs, Pipeline_Program, entity);
+  Graphics_Pipeline* prog = AddComponent(ecs, Graphics_Pipeline, entity);
   prog->create_func = create_func;
   prog->vertex_shader = vertex_shader;
   prog->fragment_shader = fragment_shader;
   // we don't load any shaders or compile them, pipeline creation is deferred and batched
-  AddAsset(am, entity, vertex_shader, &g_sparse_set_Pipeline_Program,
+  AddAsset(am, entity, vertex_shader, &g_sparse_set_Graphics_Pipeline,
            PipelineProgram_ReloadFunc, dq);
   // some pipelines might have no pixel shader
   if (fragment_shader) {
-    AddAsset(am, entity, fragment_shader, &g_sparse_set_Pipeline_Program,
+    AddAsset(am, entity, fragment_shader, &g_sparse_set_Graphics_Pipeline,
              PipelineProgram_ReloadFunc, dq);
   }
   return prog;
@@ -187,8 +187,8 @@ AddPipelineProgramComponent(ECS* ecs, Asset_Manager* am, EID entity,
 INTERNAL VkResult
 BatchCreatePipelines()
 {
-  uint32_t count = ComponentCount(Pipeline_Program);
-  Pipeline_Program* progs = ComponentData(Pipeline_Program);
+  uint32_t count = ComponentCount(Graphics_Pipeline);
+  Graphics_Pipeline* progs = ComponentData(Graphics_Pipeline);
   Pipeline_Desc* descs = PersistentAllocate(count * sizeof(Pipeline_Desc));
   VkPipeline* pipelines = PersistentAllocate(count * sizeof(VkPipeline));
   VkPipelineLayout* layouts = PersistentAllocate(count * sizeof(VkPipelineLayout));

@@ -1080,20 +1080,22 @@ BufferBindToMemory(Video_Memory* memory, VkBuffer buffer,
   err = vkBindBufferMemory(g_device->logical_device, buffer, memory->handle, memory->offset);
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to bind buffer to memory with error %s", ToString_VkResult(err));
-  } else if (mapped) {
-    if (memory->mapped) {
-      *mapped = (char*)memory->mapped + memory->offset;
-    } else {
-      LOG_WARN("memory is not mapped, can't access it's content from CPU");
-    }
-    if (mappedRange) {
-      mappedRange->sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
-      mappedRange->memory = memory->handle;
-      mappedRange->offset = memory->offset;
-      // Vulkan spec: If size is not equal to VK_WHOLE_SIZE, size must either be a multiple of
-      // VkPhysicalDeviceLimits::nonCoherentAtomSize, or offset plus size must equal the size
-      // of memory.
-      mappedRange->size = ALIGN_TO(requirements->size, g_device->properties.limits.nonCoherentAtomSize);
+  } else {
+    if (mapped) {
+      if (memory->mapped) {
+        *mapped = (char*)memory->mapped + memory->offset;
+      } else {
+        LOG_WARN("memory is not mapped, can't access it's contents from CPU");
+      }
+      if (mappedRange) {
+        mappedRange->sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+        mappedRange->memory = memory->handle;
+        mappedRange->offset = memory->offset;
+        // Vulkan spec: If size is not equal to VK_WHOLE_SIZE, size must either be a multiple of
+        // VkPhysicalDeviceLimits::nonCoherentAtomSize, or offset plus size must equal the size
+        // of memory.
+        mappedRange->size = ALIGN_TO(requirements->size, g_device->properties.limits.nonCoherentAtomSize);
+      }
     }
     memory->offset += requirements->size;
   }

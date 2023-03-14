@@ -73,8 +73,8 @@ typedef struct {
   const char* vertex_shader;
   const char* fragment_shader;
 
-} Pipeline_Program;
-DECLARE_COMPONENT(Pipeline_Program);
+} Graphics_Pipeline;
+DECLARE_COMPONENT(Graphics_Pipeline);
 
 // 16 bytes
 typedef struct {
@@ -810,7 +810,7 @@ ShadowPassViewport(Shadow_Pass* pass, VkViewport** p_viewport, VkRect2D** p_scis
 }
 
 INTERNAL void
-cmdBindProgram(VkCommandBuffer cmd, const Pipeline_Program* prog,
+cmdBindProgram(VkCommandBuffer cmd, const Graphics_Pipeline* prog,
                uint32_t descriptor_set_count, VkDescriptorSet* descriptor_sets)
 {
   if (descriptor_set_count > 0) {
