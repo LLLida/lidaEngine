@@ -76,6 +76,15 @@ typedef struct {
 } Graphics_Pipeline;
 DECLARE_COMPONENT(Graphics_Pipeline);
 
+typedef struct {
+
+  VkPipeline pipeline;
+  VkPipelineLayout layout;
+  const char* shader;
+
+} Compute_Pipeline;
+DECLARE_COMPONENT(Compute_Pipeline);
+
 // 16 bytes
 typedef struct {
 
@@ -810,14 +819,25 @@ ShadowPassViewport(Shadow_Pass* pass, VkViewport** p_viewport, VkRect2D** p_scis
 }
 
 INTERNAL void
-cmdBindProgram(VkCommandBuffer cmd, const Graphics_Pipeline* prog,
-               uint32_t descriptor_set_count, VkDescriptorSet* descriptor_sets)
+cmdBindGraphics(VkCommandBuffer cmd, const Graphics_Pipeline* prog,
+                uint32_t descriptor_set_count, VkDescriptorSet* descriptor_sets)
 {
   if (descriptor_set_count > 0) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->layout,
                             0, descriptor_set_count, descriptor_sets, 0, NULL);
   }
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, prog->pipeline);
+}
+
+INTERNAL void
+cmdBindCompute(VkCommandBuffer cmd, const Compute_Pipeline* prog,
+               uint32_t descriptor_set_count, VkDescriptorSet* descriptor_sets)
+{
+  if (descriptor_set_count > 0) {
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prog->layout,
+                            0, descriptor_set_count, descriptor_sets, 0, NULL);
+  }
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prog->pipeline);
 }
 
 INTERNAL int

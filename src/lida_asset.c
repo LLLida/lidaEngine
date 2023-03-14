@@ -51,7 +51,7 @@ VoxelGrid_ReloadFunc(void* component, const char* path, void* data)
 }
 
 INTERNAL void
-PipelineProgram_ReloadFunc(void* component, const char* path, void* data)
+GraphicsPipeline_ReloadFunc(void* component, const char* path, void* data)
 {
   (void)path;
   Graphics_Pipeline* program = component;
@@ -63,8 +63,26 @@ PipelineProgram_ReloadFunc(void* component, const char* path, void* data)
   ForceUpdateShader(path);
   VkResult err = CreateGraphicsPipelines(&program->pipeline, 1, &desc, &program->layout);
   if (err != VK_SUCCESS) {
-    LOG_ERROR("failed to recreate pipeline with error %s", ToString_VkResult(err));
+    LOG_ERROR("failed to recreate graphics pipeline with error %s", ToString_VkResult(err));
     program->pipeline = old_pipeline;
+  } else {
+    // add old pipeline to deletion queue
+    Deletion_Queue* dq = data;
+    AddForDeletion(dq, (uint64_t)old_pipeline, VK_OBJECT_TYPE_PIPELINE);
+  }
+}
+
+INTERNAL void
+ComputePipeline_ReloadFunc(void* component, const char* path, void* data)
+{
+  (void)path;
+  Compute_Pipeline* prog = component;
+  VkPipeline old_pipeline = prog->pipeline;
+  ForceUpdateShader(path);
+  VkResult err = CreateComputePipelines(&prog->pipeline, 1, &prog->shader, &prog->layout);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to recreate compute pipeline with error %s", ToString_VkResult(err));
+    prog->pipeline = old_pipeline;
   } else {
     // add old pipeline to deletion queue
     Deletion_Queue* dq = data;
@@ -165,9 +183,9 @@ AddVoxelGridComponent(ECS* ecs, Asset_Manager* am, Allocator* allocator,
 }
 
 INTERNAL Graphics_Pipeline*
-AddPipelineProgramComponent(ECS* ecs, Asset_Manager* am, EID entity,
-                            const char* vertex_shader, const char* fragment_shader,
-                            Pipeline_Create_Func create_func, Deletion_Queue* dq)
+AddGraphicsPipelineComponent(ECS* ecs, Asset_Manager* am, EID entity,
+                             const char* vertex_shader, const char* fragment_shader,
+                             Pipeline_Create_Func create_func, Deletion_Queue* dq)
 {
   Graphics_Pipeline* prog = AddComponent(ecs, Graphics_Pipeline, entity);
   prog->create_func = create_func;
@@ -175,17 +193,28 @@ AddPipelineProgramComponent(ECS* ecs, Asset_Manager* am, EID entity,
   prog->fragment_shader = fragment_shader;
   // we don't load any shaders or compile them, pipeline creation is deferred and batched
   AddAsset(am, entity, vertex_shader, &g_sparse_set_Graphics_Pipeline,
-           PipelineProgram_ReloadFunc, dq);
+           GraphicsPipeline_ReloadFunc, dq);
   // some pipelines might have no pixel shader
   if (fragment_shader) {
     AddAsset(am, entity, fragment_shader, &g_sparse_set_Graphics_Pipeline,
-             PipelineProgram_ReloadFunc, dq);
+             GraphicsPipeline_ReloadFunc, dq);
   }
   return prog;
 }
 
+INTERNAL Compute_Pipeline*
+AddComputePipelineComponent(ECS* ecs, Asset_Manager* am, EID entity,
+                            const char* compute_shader, Deletion_Queue* dq)
+{
+  Compute_Pipeline* prog = AddComponent(ecs, Compute_Pipeline, entity);
+  prog->shader = compute_shader;
+  AddAsset(am, entity, compute_shader,
+           &g_sparse_set_Compute_Pipeline, ComputePipeline_ReloadFunc, dq);
+  return prog;
+}
+
 INTERNAL VkResult
-BatchCreatePipelines()
+BatchCreateGraphicsPipelines()
 {
   uint32_t count = ComponentCount(Graphics_Pipeline);
   Graphics_Pipeline* progs = ComponentData(Graphics_Pipeline);
@@ -209,7 +238,36 @@ BatchCreatePipelines()
   PersistentRelease(pipelines);
   PersistentRelease(descs);
   if (err != VK_SUCCESS) {
-    LOG_ERROR("failed to batch create pipelines with error %s", ToString_VkResult(err));
+    LOG_ERROR("failed to batch create graphics pipelines with error %s", ToString_VkResult(err));
+    return err;
+  }
+  return VK_SUCCESS;
+}
+
+INTERNAL VkResult
+BatchCreateComputePipelines()
+{
+  uint32_t count = ComponentCount(Compute_Pipeline);
+  Compute_Pipeline* progs = ComponentData(Compute_Pipeline);
+  VkPipeline* pipelines = PersistentAllocate(count * sizeof(VkPipeline));
+  VkPipelineLayout* layouts = PersistentAllocate(count * sizeof(VkPipelineLayout));
+  const char** shaders = PersistentAllocate(count * sizeof(const char*));
+  for (uint32_t i = 0; i < count; i++) {
+    shaders[i] = progs[i].shader;
+  }
+  uint32_t start = PlatformGetTicks();
+  VkResult err = CreateComputePipelines(pipelines, count, shaders, layouts);
+  uint32_t end = PlatformGetTicks();
+  LOG_INFO("created compute pipelines in %u ms", end - start);
+  for (uint32_t i = 0; i < count; i++) {
+    progs[i].pipeline = pipelines[i];
+    progs[i].layout = layouts[i];
+  }
+  PersistentRelease(shaders);
+  PersistentRelease(layouts);
+  PersistentRelease(pipelines);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to batch create compute pipelines with error %s", ToString_VkResult(err));
     return err;
   }
   return VK_SUCCESS;

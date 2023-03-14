@@ -62,8 +62,7 @@ typedef struct {
   EID voxel_pipeline;
   EID shadow_pipeline;
   EID debug_pipeline;
-  VkPipeline compute_pipeline;
-  VkPipelineLayout compute_pipeline_layout;
+  EID compute_pipeline;
 
   // fonts
   EID arial_font;
@@ -90,7 +89,8 @@ GLOBAL Engine_Context* g_context;
   X(Transform);                                 \
   X(Voxel_Cached);                              \
   X(OBB);                                       \
-  X(Graphics_Pipeline);                          \
+  X(Graphics_Pipeline);                         \
+  X(Compute_Pipeline);                          \
   X(Font);                                      \
   X(Config_File);                               \
   X(Script)
@@ -180,9 +180,9 @@ EngineInit(const Engine_Startup_Info* info)
   g_context->triangle_pipeline = CreateEntity(&g_context->ecs);
   g_context->voxel_pipeline = CreateEntity(&g_context->ecs);
   g_context->shadow_pipeline = CreateEntity(&g_context->ecs);
-#define ADD_PIPELINE(pipeline, vertex_sh, fragment_sh, func) AddPipelineProgramComponent(&g_context->ecs, &g_context->asset_manager, g_context->pipeline, \
-                                                                                         vertex_sh, fragment_sh, \
-                                                                                         func, &g_context->deletion_queue)
+#define ADD_PIPELINE(pipeline, vertex_sh, fragment_sh, func) AddGraphicsPipelineComponent(&g_context->ecs, &g_context->asset_manager, g_context->pipeline, \
+                                                                                          vertex_sh, fragment_sh, \
+                                                                                          func, &g_context->deletion_queue)
 
   ADD_PIPELINE(rect_pipeline, "rect.vert.spv", "rect.frag.spv", CreateRectPipeline);
   ADD_PIPELINE(triangle_pipeline, "triangle.vert.spv", "triangle.frag.spv", CreateTrianglePipeline);
@@ -193,6 +193,11 @@ EngineInit(const Engine_Startup_Info* info)
 #endif
   ADD_PIPELINE(shadow_pipeline, "shadow_voxel.vert.spv", NULL, CreateShadowPipeline);
   ADD_PIPELINE(debug_pipeline, "debug_draw.vert.spv", "debug_draw.frag.spv", CreateDebugDrawPipeline);
+#undef ADD_PIPELINE
+
+#define ADD_PIPELINE(pipeline, shader) AddComputePipelineComponent(&g_context->ecs, &g_context->asset_manager, g_context->pipeline, \
+                                                                   shader, &g_context->deletion_queue)
+  ADD_PIPELINE(compute_pipeline, "vox_cull_ortho.comp.spv");
 
   const uint32_t max_vertices = 1024*1024;
   const uint32_t max_draws = 32;
@@ -229,10 +234,8 @@ EngineInit(const Engine_Startup_Info* info)
   g_context->main_cull.flags = MESH_PASS_PERSP|MESH_PASS_USE_NORMALS;
 
   // create pipelines
-  BatchCreatePipelines();
-
-  const char* shaders[] = { "vox_cull_ortho.comp.spv" };
-  CreateComputePipelines(&g_context->compute_pipeline, 1, shaders, &g_context->compute_pipeline_layout);
+  BatchCreateGraphicsPipelines();
+  BatchCreateComputePipelines();
 }
 
 void
@@ -257,6 +260,12 @@ EngineFree()
 
   {
     FOREACH_COMPONENT(Graphics_Pipeline) {
+      vkDestroyPipeline(g_device->logical_device, components[i].pipeline, NULL);
+    }
+  }
+
+  {
+    FOREACH_COMPONENT(Compute_Pipeline) {
       vkDestroyPipeline(g_device->logical_device, components[i].pipeline, NULL);
     }
   }
@@ -486,9 +495,12 @@ EngineUpdateAndRender()
   g_context->voxel_draw_calls = 0;
 
 #if VX_USE_INDIRECT
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g_context->compute_pipeline);
-  MeshPass(cmd, &g_context->vox_drawer, &g_context->shadow_cull, g_context->compute_pipeline_layout);
-  MeshPass(cmd, &g_context->vox_drawer, &g_context->main_cull, g_context->compute_pipeline_layout);
+  {
+    Compute_Pipeline* pipeline = GetComponent(Compute_Pipeline, g_context->compute_pipeline);
+    cmdBindCompute(cmd, pipeline, 0, NULL);
+    MeshPass(cmd, &g_context->vox_drawer, &g_context->shadow_cull, pipeline->layout);
+    MeshPass(cmd, &g_context->vox_drawer, &g_context->main_cull, pipeline->layout);
+  }
   // insert execution barrier
   vkCmdPipelineBarrier(cmd,
                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -509,7 +521,7 @@ EngineUpdateAndRender()
     vkCmdSetDepthBias(cmd, depth_bias_constant, 0.0f, depth_bias_slope);
     Graphics_Pipeline* prog = GetComponent(Graphics_Pipeline, g_context->shadow_pipeline);
     ds_set = g_context->shadow_pass.scene_data_set;
-    cmdBindProgram(cmd, prog, 1, &ds_set);
+    cmdBindGraphics(cmd, prog, 1, &ds_set);
 #if VX_USE_INDIRECT
     g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->shadow_cull);
 #else
@@ -527,7 +539,7 @@ EngineUpdateAndRender()
     // draw triangles
     Graphics_Pipeline* prog = GetComponent(Graphics_Pipeline, g_context->triangle_pipeline);
     ds_set = g_context->forward_pass.scene_data_set;
-    cmdBindProgram(cmd, prog, 1, &ds_set);
+    cmdBindGraphics(cmd, prog, 1, &ds_set);
     // 1st draw
     Vec4 colors[] = {
       VEC4_CREATE(1.0f, 0.2f, 0.2f, 1.0f),
@@ -548,10 +560,8 @@ EngineUpdateAndRender()
     // draw voxels
     prog = GetComponent(Graphics_Pipeline, g_context->voxel_pipeline);
     VkDescriptorSet ds_sets[] = { ds_set, g_context->shadow_pass.shadow_set };
-    cmdBindProgram(cmd, prog, ARR_SIZE(ds_sets), ds_sets);
+    cmdBindGraphics(cmd, prog, ARR_SIZE(ds_sets), ds_sets);
 #if VX_USE_INDIRECT
-    // int i = 3;
-    // vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
     g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->main_cull);
 #else
     for (uint32_t i = 0; i < 6; i++) {
@@ -564,7 +574,7 @@ EngineUpdateAndRender()
     prog = GetComponent(Graphics_Pipeline, g_context->debug_pipeline);
     // NOTE: forward_pass's descriptor set also has VK_SHADER_STAGE_FRAGMENT_BIT, it doesn't fit us
     ds_set = g_context->shadow_pass.scene_data_set;
-    cmdBindProgram(cmd, prog, 1, &ds_set);
+    cmdBindGraphics(cmd, prog, 1, &ds_set);
     RenderDebugLines(&g_context->debug_drawer, cmd);
   }
   vkCmdEndRenderPass(cmd);
@@ -585,7 +595,7 @@ EngineUpdateAndRender()
       Assert(0);
     }
     Graphics_Pipeline* prog = GetComponent(Graphics_Pipeline, g_context->rect_pipeline);
-    cmdBindProgram(cmd, prog, 1, &ds_set);
+    cmdBindGraphics(cmd, prog, 1, &ds_set);
     vkCmdDraw(cmd, 4, 1, 0, 0);
 
     // draw UI stuff
