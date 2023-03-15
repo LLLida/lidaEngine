@@ -522,11 +522,8 @@ EngineUpdateAndRender()
     Graphics_Pipeline* prog = GetComponent(Graphics_Pipeline, g_context->shadow_pipeline);
     ds_set = g_context->shadow_pass.scene_data_set;
     cmdBindGraphics(cmd, prog, 1, &ds_set);
-#if VX_USE_INDIRECT
-    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->shadow_cull);
-#else
-    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->shadow_cull);
-#endif
+    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->shadow_cull,
+                                              g_context->shadow_pipeline);
   }
   vkCmdEndRenderPass(cmd);
 
@@ -561,18 +558,11 @@ EngineUpdateAndRender()
     prog = GetComponent(Graphics_Pipeline, g_context->voxel_pipeline);
     VkDescriptorSet ds_sets[] = { ds_set, g_context->shadow_pass.shadow_set };
     cmdBindGraphics(cmd, prog, ARR_SIZE(ds_sets), ds_sets);
-#if VX_USE_INDIRECT
-    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->main_cull);
-#else
-    for (uint32_t i = 0; i < 6; i++) {
-      vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
-      g_context->voxel_draw_calls += DrawVoxelsWithNormals(&g_context->vox_drawer, cmd, i,
-                                                           &g_context->main_cull);
-    }
-#endif
+    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->main_cull,
+                                              g_context->voxel_pipeline);
     // draw debug lines
     prog = GetComponent(Graphics_Pipeline, g_context->debug_pipeline);
-    // NOTE: forward_pass's descriptor set also has VK_SHADER_STAGE_FRAGMENT_BIT, it doesn't fit us
+    // NOTE: forward_pass's descriptor set has VK_SHADER_STAGE_FRAGMENT_BIT, it doesn't fit us
     ds_set = g_context->shadow_pass.scene_data_set;
     cmdBindGraphics(cmd, prog, 1, &ds_set);
     RenderDebugLines(&g_context->debug_drawer, cmd);

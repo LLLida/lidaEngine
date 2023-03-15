@@ -941,11 +941,13 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
 
 // return: number of drawcalls
 INTERNAL uint32_t
-DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass)
+DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline)
 {
   PROFILE_FUNCTION();
+  Graphics_Pipeline* prog = GetComponent(Graphics_Pipeline, pipeline);
   // bind vertices
 #if VX_USE_INDIRECT
+  (void)prog;
   VkDeviceSize offsets[] = {
     0,
     drawer->start_transform_offset * sizeof(Transform),
@@ -980,91 +982,77 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
   EID* meshes = drawer->meshes->ptr;
 #endif
   uint32_t draw_calls = 0;
-  for (uint32_t i = 0; i < drawer->num_draws; i += 6) {
+  if (mesh_pass->flags & MESH_PASS_USE_NORMALS) {
+    for (uint32_t normal_id = 0; normal_id < 6; normal_id++) {
+      // pass normal ID
+      vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT,
+                         0, sizeof(uint32_t), &normal_id);
+      for (uint32_t i = normal_id; i < drawer->num_draws; i += 6) {
+        VX_Draw_Command* command = &draws[i];
 #if VX_USE_CULLING
-    Voxel_Cached* cached = GetComponent(Voxel_Cached, meshes[i/6]);
-    if ((cached->cull_mask & mesh_pass->cull_mask) == 0) {
-      continue;
-    }
+        EID mesh = meshes[i/6];
+        Voxel_Cached* cached = GetComponent(Voxel_Cached, mesh);
+        if ((cached->cull_mask & mesh_pass->cull_mask) == 0) {
+          continue;
+        }
+        // TODO(render): find a way to cull instanced objects.
+        if (command->instanceCount == 1) {
+          Transform* transform = GetComponent(Transform, mesh);
+          // try to backface cull this face
+          Vec3 dist = VEC3_SUB(transform->position, mesh_pass->camera_pos);
+          Vec3 normal = f_vox_normals[normal_id];
+          RotateByQuat(&normal, &transform->rotation, &normal);
+          float dot = VEC3_DOT(dist, normal);
+          if (dot > 0)
+            continue;
+        }
 #endif
-    VX_Draw_Command* command = &draws[i];
-    // merge draw calls
+
 #if VX_USE_INDICES
-    uint32_t index_count = 0;
-    for (uint32_t j = 0; j < 6; j++) {
-      index_count += command[j].vertexCount * 3 / 2;
-    }
-    uint32_t vertex_offset = command->firstVertex;
-    vkCmdDrawIndexed(cmd, index_count, command->instanceCount,
-                     command->firstVertex*3/2, vertex_offset, command->firstInstance);
+        uint32_t vertex_offset = draws[i - i%6].firstVertex;
+        vkCmdDrawIndexed(cmd, command->vertexCount*3/2, command->instanceCount,
+                         command->firstVertex*3/2, vertex_offset, command->firstInstance);
 #else
-    uint32_t vertex_count = 0;
-    for (uint32_t j = 0; j < 6; j++) {
-      vertex_count += command[j].vertexCount;
+        vkCmdDraw(cmd,
+                  command->vertexCount, command->instanceCount,
+                  command->firstVertex, command->firstInstance);
+#endif
+        draw_calls++;
+      }
     }
-    vkCmdDraw(cmd,
-              vertex_count, command->instanceCount,
-              command->firstVertex, command->firstInstance);
-#endif
-    draw_calls++;
-  }
-#endif
-  return draw_calls;
-}
-
-#if !VX_USE_INDIRECT
-// return: number of drawcalls
-INTERNAL uint32_t
-DrawVoxelsWithNormals(Voxel_Drawer* drawer, VkCommandBuffer cmd, uint32_t normal_id,
-                      const Mesh_Pass* mesh_pass)
-{
-  PROFILE_FUNCTION();
-  Assert(normal_id < 6);
-  VkDeviceSize offsets[] = { 0, 0 };
-  VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer };
-  vkCmdBindVertexBuffers(cmd, 0, ARR_SIZE(buffers), buffers, offsets);
-#if VX_USE_INDICES
-  vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
-#endif
-  VX_Draw_Command* draws = drawer->draws->ptr;
-  EID* meshes = drawer->meshes->ptr;
-  uint32_t draw_calls = 0;
-
-  for (uint32_t i = normal_id; i < drawer->num_draws; i += 6) {
-    VX_Draw_Command* command = &draws[i];
+  } else {
+    for (uint32_t i = 0; i < drawer->num_draws; i += 6) {
 #if VX_USE_CULLING
-    EID mesh = meshes[i/6];
-    Voxel_Cached* cached = GetComponent(Voxel_Cached, mesh);
-    if ((cached->cull_mask & mesh_pass->cull_mask) == 0) {
-      continue;
-    }
-    // TODO(render): find a way to cull instanced objects.
-    if (command->instanceCount == 1) {
-      Transform* transform = GetComponent(Transform, mesh);
-      // try to backface cull this face
-      Vec3 dist = VEC3_SUB(transform->position, mesh_pass->camera_pos);
-      Vec3 normal = f_vox_normals[normal_id];
-      RotateByQuat(&normal, &transform->rotation, &normal);
-      float dot = VEC3_DOT(dist, normal);
-      if (dot > 0)
+      Voxel_Cached* cached = GetComponent(Voxel_Cached, meshes[i/6]);
+      if ((cached->cull_mask & mesh_pass->cull_mask) == 0) {
         continue;
-    }
+      }
 #endif
-
+      VX_Draw_Command* command = &draws[i];
+      // merge draw calls
 #if VX_USE_INDICES
-    uint32_t vertex_offset = draws[i - i%6].firstVertex;
-    vkCmdDrawIndexed(cmd, command->vertexCount*3/2, command->instanceCount,
-                     command->firstVertex*3/2, vertex_offset, command->firstInstance);
+      uint32_t index_count = 0;
+      for (uint32_t j = 0; j < 6; j++) {
+        index_count += command[j].vertexCount * 3 / 2;
+      }
+      uint32_t vertex_offset = command->firstVertex;
+      vkCmdDrawIndexed(cmd, index_count, command->instanceCount,
+                       command->firstVertex*3/2, vertex_offset, command->firstInstance);
 #else
-    vkCmdDraw(cmd,
-              command->vertexCount, command->instanceCount,
-              command->firstVertex, command->firstInstance);
+      uint32_t vertex_count = 0;
+      for (uint32_t j = 0; j < 6; j++) {
+        vertex_count += command[j].vertexCount;
+      }
+      vkCmdDraw(cmd,
+                vertex_count, command->instanceCount,
+                command->firstVertex, command->firstInstance);
 #endif
-    draw_calls++;
+      draw_calls++;
+    }
   }
+#endif
   return draw_calls;
 }
-#endif
 
 INTERNAL void
 PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint32_t* num_attributes,
