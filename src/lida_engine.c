@@ -35,6 +35,9 @@
 #include "lida_package.c"
 #include "lida_console.c"
 
+// TODO: get rid of this define
+#define VX_USE_INDIRECT 1
+
 typedef struct {
 
   Allocator entity_allocator;
@@ -371,11 +374,11 @@ EngineUpdateAndRender()
     }
   }
 
-  if (g_context->vox_drawer.vertex_offset >= g_context->vox_drawer.max_vertices * 9 / 10) {
-    // reset cache when 90% of it is filled.
-    // This is kind of dumb but it works.
-    ClearVoxelDrawerCache(&g_context->vox_drawer);
-  }
+  // if (g_context->vox_drawer.vertex_offset >= g_context->vox_drawer.max_vertices * 9 / 10) {
+  //   // reset cache when 90% of it is filled.
+  //   // This is kind of dumb but it works.
+  //   ClearVoxelDrawerCache(&g_context->vox_drawer);
+  // }
   NewVoxelDrawerFrame(&g_context->vox_drawer);
   NewDebugDrawerFrame(&g_context->debug_drawer);
 
@@ -1092,9 +1095,15 @@ void CreateVoxelPipeline(Pipeline_Desc* description)
     .subpass = 0,
     .marker = "forward/voxel-pipeline"
   };
-  PipelineVoxelVertices(&description->vertex_attributes, &description->vertex_attribute_count,
+  #if VX_USE_INDIRECT
+  PipelineVoxelVertices2(&description->vertex_attributes, &description->vertex_attribute_count,
                         &description->vertex_bindings, &description->vertex_binding_count,
                         1);
+  #else
+  PipelineVoxelVertices1(&description->vertex_attributes, &description->vertex_attribute_count,
+                        &description->vertex_bindings, &description->vertex_binding_count,
+                        1);
+  #endif
 }
 
 void CreateShadowPipeline(Pipeline_Desc* description)
@@ -1118,7 +1127,7 @@ void CreateShadowPipeline(Pipeline_Desc* description)
     .subpass = 0,
     .marker = "voxels-to-shadow-map",
   };
-  PipelineVoxelVertices(&description->vertex_attributes, &description->vertex_attribute_count,
+  PipelineVoxelVertices1(&description->vertex_attributes, &description->vertex_attribute_count,
                         &description->vertex_bindings, &description->vertex_binding_count,
                         0);
   ShadowPassViewport(&g_context->shadow_pass, &description->viewport, &description->scissor);

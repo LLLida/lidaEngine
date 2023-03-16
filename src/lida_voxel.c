@@ -8,7 +8,6 @@
 typedef uint8_t Voxel;
 #define VX_USE_INDICES 1
 #define VX_USE_CULLING 1
-#define VX_USE_INDIRECT 1
 
 // stores voxels as plain 3D array
 typedef struct {
@@ -22,8 +21,6 @@ typedef struct {
 
 } Voxel_Grid;
 DECLARE_COMPONENT(Voxel_Grid);
-
-#if VX_USE_INDIRECT
 
 typedef struct {
 
@@ -48,8 +45,6 @@ typedef struct {
 
 } VX_Vertex_Count;
 
-#else
-
 typedef struct {
 
   // this is for vkCmdDraw
@@ -59,47 +54,6 @@ typedef struct {
   uint32_t instanceCount;
 
 } VX_Draw_Command;
-
-#endif
-
-typedef struct {
-
-  Video_Memory cpu_memory;
-  Video_Memory gpu_memory;
-  VkBuffer vertex_buffer;
-  VkBuffer transform_buffer;
-  VkBuffer index_buffer;
-#if VX_USE_INDIRECT
-  VkBuffer storage_buffer;
-  VkBuffer indirect_buffer;
-  VkBuffer vertex_count_buffer;
-  VkDescriptorSet ds_set;
-  VX_Draw_Data* pDraws;
-#endif
-
-  Vertex_X3C* pVertices;
-  Transform* pTransforms;
-  uint32_t* pIndices;
-  size_t max_vertices;
-  size_t max_draws;
-  size_t max_indices;
-
-  // reset each frame
-  size_t vertex_offset;
-  size_t transform_offset;
-  size_t start_transform_offset;
-#if VX_USE_INDIRECT
-  size_t draw_offset;
-#endif
-
-#if !VX_USE_INDIRECT
-  Allocation* draws;
-#endif
-  size_t num_draws;
-  Allocation* meshes;
-  size_t num_meshes;
-
-} Voxel_Drawer;
 
 enum {
   MESH_PASS_ORTHO = 0,
@@ -126,6 +80,78 @@ typedef struct {
 
 } Voxel_Cached;
 DECLARE_COMPONENT(Voxel_Cached);
+
+typedef struct {
+
+  VkBuffer vertex_buffer;
+  VkBuffer transform_buffer;
+  VkBuffer index_buffer;
+
+  Vertex_X3C* pVertices;
+  Transform* pTransforms;
+  uint32_t* pIndices;
+
+  // reset each frame
+  size_t vertex_offset;
+  size_t transform_offset;
+  size_t start_transform_offset;
+  Allocation* draws;
+  size_t num_draws;
+
+  Allocation* meshes;
+  size_t num_meshes;
+
+} Voxel_Backend_Slow;
+
+typedef struct {
+
+  VkBuffer vertex_buffer;
+  VkBuffer transform_buffer;
+  VkBuffer index_buffer;
+  VkBuffer storage_buffer;
+  VkBuffer indirect_buffer;
+  VkBuffer vertex_count_buffer;
+  // used for compute preprocessing
+  VkDescriptorSet ds_set;
+
+  VX_Draw_Data* pDraws;
+  Vertex_X3C* pVertices;
+  Transform* pTransforms;
+  uint32_t* pIndices;
+
+  // reset each frame
+  size_t vertex_offset;
+  size_t transform_offset;
+  size_t start_transform_offset;
+  size_t draw_offset;
+
+} Voxel_Backend_Indirect;
+
+typedef struct {
+
+  Video_Memory cpu_memory;
+  Video_Memory gpu_memory;
+
+  size_t max_vertices;
+  size_t max_draws;
+#if VX_USE_INDICES
+  size_t max_indices;
+#endif
+  size_t num_draws;
+
+  union {
+    Voxel_Backend_Slow slow;
+    Voxel_Backend_Indirect indirect;
+  } backend;
+
+  void (*new_frame_func)(void* backend);
+  void (*clear_cache_func)(void* backend);
+  void (*regenerate_mesh_func)(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid);
+  void (*push_mesh_func)(void* backend, ECS* ecs, EID entity);
+  uint32_t (*render_voxels_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, size_t num_draws);
+  void (*destroy_func)(void* backend, Allocator* allocator);
+
+} Voxel_Drawer;
 
 // NOTE: this doesn't do bounds checking
 // NOTE: setting a voxel value with this macro is unsafe, hash won't be correct,
@@ -537,117 +563,64 @@ LoadVoxelGridFromFile(Allocator* allocator, Voxel_Grid* grid, const char* filena
 }
 
 
-/// Voxel drawer
+/// 'Slow' backend
 
 INTERNAL VkResult
-CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_vertices, uint32_t max_draws)
+CreateVoxelBackend_Slow(void* backend, Video_Memory* cpu_memory, Allocator* allocator, uint32_t max_vertices, uint32_t max_draws)
 {
-  PROFILE_FUNCTION();
-#if VX_USE_INDIRECT
-  drawer->meshes = DoAllocation(allocator, max_draws * sizeof(EID),
-                                "voxel-mesh-ids");
-  drawer->num_meshes = 0;
-#else
+  Voxel_Backend_Slow* drawer = backend;
+  drawer->vertex_offset = 0;
   drawer->draws = DoAllocation(allocator, 6 * max_draws * sizeof(VX_Draw_Command),
                                "voxel-draws");
   drawer->meshes = DoAllocation(allocator, max_draws * sizeof(EID),
                                 "voxel-mesh-ids");
-  drawer->num_draws = 0;
-  drawer->num_meshes = 0;
-  if (drawer->draws == 0 || drawer->meshes == 0) {
-    LOG_ERROR("out of memory");
-    return VK_ERROR_OUT_OF_HOST_MEMORY;
-  }
-#endif
+  VkResult err;
+
   // create buffers
-  VkResult err = CreateBuffer(&drawer->vertex_buffer, max_vertices * sizeof(Vertex_X3C),
-                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/vertex-buffer");
-  if (err != VK_SUCCESS) {
-    LOG_ERROR("failed to create vertex buffer for storing voxel meshes with error %s",
-              ToString_VkResult(err));
-    return err;
-  }
-  err = CreateBuffer(&drawer->transform_buffer, max_draws * sizeof(Transform),
-                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "voxel-drawer/transform-buffer");
-  if (err != VK_SUCCESS) {
-    LOG_ERROR("faled to create vertex buffer for storing voxel transforms with error %s",
-              ToString_VkResult(err));
-    return err;
-  }
-  drawer->max_indices = max_vertices*3/2;
-  err = CreateBuffer(&drawer->index_buffer, drawer->max_indices * sizeof(uint32_t),
-                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT, "voxel-draw/index-buffer");
-  if (err != VK_SUCCESS) {
-    LOG_ERROR("faled to create index buffer for drawing voxels with error %s",
-              ToString_VkResult(err));
-    return err;
-  }
-#if VX_USE_INDIRECT
-  err = CreateBuffer(&drawer->storage_buffer, max_draws * sizeof(VX_Draw_Data),
-                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "voxel-draw/storage-buffer");
-  if (err != VK_SUCCESS) {
-    LOG_ERROR("faled to create storage buffer for drawing voxels with error %s",
-              ToString_VkResult(err));
-    return err;
-  }
-  // NOTE: 32 is max number of passes
-  err = CreateBuffer(&drawer->indirect_buffer, 32 * max_draws * /*sizeof(VkDrawIndexedIndirectCommand)*/32,
-                     VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "voxel-draw/indirect-buffer");
-  if (err != VK_SUCCESS) {
-    LOG_ERROR("faled to create indirect buffer for drawing voxels with error %s",
-              ToString_VkResult(err));
-    return err;
-  }
-  err = CreateBuffer(&drawer->vertex_count_buffer, 32 * max_draws * sizeof(VX_Vertex_Count),
-                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-draw/vertex-count-buffer");
-  if (err != VK_SUCCESS) {
-    LOG_ERROR("faled to create vertex count buffer with error %s",
-              ToString_VkResult(err));
-    return err;
-  }
-#endif
-  // allocate memory
+#define CREATE_BUFFER(name, bytes, usage, mark) do {                    \
+    err = CreateBuffer(&drawer->name, bytes, usage, mark);              \
+    if (err != VK_SUCCESS) {                                            \
+      LOG_ERROR("slow backend: failed to create " #name " with error %s", ToString_VkResult(err)); \
+      return err;                                                       \
+    }                                                                   \
+  } while (0)
+  CREATE_BUFFER(vertex_buffer, max_vertices * sizeof(Vertex_X3C),
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/vertex-buffer");
+  CREATE_BUFFER(transform_buffer, max_draws * sizeof(Transform),
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                "voxel-drawer/transform-buffer");
 #if VX_USE_INDICES
-# if VX_USE_INDIRECT
-  VkMemoryRequirements buffer_requirements[4];
-  vkGetBufferMemoryRequirements(g_device->logical_device,
-                                drawer->vertex_buffer, &buffer_requirements[0]);
-  vkGetBufferMemoryRequirements(g_device->logical_device,
-                                drawer->transform_buffer, &buffer_requirements[1]);
-  vkGetBufferMemoryRequirements(g_device->logical_device,
-                                drawer->index_buffer, &buffer_requirements[2]);
-  vkGetBufferMemoryRequirements(g_device->logical_device,
-                                drawer->storage_buffer, &buffer_requirements[3]);
-# else
+  CREATE_BUFFER(index_buffer, max_vertices * 3 / 2 * sizeof(uint32_t),
+                VK_BUFFER_USAGE_INDEX_BUFFER_BIT, "voxel-draw/index-buffer");
+#endif
+#undef CREATE_BUFFER
+
+  // allocate memory for buffers
+#if VX_USE_INDICES
   VkMemoryRequirements buffer_requirements[3];
+#else
+  VkMemoryRequirements buffer_requirements[2];
+#endif
   vkGetBufferMemoryRequirements(g_device->logical_device,
                                 drawer->vertex_buffer, &buffer_requirements[0]);
   vkGetBufferMemoryRequirements(g_device->logical_device,
                                 drawer->transform_buffer, &buffer_requirements[1]);
+#if VX_USE_INDICES
   vkGetBufferMemoryRequirements(g_device->logical_device,
                                 drawer->index_buffer, &buffer_requirements[2]);
-# endif
-#else
-# if VX_USE_INDIRECT
-# error Draw indirect is not supported for drawing without indices
-# endif
-  VkMemoryRequirements buffer_requirements[2];
-  vkGetBufferMemoryRequirements(g_device->logical_device,
-                                drawer->vertex_buffer, &buffer_requirements[0]);
-  vkGetBufferMemoryRequirements(g_device->logical_device,
-                                drawer->transform_buffer, &buffer_requirements[1]);
 #endif
   VkMemoryRequirements requirements;
   MergeMemoryRequirements(buffer_requirements, ARR_SIZE(buffer_requirements), &requirements);
   // try to allocate device local memory accessible from CPU
-  VkMemoryPropertyFlags required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  err = AllocateVideoMemory(&drawer->cpu_memory, requirements.size,
+  // TODO: don't reallocate if we don't have to
+  const VkMemoryPropertyFlags required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  err = AllocateVideoMemory(cpu_memory, requirements.size,
                             required_flags|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                             requirements.memoryTypeBits,
                             "voxel-drawer/memory");
   if (err != VK_SUCCESS) {
     // if failed try to allocate any memory accessible from CPU
-    err = AllocateVideoMemory(&drawer->cpu_memory, requirements.size,
+    err = AllocateVideoMemory(cpu_memory, requirements.size,
                               required_flags,
                               requirements.memoryTypeBits,
                               "voxel-drawer/memory");
@@ -657,132 +630,29 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
     }
   }
   LOG_TRACE("allocated %u bytes for voxels", (uint32_t)requirements.size);
-#if VX_USE_INDIRECT
-  VkMemoryRequirements buffer_requirements_gpu[2];
-  // allocate device local memory for buffers that we will not be accessing from CPU
-  vkGetBufferMemoryRequirements(g_device->logical_device,
-                                drawer->indirect_buffer, &buffer_requirements_gpu[0]);
-  vkGetBufferMemoryRequirements(g_device->logical_device,
-                                drawer->vertex_count_buffer, &buffer_requirements_gpu[1]);
-  MergeMemoryRequirements(buffer_requirements_gpu, 2, &requirements);
-  err = AllocateVideoMemory(&drawer->gpu_memory, requirements.size,
-                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                            requirements.memoryTypeBits,
-                            "voxel-drawer/fast-memory");
-  if (err != VK_SUCCESS) {
-    LOG_ERROR("failed to allocate video memory for voxels with error %s", ToString_VkResult(err));
-    return err;
-  }
-#endif
   // bind buffers to allocated memory
-  err = BufferBindToMemory(&drawer->cpu_memory, drawer->vertex_buffer,
-                           &buffer_requirements[0], (void**)&drawer->pVertices, NULL);
-  if (err != VK_SUCCESS) {
-    LOG_WARN("failed to bind vertex buffer to memory with error %s", ToString_VkResult(err));
-  }
-  err = BufferBindToMemory(&drawer->cpu_memory, drawer->transform_buffer,
-                           &buffer_requirements[1], (void**)&drawer->pTransforms, NULL);
-  if (err != VK_SUCCESS) {
-    LOG_WARN("failed to bind storage buffer to memory with error %s", ToString_VkResult(err));
-  }
+#define BIND_BUFFER(memory, buffer, requirements, mapped) do {          \
+    err = BufferBindToMemory(memory, drawer->buffer,                    \
+                             &requirements, mapped, NULL);              \
+    if (err != VK_SUCCESS) {                                            \
+      LOG_WARN("failed to bind " #buffer " to memory with error %s", ToString_VkResult(err)); \
+    }                                                                   \
+  } while (0)
+  BIND_BUFFER(cpu_memory, vertex_buffer, buffer_requirements[0], (void**)&drawer->pVertices);
+  BIND_BUFFER(cpu_memory, transform_buffer, buffer_requirements[1], (void**)&drawer->pTransforms);
 #if VX_USE_INDICES
-  err = BufferBindToMemory(&drawer->cpu_memory, drawer->index_buffer,
-                           &buffer_requirements[2], (void**)&drawer->pIndices, NULL);
-  if (err != VK_SUCCESS) {
-    LOG_WARN("failed to bind index buffer to memory with error %s", ToString_VkResult(err));
-  }
+  BIND_BUFFER(cpu_memory, index_buffer, buffer_requirements[2], (void**)&drawer->pIndices);
 #endif
-#if VX_USE_INDIRECT
-  err = BufferBindToMemory(&drawer->cpu_memory, drawer->storage_buffer,
-                           &buffer_requirements[3], (void**)&drawer->pDraws, NULL);
-  if (err != VK_SUCCESS) {
-    LOG_WARN("failed to bind storage buffer to memory with error %s", ToString_VkResult(err));
-  }
-  err = BufferBindToMemory(&drawer->gpu_memory, drawer->indirect_buffer,
-                           &buffer_requirements_gpu[0], NULL, NULL);
-  if (err != VK_SUCCESS) {
-    LOG_WARN("failed to bind indirect buffer to memory with error %s", ToString_VkResult(err));
-  }
-  err = BufferBindToMemory(&drawer->gpu_memory, drawer->vertex_count_buffer,
-                           &buffer_requirements_gpu[1], NULL, NULL);
-  if (err != VK_SUCCESS) {
-    LOG_WARN("failed to bind vertex count buffer to memory with error %s", ToString_VkResult(err));
-  }
-#endif
-
-#if VX_USE_INDIRECT
-  // create descriptor set
-  VkDescriptorSetLayoutBinding bindings[4];
-  for (uint32_t i = 0; i < ARR_SIZE(bindings); i++)
-    bindings[i] = (VkDescriptorSetLayoutBinding) {
-      .binding = i,
-      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-      .descriptorCount = 1,
-      .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
-    };
-  err = AllocateDescriptorSets(bindings, ARR_SIZE(bindings), &drawer->ds_set, 1, 0, "voxel/cull-set");
-  if (err != VK_SUCCESS) {
-    LOG_ERROR("failed to allocate descriptor set with error %s", ToString_VkResult(err));
-    return err;
-  }
-  // update descriptor set
-  VkWriteDescriptorSet write_sets[4];
-  VkDescriptorBufferInfo buffer_infos[4];
-  VkBuffer buffers[] = { drawer->storage_buffer, drawer->transform_buffer, drawer->indirect_buffer, drawer->vertex_count_buffer };
-  for (size_t i = 0; i < ARR_SIZE(write_sets); i++) {
-    buffer_infos[i] = (VkDescriptorBufferInfo) {
-      .buffer = buffers[i],
-      .offset = 0,
-      .range = VK_WHOLE_SIZE
-    };
-    write_sets[i] = (VkWriteDescriptorSet) {
-      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-      .dstSet = drawer->ds_set,
-      .dstBinding = i,
-      .descriptorCount = 1,
-      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-      .pBufferInfo = &buffer_infos[i]
-    };
-  }
-  UpdateDescriptorSets(write_sets, ARR_SIZE(write_sets));
-#endif
-
-  // init fields
-  drawer->max_draws = max_draws;
-  drawer->max_vertices = max_vertices;
-  drawer->vertex_offset = 0;
+#undef BIND_BUFFER
   return err;
 }
 
 INTERNAL void
-DestroyVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator)
+NewFrameVoxel_Slow(void* backend)
 {
-  PROFILE_FUNCTION();
-  FreeAllocation(allocator, drawer->meshes);
-#if !VX_USE_INDIRECT
-  FreeAllocation(allocator, drawer->draws);
-#endif
-#if VX_USE_INDIRECT
-  vkDestroyBuffer(g_device->logical_device, drawer->vertex_count_buffer, NULL);
-  vkDestroyBuffer(g_device->logical_device, drawer->indirect_buffer, NULL);
-  vkDestroyBuffer(g_device->logical_device, drawer->storage_buffer, NULL);
-#endif
-  vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
-  vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
-  vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
-  FreeVideoMemory(&drawer->cpu_memory);
-  FreeVideoMemory(&drawer->gpu_memory);
-}
-
-INTERNAL void
-NewVoxelDrawerFrame(Voxel_Drawer* drawer)
-{
-  PROFILE_FUNCTION();
+  Voxel_Backend_Slow* drawer = backend;
   if ((g_window->frame_counter & 1) == 0) {
     drawer->transform_offset = 0;
-#if VX_USE_INDIRECT
-    drawer->draw_offset = 0;
-#endif
   }
   drawer->num_draws = 0;
   drawer->num_meshes = 0;
@@ -790,36 +660,18 @@ NewVoxelDrawerFrame(Voxel_Drawer* drawer)
 }
 
 INTERNAL void
-ClearVoxelDrawerCache(Voxel_Drawer* drawer)
+ClearCacheVoxel_Slow(void* backend)
 {
+  Voxel_Backend_Slow* drawer = backend;
   drawer->vertex_offset = 0;
 }
 
 INTERNAL void
-VX_Regenerate(Voxel_Drawer* drawer, Voxel_Cached* cached, Voxel_Grid* grid)
+RegenerateVoxel_Slow(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid)
 {
+  Voxel_Backend_Slow* drawer = backend;
   cached->hash = grid->hash;
 
-#if VX_USE_INDIRECT
-
-  uint32_t base_index = 0;
-  VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset++];
-  draw->first_vertex = drawer->vertex_offset;
-  draw->instance_count = 1;
-  // draw->first_instance = drawer->transform_offset;
-  draw->first_instance = drawer->transform_offset - drawer->start_transform_offset;
-  draw->cull_mask = cached->cull_mask;
-  cached->first_vertex = draw->first_vertex;
-  for (size_t i = 0; i < 6; i++) {
-    uint32_t index_offset = drawer->vertex_offset*3/2;
-    draw->vertex_count[i] = GenerateVoxelGridMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i,
-                                                       base_index, drawer->pIndices + index_offset);
-    base_index += draw->vertex_count[i];
-    drawer->vertex_offset += draw->vertex_count[i];
-    cached->offsets[i] = draw->vertex_count[i];
-  }
-
-#else
   VX_Draw_Command* current_draws = drawer->draws->ptr;
 #if VX_USE_INDICES
   uint32_t base_index = 0;
@@ -860,13 +712,12 @@ VX_Regenerate(Voxel_Drawer* drawer, Voxel_Cached* cached, Voxel_Grid* grid)
     drawer->vertex_offset += command->vertexCount;
     cached->offsets[i] = command->vertexCount;
   }
-#endif
 }
 
 INTERNAL void
-PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
+PushMeshVoxel_Slow(void* backend, ECS* ecs, EID entity)
 {
-  PROFILE_FUNCTION();
+  Voxel_Backend_Slow* drawer = backend;
   uint32_t index = drawer->num_meshes;
   // add transform
   Transform* transform = GetComponent(Transform, entity);
@@ -874,26 +725,15 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
          transform, sizeof(Transform));
   EID* meshes = drawer->meshes->ptr;
   Voxel_Grid* grid = GetComponent(Voxel_Grid, entity);
-#if !VX_USE_INDIRECT
   VX_Draw_Command* draws = drawer->draws->ptr;
-#endif
 
   // try to use instancing if same mesh is pushed twice
   if (index > 0) {
     Voxel_Cached* prev = GetComponent(Voxel_Cached, meshes[index-1]);
     if (prev->hash == grid->hash) {
-#if VX_USE_INDIRECT
-      VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset];
-      draw->instance_count++;
-      Voxel_Cached* cached = GetComponent(Voxel_Cached, entity);
-      if (cached) {
-        draw->cull_mask |= cached->cull_mask;
-      }
-#else
       for (uint32_t i = 0; i < 6; i++) {
         draws[drawer->num_draws-6+i].instanceCount++;
       }
-#endif
       goto end;
     }
   }
@@ -903,19 +743,9 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
   if (cached) {
     if (cached->hash != grid->hash || cached->first_vertex > drawer->vertex_offset) {
       // regenerate if grid changed
-      VX_Regenerate(drawer, cached, grid);
+      RegenerateVoxel_Slow(drawer, cached, grid);
       goto end;
     }
-#if VX_USE_INDIRECT
-    VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset++];
-    draw->first_vertex = cached->first_vertex;
-    draw->instance_count = 1;
-    draw->first_instance = drawer->transform_offset - drawer->start_transform_offset;
-    draw->cull_mask = cached->cull_mask;
-    for (uint32_t i = 0; i < 6; i++) {
-      draw->vertex_count[i] = cached->offsets[i];
-    }
-#else
     uint32_t vertex_offset = cached->first_vertex;
     for (uint32_t i = 0; i < 6; i++) {
       VX_Draw_Command* command = &draws[drawer->num_draws++];
@@ -925,58 +755,31 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
       command->instanceCount = 1;
       vertex_offset += cached->offsets[i];
     }
-#endif
   } else {
     // didn't succeed, generate new vertices
     cached = AddComponent(ecs, Voxel_Cached, entity);
-    VX_Regenerate(drawer, cached, grid);
+    RegenerateVoxel_Slow(drawer, cached, grid);
   }
  end:
-#if VX_USE_INDIRECT
-  drawer->num_draws++;
-#endif
   drawer->transform_offset++;
   meshes[drawer->num_meshes++] = entity;
 }
 
-// return: number of drawcalls
 INTERNAL uint32_t
-DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline)
+RenderVoxels_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, size_t num_draws)
 {
-  PROFILE_FUNCTION();
+  Voxel_Backend_Slow* drawer = backend;
+  (void)num_draws; // FIXME: maybe we should get rid of num_draws argument
   Graphics_Pipeline* prog = GetComponent(Graphics_Pipeline, pipeline);
   // bind vertices
-#if VX_USE_INDIRECT
-  (void)prog;
-  VkDeviceSize offsets[] = {
-    0,
-    drawer->start_transform_offset * sizeof(Transform),
-    Log2_u32(mesh_pass->cull_mask) * drawer->num_draws * sizeof(VX_Vertex_Count)
-  };
-  VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer, drawer->vertex_count_buffer };
-  vkCmdBindVertexBuffers(cmd, 0, (mesh_pass->flags & MESH_PASS_USE_NORMALS) ? 3 : 2, buffers, offsets);
-#else
   VkDeviceSize offsets[] = { 0, drawer->start_transform_offset * sizeof(Transform) };
   VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer };
   vkCmdBindVertexBuffers(cmd, 0, ARR_SIZE(buffers), buffers, offsets);
-#endif
 
 #if VX_USE_INDICES
   vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
 #endif
-#if VX_USE_INDIRECT
 
-  uint32_t draw_calls = drawer->num_draws * 3;
-  // HACK: I hate std140
-  const uint32_t stride = 32;
-  uint32_t offset = Log2_u32(mesh_pass->cull_mask) * draw_calls * stride;
-  VkBuffer buffer = drawer->indirect_buffer;
-  vkCmdDrawIndexedIndirect(cmd, buffer,
-                           offset,
-                           draw_calls,
-                           stride);
-
-#else
   VX_Draw_Command* draws = drawer->draws->ptr;
 #if VX_USE_CULLING
   EID* meshes = drawer->meshes->ptr;
@@ -1050,21 +853,426 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
       draw_calls++;
     }
   }
-#endif
   return draw_calls;
 }
 
 INTERNAL void
-PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint32_t* num_attributes,
-                      const VkVertexInputBindingDescription** bindings, uint32_t* num_bindings,
-                      int using_colors)
+DestroyVoxel_Slow(void* backend, Allocator* allocator)
+{
+  Voxel_Backend_Slow* drawer = backend;
+  FreeAllocation(allocator, drawer->meshes);
+  FreeAllocation(allocator, drawer->draws);
+  vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
+  vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
+  vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
+}
+
+
+/// 'Fast' backend with indirect drawing
+
+INTERNAL VkResult
+CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memory* gpu_memory,
+                            uint32_t max_vertices, uint32_t max_draws)
+{
+  Voxel_Backend_Indirect* drawer = backend;
+  drawer->vertex_offset = 0;
+#if !VX_USE_INDICES
+  Assert(0 && "Indirect drawing without index buffers is not implemented.");
+#endif
+  VkResult err;
+#define CREATE_BUFFER(name, bytes, usage, mark) do {                    \
+    err = CreateBuffer(&drawer->name, bytes, usage, mark);              \
+    if (err != VK_SUCCESS) {                                            \
+      LOG_ERROR("indirect backend: failed to create " #name " with error %s", ToString_VkResult(err)); \
+      return err;                                                       \
+    }                                                                   \
+  } while (0)
+  CREATE_BUFFER(vertex_buffer, max_vertices * sizeof(Vertex_X3C),
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/vertex-buffer");
+  CREATE_BUFFER(transform_buffer, max_draws * sizeof(Transform),
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                "voxel-drawer/transform-buffer");
+  CREATE_BUFFER(index_buffer, max_vertices * 3 / 2 * sizeof(uint32_t),
+                VK_BUFFER_USAGE_INDEX_BUFFER_BIT, "voxel-draw/index-buffer");
+  CREATE_BUFFER(storage_buffer, max_draws * sizeof(VX_Draw_Data),
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "voxel-drawer/storage-buffer");
+  // NOTE: 32 is max number of passes
+  CREATE_BUFFER(indirect_buffer, 32 * max_draws * 32/*sizeof(VkDrawIndexedIndirectCommand)*/,
+                VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                "voxel-drawer/indirect-buffer");
+  CREATE_BUFFER(vertex_count_buffer, 32 * max_draws * sizeof(VX_Vertex_Count),
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                "voxel-drawer/vertex-count-buffer");
+#undef CREATE_BUFFER
+  VkMemoryRequirements cpu_requirements[4];
+  vkGetBufferMemoryRequirements(g_device->logical_device,
+                                drawer->vertex_buffer, &cpu_requirements[0]);
+  vkGetBufferMemoryRequirements(g_device->logical_device,
+                                drawer->transform_buffer, &cpu_requirements[1]);
+  vkGetBufferMemoryRequirements(g_device->logical_device,
+                                drawer->index_buffer, &cpu_requirements[2]);
+  vkGetBufferMemoryRequirements(g_device->logical_device,
+                                drawer->storage_buffer, &cpu_requirements[3]);
+  VkMemoryRequirements requirements;
+  MergeMemoryRequirements(cpu_requirements, ARR_SIZE(cpu_requirements), &requirements);
+  // try to allocate device local memory accessible from CPU
+  const VkMemoryPropertyFlags required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  err = AllocateVideoMemory(cpu_memory, requirements.size,
+                            required_flags|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                            requirements.memoryTypeBits,
+                            "voxel-drawer/memory");
+  if (err != VK_SUCCESS) {
+    // if failed try to allocate any memory accessible from CPU
+    err = AllocateVideoMemory(cpu_memory, requirements.size,
+                              required_flags,
+                              requirements.memoryTypeBits,
+                              "voxel-drawer/memory");
+    if (err != VK_SUCCESS) {
+      LOG_ERROR("failed to allocate video memory for voxels with error %s", ToString_VkResult(err));
+      return err;
+    }
+  }
+  LOG_TRACE("allocated %u bytes for voxels at CPU side", (uint32_t)requirements.size);
+
+  VkMemoryRequirements gpu_requirements[2];
+  // allocate device local memory for buffers that we will not be accessing from CPU
+  vkGetBufferMemoryRequirements(g_device->logical_device,
+                                drawer->indirect_buffer, &gpu_requirements[0]);
+  vkGetBufferMemoryRequirements(g_device->logical_device,
+                                drawer->vertex_count_buffer, &gpu_requirements[1]);
+  MergeMemoryRequirements(gpu_requirements, 2, &requirements);
+  err = AllocateVideoMemory(gpu_memory, requirements.size,
+                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                            requirements.memoryTypeBits,
+                            "voxel-drawer/fast-memory");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to allocate video memory for voxels with error %s", ToString_VkResult(err));
+    return err;
+  }
+  LOG_TRACE("allocated %u bytes for voxels at GPU side", (uint32_t)requirements.size);
+
+  // bind buffers to allocated memory
+#define BIND_BUFFER(memory, buffer, requirements, mapped) do {          \
+    err = BufferBindToMemory(memory, drawer->buffer,                    \
+                             &requirements, mapped, NULL);              \
+    if (err != VK_SUCCESS) {                                            \
+      LOG_WARN("failed to bind " #buffer " to memory with error %s", ToString_VkResult(err)); \
+    }                                                                   \
+  }  while (0)
+  BIND_BUFFER(cpu_memory, vertex_buffer, cpu_requirements[0], (void**)&drawer->pVertices);
+  BIND_BUFFER(cpu_memory, transform_buffer, cpu_requirements[1], (void**)&drawer->pTransforms);
+  BIND_BUFFER(cpu_memory, index_buffer, cpu_requirements[2], (void**)&drawer->pIndices);
+  BIND_BUFFER(cpu_memory, storage_buffer, cpu_requirements[3], (void**)&drawer->pDraws);
+  BIND_BUFFER(gpu_memory, indirect_buffer, gpu_requirements[0], NULL);
+  BIND_BUFFER(gpu_memory, vertex_count_buffer, gpu_requirements[1], NULL);
+#undef BIND_BUFFER
+
+  // create descriptor set
+  VkDescriptorSetLayoutBinding bindings[4];
+  for (uint32_t i = 0; i < ARR_SIZE(bindings); i++)
+    bindings[i] = (VkDescriptorSetLayoutBinding) {
+      .binding = i,
+      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+    };
+  err = AllocateDescriptorSets(bindings, ARR_SIZE(bindings), &drawer->ds_set, 1, 0, "voxel/cull-set");
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to allocate descriptor set with error %s", ToString_VkResult(err));
+    return err;
+  }
+  // update descriptor set
+  VkWriteDescriptorSet write_sets[4];
+  VkDescriptorBufferInfo buffer_infos[4];
+  VkBuffer buffers[] = { drawer->storage_buffer, drawer->transform_buffer, drawer->indirect_buffer, drawer->vertex_count_buffer };
+  for (size_t i = 0; i < ARR_SIZE(write_sets); i++) {
+    buffer_infos[i] = (VkDescriptorBufferInfo) {
+      .buffer = buffers[i],
+      .offset = 0,
+      .range = VK_WHOLE_SIZE
+    };
+    write_sets[i] = (VkWriteDescriptorSet) {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = drawer->ds_set,
+      .dstBinding = i,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      .pBufferInfo = &buffer_infos[i]
+    };
+  }
+  UpdateDescriptorSets(write_sets, ARR_SIZE(write_sets));
+
+  return err;
+}
+
+INTERNAL void
+NewFrameVoxel_Indirect(void* backend)
+{
+  Voxel_Backend_Indirect* drawer = backend;
+  if ((g_window->frame_counter & 1) == 0) {
+    drawer->transform_offset = 0;
+    drawer->draw_offset = 0;
+  }
+  drawer->start_transform_offset = drawer->transform_offset;
+}
+
+INTERNAL void
+ClearCacheVoxel_Indirect(void* backend)
+{
+  Voxel_Backend_Indirect* drawer = backend;
+  drawer->vertex_offset = 0;
+}
+
+INTERNAL void
+RegenerateVoxel_Indirect(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid)
+{
+  Voxel_Backend_Indirect* drawer = backend;
+  cached->hash = grid->hash;
+  uint32_t base_index = 0;
+  VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset++];
+  draw->first_vertex = drawer->vertex_offset;
+  draw->instance_count = 1;
+  draw->first_instance = drawer->transform_offset - drawer->start_transform_offset;
+  draw->cull_mask = cached->cull_mask;
+  cached->first_vertex = draw->first_vertex;
+  for (size_t i = 0; i < 6; i++) {
+    uint32_t index_offset = drawer->vertex_offset*3/2;
+    draw->vertex_count[i] = GenerateVoxelGridMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i,
+                                                       base_index, drawer->pIndices + index_offset);
+    base_index += draw->vertex_count[i];
+    drawer->vertex_offset += draw->vertex_count[i];
+    cached->offsets[i] = draw->vertex_count[i];
+  }
+}
+
+INTERNAL void
+PushMeshVoxel_Indirect(void* backend, ECS* ecs, EID entity)
+{
+  Voxel_Backend_Indirect* drawer = backend;
+  // add transform
+  Transform* transform = GetComponent(Transform, entity);
+  memcpy(&drawer->pTransforms[drawer->transform_offset],
+         transform, sizeof(Transform));
+  Voxel_Grid* grid = GetComponent(Voxel_Grid, entity);
+  // try to use instancing if same mesh is pushed twice
+  // TODO: remember last pushed entity to use instancing
+  /*if (index > 0) {
+    Voxel_Cached* prev = GetComponent(Voxel_Cached, meshes[index-1]);
+    if (prev->hash == grid->hash) {
+      VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset];
+      draw->instance_count++;
+      Voxel_Cached* cached = GetComponent(Voxel_Cached, entity);
+      if (cached) {
+        draw->cull_mask |= cached->cull_mask;
+      }
+      goto end;
+    }
+    }*/
+
+  // try to use cache
+  Voxel_Cached* cached = GetComponent(Voxel_Cached, entity);
+  if (cached) {
+    if (cached->hash != grid->hash || cached->first_vertex > drawer->vertex_offset) {
+      // regenerate if grid changed
+      RegenerateVoxel_Indirect(drawer, cached, grid);
+      goto end;
+    }
+    VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset++];
+    draw->first_vertex = cached->first_vertex;
+    draw->instance_count = 1;
+    draw->first_instance = drawer->transform_offset - drawer->start_transform_offset;
+    draw->cull_mask = cached->cull_mask;
+    for (uint32_t i = 0; i < 6; i++) {
+      draw->vertex_count[i] = cached->offsets[i];
+    }
+  } else {
+    // didn't succeed, generate new vertices
+    cached = AddComponent(ecs, Voxel_Cached, entity);
+    RegenerateVoxel_Indirect(drawer, cached, grid);
+  }
+ end:
+  drawer->transform_offset++;
+}
+
+INTERNAL uint32_t
+RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, size_t num_draws)
+{
+  (void)pipeline;
+  Voxel_Backend_Indirect* drawer = backend;
+  // bind buffers
+  VkDeviceSize offsets[] = {
+    0,
+    drawer->start_transform_offset * sizeof(Transform),
+    Log2_u32(mesh_pass->cull_mask) * num_draws * sizeof(VX_Vertex_Count)
+  };
+  VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer, drawer->vertex_count_buffer };
+  vkCmdBindVertexBuffers(cmd, 0, (mesh_pass->flags & MESH_PASS_USE_NORMALS) ? 3 : 2, buffers, offsets);
+  vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
+  // submit draw commands
+  uint32_t draw_calls = num_draws * 3;
+  // HACK: I hate std140
+  const uint32_t stride = 32;
+  uint32_t offset = Log2_u32(mesh_pass->cull_mask) * draw_calls * stride;
+  VkBuffer buffer = drawer->indirect_buffer;
+  vkCmdDrawIndexedIndirect(cmd, buffer,
+                           offset,
+                           draw_calls,
+                           stride);
+  return 1;
+}
+
+INTERNAL void
+DestroyVoxel_Indirect(void* backend, Allocator* allocator)
+{
+  (void)allocator;
+  Voxel_Backend_Indirect* drawer = backend;
+  vkDestroyBuffer(g_device->logical_device, drawer->vertex_count_buffer, NULL);
+  vkDestroyBuffer(g_device->logical_device, drawer->indirect_buffer, NULL);
+  vkDestroyBuffer(g_device->logical_device, drawer->storage_buffer, NULL);
+  vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
+  vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
+  vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
+}
+
+
+/// Voxel drawer
+
+INTERNAL VkResult
+SetVoxelBackend_Slow(Voxel_Drawer* drawer, Allocator* allocator, Deletion_Queue* dq)
+{
+  if (dq) {
+    // TODO: destroy old backend
+  }
+  VkResult err = CreateVoxelBackend_Slow(&drawer->backend, &drawer->cpu_memory, allocator, drawer->max_vertices, drawer->max_draws);
+  if (err != VK_SUCCESS)
+    return err;
+
+  drawer->new_frame_func = NewFrameVoxel_Slow;
+  drawer->clear_cache_func = ClearCacheVoxel_Slow;
+  drawer->regenerate_mesh_func = RegenerateVoxel_Slow;
+  drawer->push_mesh_func = PushMeshVoxel_Slow;
+  drawer->render_voxels_func = RenderVoxels_Slow;
+  drawer->destroy_func = DestroyVoxel_Slow;
+
+  return err;
+}
+
+INTERNAL VkResult
+SetVoxelBackend_Indirect(Voxel_Drawer* drawer, Allocator* allocator, Deletion_Queue* dq)
+{
+  (void)allocator;
+  if (dq) {
+    // TODO: destroy old backend
+  }
+  VkResult err = CreateVoxelBackend_Indirect(&drawer->backend, &drawer->cpu_memory, &drawer->gpu_memory, drawer->max_vertices, drawer->max_draws);
+  if (err != VK_SUCCESS)
+    return err;
+
+  drawer->new_frame_func = NewFrameVoxel_Indirect;
+  drawer->clear_cache_func = ClearCacheVoxel_Indirect;
+  drawer->regenerate_mesh_func = RegenerateVoxel_Indirect;
+  drawer->push_mesh_func = PushMeshVoxel_Indirect;
+  drawer->render_voxels_func = RenderVoxels_Indirect;
+  drawer->destroy_func = DestroyVoxel_Indirect;
+
+  return err;
+}
+
+INTERNAL VkResult
+CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_vertices, uint32_t max_draws)
+{
+  PROFILE_FUNCTION();
+  drawer->max_draws = max_draws;
+  drawer->max_vertices = max_vertices;
+#if VX_USE_INDICES
+  drawer->max_indices = max_vertices * 3 / 2;
+#endif
+
+  // use fast backend by default
+  VkResult err = SetVoxelBackend_Indirect(drawer, allocator, NULL);
+  // VkResult err = SetVoxelBackend_Slow(drawer, allocator, NULL);
+
+  return err;
+}
+
+INTERNAL void
+DestroyVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator)
+{
+  drawer->destroy_func(&drawer->backend, allocator);
+  FreeVideoMemory(&drawer->gpu_memory);
+  FreeVideoMemory(&drawer->cpu_memory);
+}
+
+INTERNAL void
+NewVoxelDrawerFrame(Voxel_Drawer* drawer)
+{
+  drawer->new_frame_func(&drawer->backend);
+  drawer->num_draws = 0;
+}
+
+INTERNAL void
+ClearVoxelDrawerCache(Voxel_Drawer* drawer)
+{
+  drawer->clear_cache_func(&drawer->backend);
+}
+
+INTERNAL void
+PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
+{
+  drawer->push_mesh_func(&drawer->backend, ecs, entity);
+  drawer->num_draws++;
+}
+
+INTERNAL uint32_t
+DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline)
+{
+  return drawer->render_voxels_func(&drawer->backend, cmd, mesh_pass, pipeline, drawer->num_draws);
+}
+
+// Following 2 functions look extremely dumb... I'm sure there's
+// better way to do the thing, but we have what we have
+INTERNAL void
+PipelineVoxelVertices1(const VkVertexInputAttributeDescription** attributes, uint32_t* num_attributes,
+                       const VkVertexInputBindingDescription** bindings, uint32_t* num_bindings,
+                       int using_colors)
+{
+  GLOBAL VkVertexInputBindingDescription g_bindings[] = {
+    { 0, sizeof(Vertex_X3C), VK_VERTEX_INPUT_RATE_VERTEX },
+    { 1, sizeof(Transform), VK_VERTEX_INPUT_RATE_INSTANCE }
+  };
+  GLOBAL VkVertexInputAttributeDescription g_attributes1[] = {
+    { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex_X3C, position) },
+    { 1, 0, VK_FORMAT_R32_UINT, offsetof(Vertex_X3C, color) },
+    { 2, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Transform, rotation) },
+    { 3, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Transform, position) },
+    { 4, 1, VK_FORMAT_R32_SFLOAT, offsetof(Transform, scale) }
+  };
+  GLOBAL VkVertexInputAttributeDescription g_attributes2[4] = {
+    { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex_X3C, position) },
+    { 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Transform, rotation) },
+    { 2, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Transform, position) },
+    { 3, 1, VK_FORMAT_R32_SFLOAT, offsetof(Transform, scale) },
+  };
+  if (using_colors) {
+    *attributes = g_attributes1;
+    *num_attributes = ARR_SIZE(g_attributes1);
+  } else {
+    *attributes = g_attributes2;
+    *num_attributes = ARR_SIZE(g_attributes2);
+  }
+  *bindings = g_bindings;
+  *num_bindings = ARR_SIZE(g_bindings);
+}
+
+INTERNAL void
+PipelineVoxelVertices2(const VkVertexInputAttributeDescription** attributes, uint32_t* num_attributes,
+                       const VkVertexInputBindingDescription** bindings, uint32_t* num_bindings,
+                       int using_colors)
 {
   GLOBAL VkVertexInputBindingDescription g_bindings[] = {
     { 0, sizeof(Vertex_X3C), VK_VERTEX_INPUT_RATE_VERTEX },
     { 1, sizeof(Transform), VK_VERTEX_INPUT_RATE_INSTANCE },
-#if VX_USE_INDIRECT
     { 2, sizeof(VX_Vertex_Count), VK_VERTEX_INPUT_RATE_INSTANCE }
-#endif
   };
   GLOBAL VkVertexInputAttributeDescription g_attributes1[] = {
     { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex_X3C, position) },
@@ -1072,13 +1280,11 @@ PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint
     { 2, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Transform, rotation) },
     { 3, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Transform, position) },
     { 4, 1, VK_FORMAT_R32_SFLOAT, offsetof(Transform, scale) },
-#if VX_USE_INDIRECT
     { 5, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, count0) },
     { 6, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, count1) },
     { 7, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, count2) },
     { 8, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, count3) },
     { 9, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, count4) },
-#endif
   };
   GLOBAL VkVertexInputAttributeDescription g_attributes2[4] = {
     { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex_X3C, position) },
@@ -1096,11 +1302,7 @@ PipelineVoxelVertices(const VkVertexInputAttributeDescription** attributes, uint
     *num_attributes = ARR_SIZE(g_attributes2);
   }
   *bindings = g_bindings;
-#if VX_USE_INDIRECT
   *num_bindings = (using_colors ? 3 : 2);
-#else
-  *num_bindings = ARR_SIZE(g_bindings);
-#endif
 }
 
 // calculate oriented bounding box's corners
@@ -1112,7 +1314,6 @@ CalculateVoxelGridOBB(const Voxel_Grid* grid, const Transform* transform, OBB* o
   CalculateObjectOBB(&half_size, transform, obb);
 }
 
-#if VX_USE_INDIRECT
 INTERNAL void
 MeshPass(VkCommandBuffer cmd, Voxel_Drawer* drawer, const Mesh_Pass* mesh_pass, VkPipelineLayout pipeline_layout)
 {
@@ -1128,12 +1329,11 @@ MeshPass(VkCommandBuffer cmd, Voxel_Drawer* drawer, const Mesh_Pass* mesh_pass, 
   push_constant.camera_front = mesh_pass->camera_dir;
   push_constant.camera_position = mesh_pass->camera_pos;
   push_constant.out_offset = Log2_u32(mesh_pass->cull_mask) * drawer->num_draws;
-  push_constant.in_offset = drawer->draw_offset - drawer->num_draws;
+  push_constant.in_offset = drawer->backend.indirect.draw_offset - drawer->num_draws;
   push_constant.num_draws = drawer->num_draws;
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout,
-                          0, 1, &drawer->ds_set, 0, NULL);
+                          0, 1, &drawer->backend.indirect.ds_set, 0, NULL);
   vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
                      0, sizeof(push_constant), &push_constant);
   vkCmdDispatch(cmd, (drawer->num_draws+63) / 64, 1, 1);
 }
-#endif
