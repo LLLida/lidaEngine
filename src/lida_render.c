@@ -28,6 +28,8 @@ typedef struct {
 
 } Forward_Pass;
 
+Forward_Pass* g_forward_pass;
+
 typedef struct {
 
   Mat4 camera_projview;
@@ -53,6 +55,8 @@ typedef struct {
 
 } Shadow_Pass;
 
+Shadow_Pass* g_shadow_pass;
+
 // this will help us to do hot resource reloading
 typedef struct {
 
@@ -61,6 +65,8 @@ typedef struct {
   uint32_t count;
 
 } Deletion_Queue;
+
+Deletion_Queue* g_deletion_queue;
 
 typedef void(*Pipeline_Create_Func)(Pipeline_Desc* description);
 

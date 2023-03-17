@@ -712,3 +712,235 @@ CMD_list_vars(uint32_t num, const char** args)
     ListVarsPrefix(g_config, &list_vars_Traverse_Func, args[0], NULL);
   }
 }
+
+void
+CMD_clear_scene(uint32_t num, const char** args)
+{
+  (void)args;
+  if (num != 0) {
+    LOG_WARN("command 'clear_scene' accepts no arguments; see 'info clear_scene'");
+    return;
+  }
+  FOREACH_COMPONENT(Voxel_Grid) {
+    FreeVoxelGrid(g_vox_allocator, &components[i]);
+    if (GetComponent(Script, entities[i])) {
+      RemoveComponent(g_ecs, Script, entities[i]);
+    }
+  }
+  UNREGISTER_COMPONENT(g_ecs, Voxel_Grid);
+  UNREGISTER_COMPONENT(g_ecs, Transform);
+  UNREGISTER_COMPONENT(g_ecs, OBB);
+  UNREGISTER_COMPONENT(g_ecs, Voxel_Cached);
+  DestroyEmptyEntities(g_ecs);
+  ClearVoxelDrawerCache(g_vox_drawer);
+}
+
+void
+CMD_add_voxel(uint32_t num, const char** args)
+{
+  if (num != 5 && num != 4) {
+    LOG_WARN("command 'add_voxel' accepts 4 arguments; see 'info add_voxel'");
+    return;
+  }
+  EID entity = CreateEntity(g_ecs);
+  if (AddVoxelGridComponent(g_ecs, g_asset_manager, g_vox_allocator,
+                            entity, args[0]) == NULL) {
+    return;
+  }
+  Transform* transform = AddComponent(g_ecs, Transform, entity);
+  transform->rotation = QUAT_IDENTITY();
+  // TODO(convenience): check for parse errors
+  transform->position.x = strtof(args[1], NULL);
+  transform->position.y = strtof(args[2], NULL);
+  transform->position.z = strtof(args[3], NULL);
+  if (num == 5) {
+    transform->scale = strtof(args[4], NULL);
+  } else {
+    transform->scale = 1.0f;
+  }
+  AddComponent(g_ecs, OBB, entity);
+}
+
+void
+CMD_make_voxel_rotate(uint32_t num, const char** args)
+{
+  if (num != 4) {
+    LOG_WARN("command 'make_voxel_rotate' accepts 4 arguments; see 'info make_voxel_rotate'");
+    return;
+  }
+  EID entity = atoi(args[0]);
+  Script* script = AddComponent(g_ecs, Script, entity);
+  if (script == NULL) {
+    script = GetComponent(Script, entity);
+    LOG_WARN("entity %u already has script component '%s'", entity, script->name);
+    return;
+  }
+  script->name = "rotate_voxel";
+  script->func = GetScript(g_script_manager, "rotate_voxel");
+  script->arg0.float_32 = strtof(args[1], NULL);
+  script->arg1.float_32 = strtof(args[2], NULL);
+  script->arg2.float_32 = strtof(args[3], NULL);
+  script->frequency = 1;
+}
+
+void
+CMD_list_entities(uint32_t num, const char** args)
+{
+  (void)args;
+  if (num > 0) {
+    LOG_WARN("command 'list_entities' accepts no arguments; see 'info list_entities'");
+    return;
+  }
+  uint32_t* entities = g_ecs->entities->ptr;
+  for (EID eid = 0; eid < g_ecs->max_entities; eid++) {
+    if (entities[eid] & ENTITY_ALIVE_MASK) {
+      LOG_INFO("entity %u has %u components", eid, entities[eid]);
+    }
+  }
+}
+
+void
+CMD_make_voxel_change(uint32_t num, const char** args)
+{
+  if (num > 2) {
+    LOG_WARN("command 'make_voxel_rotate' accepts 1 argument; see 'info make_voxel_change'");
+    return;
+  }
+  EID entity = atoi(args[0]);
+  Script* script = AddComponent(g_ecs, Script, entity);
+  if (script == NULL) {
+    script = GetComponent(Script, entity);
+    LOG_WARN("entity %u already has script component '%s'", entity, script->name);
+    return;
+  }
+  script->name = "change_voxel";
+  script->func = GetScript(g_script_manager, "change_voxel");
+  if (num == 2) {
+    script->frequency = atoi(args[1]);
+  } else {
+    script->frequency = 100;
+  }
+}
+
+void
+CMD_spawn_sphere(uint32_t num, const char** args)
+{
+  if (num != 1 && num != 4 && num != 7 && num != 8) {
+    LOG_WARN("command 'spawn_sphere' accepts 1, 4, 7 or 8  arguments; see 'info spawn_sphere'");
+    return;
+  }
+  EID entity = CreateEntity(g_ecs);
+  Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, entity);
+  int radius = atoi(args[0]);
+  AllocateVoxelGrid(g_vox_allocator, grid, radius*2+1, radius*2+1, radius*2+1);
+  if (num == 1) {
+    grid->palette[1] = PACK_COLOR(240, 240, 240, 255);
+  } else {
+    int r = atoi(args[1]);
+    int g = atoi(args[2]);
+    int b = atoi(args[3]);
+    grid->palette[1] = PACK_COLOR(r, g, b, 255);
+  }
+  for (int z = 0; z < radius*2+1; z++)
+    for (int y = 0; y < radius*2+1; y++)
+      for (int x = 0; x < radius*2+1; x++) {
+        int xr = abs(x-radius);
+        int yr = abs(y-radius);
+        int zr = abs(z-radius);
+        if (xr*xr + yr*yr + zr*zr <= radius*radius+1) {
+          GetInVoxelGrid(grid, x, y, z) = 1;
+        }
+      }
+  // don't forget to update hash
+  grid->hash = HashMemory64(grid->data->ptr, grid->width*grid->height*grid->depth);
+  Transform* transform = AddComponent(g_ecs, Transform, entity);
+  transform->rotation = QUAT_IDENTITY();
+  if (num < 4) {
+    transform->position.x = 0.0f;
+    transform->position.y = 0.0f;
+    transform->position.z = 0.0f;
+    transform->scale = 1.0f;
+  } else {
+    transform->position.x = strtof(args[4], NULL);
+    transform->position.y = strtof(args[5], NULL);
+    transform->position.z = strtof(args[6], NULL);
+    if (num == 8) {
+      transform->scale = strtof(args[7], NULL);
+    } else {
+      transform->scale = 1.0f;
+    }
+  }
+  AddComponent(g_ecs, OBB, entity);
+}
+
+void
+CMD_spawn_cube(uint32_t num, const char** args)
+{
+  if (num != 3 && num != 6 && num != 9 && num != 10) {
+    LOG_WARN("command 'spawn_cube' accepts 3, 6, 9 or 10  arguments; see 'info spawn_cube'");
+    return;
+  }
+  EID entity = CreateEntity(g_ecs);
+  uint32_t width = atoi(args[0]);
+  uint32_t height = atoi(args[1]);
+  uint32_t depth = atoi(args[2]);
+  Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, entity);
+  AllocateVoxelGrid(g_vox_allocator, grid, width, height, depth);
+  if (num == 3) {
+    grid->palette[1] = PACK_COLOR(240, 240, 240, 255);
+  } else {
+    int r = atoi(args[3]);
+    int g = atoi(args[4]);
+    int b = atoi(args[5]);
+    grid->palette[1] = PACK_COLOR(r, g, b, 255);
+  }
+  memset(grid->data->ptr, 1, width*height*depth);
+  // don't forget to update hash
+  grid->hash = HashMemory64(grid->data->ptr, grid->width*grid->height*grid->depth);
+  Transform* transform = AddComponent(g_ecs, Transform, entity);
+  transform->rotation = QUAT_IDENTITY();
+  if (num < 6) {
+    transform->position.x = 0.0f;
+    transform->position.y = 0.0f;
+    transform->position.z = 0.0f;
+    transform->scale = 1.0f;
+  } else {
+    transform->position.x = strtof(args[6], NULL);
+    transform->position.y = strtof(args[7], NULL);
+    transform->position.z = strtof(args[8], NULL);
+    if (num == 8) {
+      transform->scale = strtof(args[9], NULL);
+    } else {
+      transform->scale = 1.0f;
+    }
+  }
+  AddComponent(g_ecs, OBB, entity);
+}
+
+void
+CMD_remove_script(uint32_t num, const char** args)
+{
+  if (num != 1) {
+    LOG_WARN("command 'remove_script' accepts 1 argument; see 'info remove_script'");
+    return;
+  }
+  EID entity = atoi(args[0]);
+  RemoveComponent(g_ecs, Script, entity);
+}
+
+void
+CMD_set_voxel_backend(uint32_t num, const char** args)
+{
+  if (num != 1) {
+    LOG_WARN("command 'set_voxel_backend' accepts only 1 argument; see 'info set_voxel_backend'");
+    return;
+  }
+
+  if (strcmp(args[0], "indirect") == 0) {
+    SetVoxelBackend_Indirect(g_vox_drawer, g_deletion_queue);
+  } else if (strcmp(args[0], "classic") == 0) {
+    SetVoxelBackend_Slow(g_vox_drawer, g_deletion_queue);
+  } else {
+    LOG_WARN("undefined backend '%s'", args[0]);
+  }
+}

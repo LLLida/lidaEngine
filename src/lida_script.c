@@ -52,6 +52,8 @@ typedef struct {
 
 } Script_Manager;
 
+Script_Manager* g_script_manager;
+
 
 /// private functions
 

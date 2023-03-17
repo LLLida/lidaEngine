@@ -32,6 +32,7 @@ typedef struct {
   VkExtensionProperties* available_device_extensions;
   uint32_t num_available_device_extensions;
 
+  // TODO: store those in hash table of smth
   const char** enabled_device_extensions;
   uint32_t num_enabled_device_extensions;
 
@@ -522,15 +523,27 @@ CreateLogicalDevice(int enable_debug_layers,
   };
 
   if (num_device_extensions) {
-    g_device->num_enabled_device_extensions = num_device_extensions + (enable_debug_layers != 0);
-    g_device->enabled_device_extensions =
-      PersistentAllocate(num_device_extensions * sizeof(const char*));
+    g_device->enabled_device_extensions = PersistentAllocate(0);
+    g_device->num_enabled_device_extensions = 0;
     for (uint32_t i = 0; i < num_device_extensions; i++) {
-      g_device->enabled_device_extensions[i] = device_extensions[i];
+      int found = 0;
+      for (uint32_t j = 0; j < g_device->num_available_device_extensions; j++) {
+        if (strcmp(device_extensions[i], g_device->available_device_extensions[j].extensionName) == 0) {
+          PersistentAllocate(sizeof(const char*));
+          g_device->enabled_device_extensions[g_device->num_enabled_device_extensions++] = device_extensions[i];
+          found = 1;
+          break;
+        }
+      }
+      if (found == 0) {
+        LOG_WARN("extension '%s' is not supported", device_extensions[i]);
+      }
     }
     // add DEBUG_MARKER extension if debug layers are enabled
     if (enable_debug_layers) {
-      g_device->enabled_device_extensions[num_device_extensions] = VK_EXT_DEBUG_MARKER_EXTENSION_NAME;
+      // TODO: check if VK_EXT_debug_marker is supported
+      PersistentAllocate(sizeof(const char*));
+      g_device->enabled_device_extensions[g_device->num_enabled_device_extensions++] = VK_EXT_DEBUG_MARKER_EXTENSION_NAME;
       g_device->debug_marker_enabled = 1;
     } else {
       g_device->debug_marker_enabled = 0;
@@ -1110,7 +1123,7 @@ ReallocateMemoryIfNeeded(Video_Memory* memory, const VkMemoryRequirements* requi
       ALIGN_TO(memory->offset, requirements->alignment) + requirements->size <= memory->size) {
     return VK_SUCCESS;
   }
-  if (memory->handle == VK_NULL_HANDLE) {
+  if (memory->handle != VK_NULL_HANDLE) {
     FreeVideoMemory(memory);
   }
   return AllocateVideoMemory(memory, requirements->size, flags, requirements->memoryTypeBits, marker);

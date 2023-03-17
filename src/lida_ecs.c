@@ -36,6 +36,8 @@ typedef struct {
 
 } ECS;
 
+ECS* g_ecs;
+
 #define ENTITY_DEAD_MASK 0x8000
 #define ENTITY_ALIVE_MASK (~ENTITY_DEAD_MASK)
 

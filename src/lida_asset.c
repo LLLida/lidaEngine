@@ -24,6 +24,8 @@ typedef struct {
 
 } Asset_Manager;
 
+Asset_Manager* g_asset_manager;
+
 
 /// private functions
 

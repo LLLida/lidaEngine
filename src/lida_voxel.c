@@ -126,6 +126,8 @@ typedef struct {
   size_t start_transform_offset;
   size_t draw_offset;
 
+  int enabled_KHR_draw_indirect_count;
+
 } Voxel_Backend_Indirect;
 
 typedef struct {
@@ -151,14 +153,22 @@ typedef struct {
   void (*push_mesh_func)(void* backend, ECS* ecs, EID entity);
   uint32_t (*render_voxels_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, size_t num_draws);
   void (*cull_pass_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes, VkPipelineLayout layout, size_t num_draws);
-  void (*destroy_func)(void* backend, Allocator* allocator, Deletion_Queue* dq);
+  void (*destroy_func)(void* backend, Deletion_Queue* dq);
+
+  EID pipeline_classic;
+  EID pipeline_indirect;
+  EID pipeline_shadow;
 
 } Voxel_Drawer;
+
+Voxel_Drawer* g_vox_drawer;
 
 // NOTE: this doesn't do bounds checking
 // NOTE: setting a voxel value with this macro is unsafe, hash won't be correct,
 // consider using SetInVoxelGrid
 #define GetInVoxelGrid(grid, x, y, z) ((Voxel*)(grid)->data->ptr)[(x) + (y)*(grid)->width + (z)*(grid)->width*(grid)->height]
+
+Allocator* g_vox_allocator;
 
 // TODO: compress voxels on disk using RLE(Run length Encoding)
 
@@ -568,13 +578,13 @@ LoadVoxelGridFromFile(Allocator* allocator, Voxel_Grid* grid, const char* filena
 /// 'Slow' backend
 
 INTERNAL VkResult
-CreateVoxelBackend_Slow(void* backend, Video_Memory* cpu_memory, Allocator* allocator, uint32_t max_vertices, uint32_t max_draws)
+CreateVoxelBackend_Slow(void* backend, Video_Memory* cpu_memory, uint32_t max_vertices, uint32_t max_draws)
 {
   Voxel_Backend_Slow* drawer = backend;
   drawer->vertex_offset = 0;
-  drawer->draws = DoAllocation(allocator, 6 * max_draws * sizeof(VX_Draw_Command),
+  drawer->draws = DoAllocation(g_vox_allocator, 6 * max_draws * sizeof(VX_Draw_Command),
                                "voxel-draws");
-  drawer->meshes = DoAllocation(allocator, max_draws * sizeof(EID),
+  drawer->meshes = DoAllocation(g_vox_allocator, max_draws * sizeof(EID),
                                 "voxel-mesh-ids");
   VkResult err;
 
@@ -868,11 +878,11 @@ CullPass_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, 
 }
 
 INTERNAL void
-DestroyVoxel_Slow(void* backend, Allocator* allocator, Deletion_Queue* dq)
+DestroyVoxel_Slow(void* backend, Deletion_Queue* dq)
 {
   Voxel_Backend_Slow* drawer = backend;
-  FreeAllocation(allocator, drawer->meshes);
-  FreeAllocation(allocator, drawer->draws);
+  FreeAllocation(g_vox_allocator, drawer->meshes);
+  FreeAllocation(g_vox_allocator, drawer->draws);
   if (dq == NULL) {
     vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
     vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
@@ -893,6 +903,13 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
 {
   Voxel_Backend_Indirect* drawer = backend;
   drawer->vertex_offset = 0;
+  drawer->enabled_KHR_draw_indirect_count = 0;
+  for (uint32_t i = 0; i < g_device->num_enabled_device_extensions; i++) {
+    if (strcmp(g_device->enabled_device_extensions[i], VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME) == 0) {
+      drawer->enabled_KHR_draw_indirect_count = 1;
+      break;
+    }
+  }
 #if !VX_USE_INDICES
   Assert(0 && "Indirect drawing without index buffers is not implemented.");
 #endif
@@ -1160,9 +1177,8 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
 }
 
 INTERNAL void
-DestroyVoxel_Indirect(void* backend, Allocator* allocator, Deletion_Queue* dq)
+DestroyVoxel_Indirect(void* backend, Deletion_Queue* dq)
 {
-  (void)allocator;
   Voxel_Backend_Indirect* drawer = backend;
   if (dq == NULL) {
     vkDestroyBuffer(g_device->logical_device, drawer->vertex_count_buffer, NULL);
@@ -1185,7 +1201,7 @@ DestroyVoxel_Indirect(void* backend, Allocator* allocator, Deletion_Queue* dq)
 /// Voxel drawer
 
 INTERNAL VkResult
-SetVoxelBackend_Slow(Voxel_Drawer* drawer, Allocator* allocator, Deletion_Queue* dq)
+SetVoxelBackend_Slow(Voxel_Drawer* drawer, Deletion_Queue* dq)
 {
   // HACK: this works for now, but we'd want to do something better
   FOREACH_COMPONENT(Voxel_Cached) {
@@ -1194,11 +1210,11 @@ SetVoxelBackend_Slow(Voxel_Drawer* drawer, Allocator* allocator, Deletion_Queue*
 
   if (dq) {
     drawer->clear_cache_func(&drawer->backend);
-    drawer->destroy_func(&drawer->backend, allocator, dq);
+    drawer->destroy_func(&drawer->backend, dq);
   }
   ResetVideoMemory(&drawer->cpu_memory);
   ResetVideoMemory(&drawer->gpu_memory);
-  VkResult err = CreateVoxelBackend_Slow(&drawer->backend, &drawer->cpu_memory, allocator, drawer->max_vertices, drawer->max_draws);
+  VkResult err = CreateVoxelBackend_Slow(&drawer->backend, &drawer->cpu_memory, drawer->max_vertices, drawer->max_draws);
   if (err != VK_SUCCESS)
     return err;
 
@@ -1215,7 +1231,7 @@ SetVoxelBackend_Slow(Voxel_Drawer* drawer, Allocator* allocator, Deletion_Queue*
 }
 
 INTERNAL VkResult
-SetVoxelBackend_Indirect(Voxel_Drawer* drawer, Allocator* allocator, Deletion_Queue* dq)
+SetVoxelBackend_Indirect(Voxel_Drawer* drawer, Deletion_Queue* dq)
 {
   // HACK: this works for now, but we'd want to do something better
   FOREACH_COMPONENT(Voxel_Cached) {
@@ -1224,7 +1240,7 @@ SetVoxelBackend_Indirect(Voxel_Drawer* drawer, Allocator* allocator, Deletion_Qu
 
   if (dq) {
     drawer->clear_cache_func(&drawer->backend);
-    drawer->destroy_func(&drawer->backend, allocator, dq);
+    drawer->destroy_func(&drawer->backend, dq);
   }
   ResetVideoMemory(&drawer->cpu_memory);
   ResetVideoMemory(&drawer->gpu_memory);
@@ -1245,7 +1261,7 @@ SetVoxelBackend_Indirect(Voxel_Drawer* drawer, Allocator* allocator, Deletion_Qu
 }
 
 INTERNAL VkResult
-CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_vertices, uint32_t max_draws)
+CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draws)
 {
   PROFILE_FUNCTION();
   drawer->max_draws = max_draws;
@@ -1257,16 +1273,20 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
   drawer->gpu_memory.handle = VK_NULL_HANDLE;
 
   // use fast backend by default
-  VkResult err = SetVoxelBackend_Indirect(drawer, allocator, NULL);
-  // VkResult err = SetVoxelBackend_Slow(drawer, allocator, NULL);
+  VkResult err = SetVoxelBackend_Indirect(drawer, NULL);
+  // VkResult err = SetVoxelBackend_Slow(drawer, NULL);
+
+  drawer->pipeline_classic = CreateEntity(g_ecs);
+  drawer->pipeline_indirect = CreateEntity(g_ecs);
+  drawer->pipeline_shadow = CreateEntity(g_ecs);
 
   return err;
 }
 
 INTERNAL void
-DestroyVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator)
+DestroyVoxelDrawer(Voxel_Drawer* drawer)
 {
-  drawer->destroy_func(&drawer->backend, allocator, NULL);
+  drawer->destroy_func(&drawer->backend, NULL);
   FreeVideoMemory(&drawer->gpu_memory);
   FreeVideoMemory(&drawer->cpu_memory);
 }
@@ -1399,4 +1419,98 @@ INTERNAL int
 IsUsingIndirectVoxelBackend(Voxel_Drawer* drawer)
 {
   return drawer->destroy_func == DestroyVoxel_Indirect;
+}
+
+INTERNAL void
+CreateVoxelPipelineClassic(Pipeline_Desc* description)
+{
+  static VkPipelineColorBlendAttachmentState colorblend_attachment = {
+    .blendEnable = VK_FALSE,
+    .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
+  };
+  static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+
+  *description = (Pipeline_Desc) {
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_NONE,
+    // .cullMode = VK_CULL_MODE_FRONT_BIT,
+    .depth_bias_enable = VK_FALSE,
+    .msaa_samples = g_forward_pass->msaa_samples,
+    .depth_test = VK_TRUE,
+    .depth_write = VK_TRUE,
+    .depth_compare_op = VK_COMPARE_OP_GREATER,
+    .blend_logic_enable = VK_FALSE,
+    .attachment_count = 1,
+    .attachments = &colorblend_attachment,
+    .dynamic_state_count = ARR_SIZE(dynamic_states),
+    .dynamic_states = dynamic_states,
+    .render_pass = g_forward_pass->render_pass,
+    .subpass = 0,
+    .marker = "forward/voxel-pipeline"
+  };
+  PipelineVoxelVertices1(&description->vertex_attributes, &description->vertex_attribute_count,
+                        &description->vertex_bindings, &description->vertex_binding_count,
+                        1);
+}
+
+INTERNAL void
+CreateVoxelPipelineIndirect(Pipeline_Desc* description)
+{
+  static VkPipelineColorBlendAttachmentState colorblend_attachment = {
+    .blendEnable = VK_FALSE,
+    .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
+  };
+  static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+
+  *description = (Pipeline_Desc) {
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_NONE,
+    // .cullMode = VK_CULL_MODE_FRONT_BIT,
+    .depth_bias_enable = VK_FALSE,
+    .msaa_samples = g_forward_pass->msaa_samples,
+    .depth_test = VK_TRUE,
+    .depth_write = VK_TRUE,
+    .depth_compare_op = VK_COMPARE_OP_GREATER,
+    .blend_logic_enable = VK_FALSE,
+    .attachment_count = 1,
+    .attachments = &colorblend_attachment,
+    .dynamic_state_count = ARR_SIZE(dynamic_states),
+    .dynamic_states = dynamic_states,
+    .render_pass = g_forward_pass->render_pass,
+    .subpass = 0,
+    .marker = "forward/voxel-pipeline"
+  };
+  PipelineVoxelVertices2(&description->vertex_attributes, &description->vertex_attribute_count,
+                        &description->vertex_bindings, &description->vertex_binding_count,
+                        1);
+}
+
+INTERNAL void
+CreateVoxelPipelineShadow(Pipeline_Desc* description)
+{
+  // NOTE: use depth bias < 0 because our depth is inverted
+  static VkDynamicState dynamic_state = VK_DYNAMIC_STATE_DEPTH_BIAS;
+  *description = (Pipeline_Desc) {
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_FRONT_BIT,
+    .depth_bias_enable = VK_TRUE,
+    .msaa_samples = VK_SAMPLE_COUNT_1_BIT,
+    .depth_test = VK_TRUE,
+    .depth_write = VK_TRUE,
+    .depth_compare_op = VK_COMPARE_OP_GREATER,
+    .blend_logic_enable = VK_FALSE,
+    .attachment_count = 0,
+    .dynamic_state_count = 1,
+    .dynamic_states = &dynamic_state,
+    .render_pass = g_shadow_pass->render_pass,
+    .subpass = 0,
+    .marker = "voxels-to-shadow-map",
+  };
+  PipelineVoxelVertices1(&description->vertex_attributes, &description->vertex_attribute_count,
+                        &description->vertex_bindings, &description->vertex_binding_count,
+                        0);
+  ShadowPassViewport(g_shadow_pass, &description->viewport, &description->scissor);
 }
