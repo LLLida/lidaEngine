@@ -35,9 +35,6 @@
 #include "lida_package.c"
 #include "lida_console.c"
 
-// TODO: get rid of this define
-#define VX_USE_INDIRECT 1
-
 typedef struct {
 
   Allocator entity_allocator;
@@ -56,13 +53,14 @@ typedef struct {
   Keymap root_keymap;
   Keymap camera_keymap;
 
-  Mesh_Pass shadow_cull;
-  Mesh_Pass main_cull;
+  EID shadow_cull;
+  EID main_cull;
 
   // pipelines
   EID rect_pipeline;
   EID triangle_pipeline;
-  EID voxel_pipeline;
+  EID voxel_pipeline1;
+  EID voxel_pipeline2;
   EID shadow_pipeline;
   EID debug_pipeline;
   EID compute_pipeline;
@@ -92,6 +90,7 @@ GLOBAL Engine_Context* g_context;
   X(Transform);                                 \
   X(Voxel_Cached);                              \
   X(OBB);                                       \
+  X(Mesh_Pass);                                 \
   X(Graphics_Pipeline);                         \
   X(Compute_Pipeline);                          \
   X(Font);                                      \
@@ -108,7 +107,8 @@ INTERNAL int CameraKeymap_Mouse(int x, int y, float xrel, float yrel, void* udat
 
 INTERNAL void CreateRectPipeline(Pipeline_Desc* description);
 INTERNAL void CreateTrianglePipeline(Pipeline_Desc* description);
-INTERNAL void CreateVoxelPipeline(Pipeline_Desc* description);
+INTERNAL void CreateVoxelPipeline1(Pipeline_Desc* description);
+INTERNAL void CreateVoxelPipeline2(Pipeline_Desc* description);
 INTERNAL void CreateShadowPipeline(Pipeline_Desc* description);
 INTERNAL void CreateDebugDrawPipeline(Pipeline_Desc* description);
 
@@ -181,7 +181,8 @@ EngineInit(const Engine_Startup_Info* info)
 
   g_context->rect_pipeline = CreateEntity(&g_context->ecs);
   g_context->triangle_pipeline = CreateEntity(&g_context->ecs);
-  g_context->voxel_pipeline = CreateEntity(&g_context->ecs);
+  g_context->voxel_pipeline1 = CreateEntity(&g_context->ecs);
+  g_context->voxel_pipeline2 = CreateEntity(&g_context->ecs);
   g_context->shadow_pipeline = CreateEntity(&g_context->ecs);
 #define ADD_PIPELINE(pipeline, vertex_sh, fragment_sh, func) AddGraphicsPipelineComponent(&g_context->ecs, &g_context->asset_manager, g_context->pipeline, \
                                                                                           vertex_sh, fragment_sh, \
@@ -189,11 +190,8 @@ EngineInit(const Engine_Startup_Info* info)
 
   ADD_PIPELINE(rect_pipeline, "rect.vert.spv", "rect.frag.spv", CreateRectPipeline);
   ADD_PIPELINE(triangle_pipeline, "triangle.vert.spv", "triangle.frag.spv", CreateTrianglePipeline);
-#if VX_USE_INDIRECT
-  ADD_PIPELINE(voxel_pipeline, "voxel_new.vert.spv", "voxel.frag.spv", CreateVoxelPipeline);
-#else
-  ADD_PIPELINE(voxel_pipeline, "voxel.vert.spv", "voxel.frag.spv", CreateVoxelPipeline);
-#endif
+  ADD_PIPELINE(voxel_pipeline1, "voxel.vert.spv", "voxel.frag.spv", CreateVoxelPipeline1);
+  ADD_PIPELINE(voxel_pipeline2, "voxel_new.vert.spv", "voxel.frag.spv", CreateVoxelPipeline2);
   ADD_PIPELINE(shadow_pipeline, "shadow_voxel.vert.spv", NULL, CreateShadowPipeline);
   ADD_PIPELINE(debug_pipeline, "debug_draw.vert.spv", "debug_draw.frag.spv", CreateDebugDrawPipeline);
 #undef ADD_PIPELINE
@@ -231,10 +229,18 @@ EngineInit(const Engine_Startup_Info* info)
   InitConsole();
   g_console->font = g_context->pixel_font;
 
-  g_context->shadow_cull.cull_mask = 1;
-  g_context->shadow_cull.flags = MESH_PASS_ORTHO;
-  g_context->main_cull.cull_mask = 2;
-  g_context->main_cull.flags = MESH_PASS_PERSP|MESH_PASS_USE_NORMALS;
+  {
+    g_context->shadow_cull = CreateEntity(&g_context->ecs);
+    Mesh_Pass* pass = AddComponent(&g_context->ecs, Mesh_Pass, g_context->shadow_cull);
+    pass->cull_mask = 1;
+    pass->flags = MESH_PASS_ORTHO;
+  }
+  {
+    g_context->main_cull = CreateEntity(&g_context->ecs);
+    Mesh_Pass* pass = AddComponent(&g_context->ecs, Mesh_Pass, g_context->main_cull);
+    pass->cull_mask = 2;
+    pass->flags = MESH_PASS_PERSP|MESH_PASS_USE_NORMALS;
+  }
 
   // create pipelines
   BatchCreateGraphicsPipelines();
@@ -336,8 +342,11 @@ EngineUpdateAndRender()
   CameraUpdateProjection(camera);
   CameraUpdateView(camera);
   Mat4_Mul(&camera->projection_matrix, &camera->view_matrix, &camera->projview_matrix);
-  g_context->main_cull.camera_pos = g_context->camera.position;
-  g_context->main_cull.camera_dir = g_context->camera.front;
+  {
+    Mesh_Pass* pass = GetComponent(Mesh_Pass, g_context->main_cull);
+    pass->camera_pos = g_context->camera.position;
+    pass->camera_dir = g_context->camera.front;
+  }
 
   Scene_Data_Struct* sc_data = g_context->forward_pass.uniform_buffer_mapped;
   memcpy(&sc_data->camera_projection, &camera->projection_matrix, sizeof(Mat4));
@@ -360,8 +369,11 @@ EngineUpdateAndRender()
     Vec3 light_target = VEC3_ADD(light_pos, sc_data->sun_dir);
     Vec3 up = { 1.0f, 0.0f, 0.0f };
     LookAtMatrix(&light_pos, &light_target, &up, &light_view);
-    g_context->shadow_cull.camera_pos = light_pos;
-    Vec3_Normalize(&VEC3_MUL(light_target, -1.0f), &g_context->shadow_cull.camera_dir);
+    {
+      Mesh_Pass* pass = GetComponent(Mesh_Pass, g_context->shadow_cull);
+      pass->camera_pos = light_pos;
+      Vec3_Normalize(&VEC3_MUL(light_target, -1.0f), &pass->camera_dir);
+    }
   }
   Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
 
@@ -390,8 +402,15 @@ EngineUpdateAndRender()
     // frustum culling
     // TODO(render): set cached's cull_mask to 0
     int cull_mask = 0;
-    cull_mask |= TestFrustumOBB(&camera->projview_matrix, obb) * g_context->main_cull.cull_mask;
-    cull_mask |= TestFrustumOBB(&sc_data->light_space, obb) * g_context->shadow_cull.cull_mask;
+    // TODO: iterate over Mesh_Pass'es
+    {
+      Mesh_Pass* pass = GetComponent(Mesh_Pass, g_context->main_cull);
+      cull_mask |= TestFrustumOBB(&camera->projview_matrix, obb) * pass->cull_mask;
+    }
+    {
+      Mesh_Pass* pass = GetComponent(Mesh_Pass, g_context->shadow_cull);
+      cull_mask |= TestFrustumOBB(&sc_data->light_space, obb) * pass->cull_mask;
+    }
     if (cull_mask == 0)
       continue;
     // draw
@@ -497,22 +516,21 @@ EngineUpdateAndRender()
   VkDescriptorSet ds_set;
   g_context->voxel_draw_calls = 0;
 
-#if VX_USE_INDIRECT
   {
     Compute_Pipeline* pipeline = GetComponent(Compute_Pipeline, g_context->compute_pipeline);
     cmdBindCompute(cmd, pipeline, 0, NULL);
-    MeshPass(cmd, &g_context->vox_drawer, &g_context->shadow_cull, pipeline->layout);
-    MeshPass(cmd, &g_context->vox_drawer, &g_context->main_cull, pipeline->layout);
+    CullPass(cmd, &g_context->vox_drawer, ComponentData(Mesh_Pass), ComponentCount(Mesh_Pass), pipeline->layout);
   }
-  // insert execution barrier
-  vkCmdPipelineBarrier(cmd,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                       VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                       0,
-                       0, NULL,
-                       0, NULL,
-                       0, NULL);
-#endif
+  if (IsUsingIndirectVoxelBackend(&g_context->vox_drawer)) {
+    // insert execution barrier
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                         0,
+                         0, NULL,
+                         0, NULL,
+                         0, NULL);
+  }
 
   vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool,
                       TIMESTAMP_SHADOW_PASS_BEGIN);
@@ -525,7 +543,7 @@ EngineUpdateAndRender()
     Graphics_Pipeline* prog = GetComponent(Graphics_Pipeline, g_context->shadow_pipeline);
     ds_set = g_context->shadow_pass.scene_data_set;
     cmdBindGraphics(cmd, prog, 1, &ds_set);
-    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->shadow_cull,
+    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, GetComponent(Mesh_Pass, g_context->shadow_cull),
                                               g_context->shadow_pipeline);
   }
   vkCmdEndRenderPass(cmd);
@@ -558,11 +576,17 @@ EngineUpdateAndRender()
                        0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     // draw voxels
-    prog = GetComponent(Graphics_Pipeline, g_context->voxel_pipeline);
+    EID voxel_pipeline;
+    if (IsUsingIndirectVoxelBackend(&g_context->vox_drawer)) {
+      voxel_pipeline = g_context->voxel_pipeline2;
+    } else {
+      voxel_pipeline = g_context->voxel_pipeline1;
+    }
+    prog = GetComponent(Graphics_Pipeline, voxel_pipeline);
     VkDescriptorSet ds_sets[] = { ds_set, g_context->shadow_pass.shadow_set };
     cmdBindGraphics(cmd, prog, ARR_SIZE(ds_sets), ds_sets);
-    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, &g_context->main_cull,
-                                              g_context->voxel_pipeline);
+    g_context->voxel_draw_calls += DrawVoxels(&g_context->vox_drawer, cmd, GetComponent(Mesh_Pass, g_context->main_cull),
+                                              voxel_pipeline);
     // draw debug lines
     prog = GetComponent(Graphics_Pipeline, g_context->debug_pipeline);
     // NOTE: forward_pass's descriptor set has VK_SHADER_STAGE_FRAGMENT_BIT, it doesn't fit us
@@ -1012,6 +1036,23 @@ CMD_remove_script(uint32_t num, const char** args)
   RemoveComponent(&g_context->ecs, Script, entity);
 }
 
+void
+CMD_set_voxel_backend(uint32_t num, const char** args)
+{
+  if (num != 1) {
+    LOG_WARN("command 'set_voxel_backend' accepts only 1 argument; see 'info set_voxel_backend'");
+    return;
+  }
+
+  if (strcmp(args[0], "indirect") == 0) {
+    SetVoxelBackend_Indirect(&g_context->vox_drawer, &g_context->vox_allocator, &g_context->deletion_queue);
+  } else if (strcmp(args[0], "classic") == 0) {
+    SetVoxelBackend_Slow(&g_context->vox_drawer, &g_context->vox_allocator, &g_context->deletion_queue);
+  } else {
+    LOG_WARN("undefined backend '%s'", args[0]);
+  }
+}
+
 
 /// pipeline creation
 
@@ -1068,7 +1109,7 @@ void CreateTrianglePipeline(Pipeline_Desc* description)
   };
 }
 
-void CreateVoxelPipeline(Pipeline_Desc* description)
+void CreateVoxelPipeline1(Pipeline_Desc* description)
 {
   static VkPipelineColorBlendAttachmentState colorblend_attachment = {
     .blendEnable = VK_FALSE,
@@ -1095,15 +1136,41 @@ void CreateVoxelPipeline(Pipeline_Desc* description)
     .subpass = 0,
     .marker = "forward/voxel-pipeline"
   };
-  #if VX_USE_INDIRECT
-  PipelineVoxelVertices2(&description->vertex_attributes, &description->vertex_attribute_count,
-                        &description->vertex_bindings, &description->vertex_binding_count,
-                        1);
-  #else
   PipelineVoxelVertices1(&description->vertex_attributes, &description->vertex_attribute_count,
                         &description->vertex_bindings, &description->vertex_binding_count,
                         1);
-  #endif
+}
+
+void CreateVoxelPipeline2(Pipeline_Desc* description)
+{
+  static VkPipelineColorBlendAttachmentState colorblend_attachment = {
+    .blendEnable = VK_FALSE,
+    .colorWriteMask = VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT,
+  };
+  static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+
+  *description = (Pipeline_Desc) {
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .cullMode = VK_CULL_MODE_NONE,
+    // .cullMode = VK_CULL_MODE_FRONT_BIT,
+    .depth_bias_enable = VK_FALSE,
+    .msaa_samples = g_context->forward_pass.msaa_samples,
+    .depth_test = VK_TRUE,
+    .depth_write = VK_TRUE,
+    .depth_compare_op = VK_COMPARE_OP_GREATER,
+    .blend_logic_enable = VK_FALSE,
+    .attachment_count = 1,
+    .attachments = &colorblend_attachment,
+    .dynamic_state_count = ARR_SIZE(dynamic_states),
+    .dynamic_states = dynamic_states,
+    .render_pass = g_context->forward_pass.render_pass,
+    .subpass = 0,
+    .marker = "forward/voxel-pipeline"
+  };
+  PipelineVoxelVertices2(&description->vertex_attributes, &description->vertex_attribute_count,
+                        &description->vertex_bindings, &description->vertex_binding_count,
+                        1);
 }
 
 void CreateShadowPipeline(Pipeline_Desc* description)

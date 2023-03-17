@@ -70,6 +70,7 @@ typedef struct {
   int flags;
 
 } Mesh_Pass;
+DECLARE_COMPONENT(Mesh_Pass);
 
 typedef struct {
 
@@ -149,7 +150,8 @@ typedef struct {
   void (*regenerate_mesh_func)(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid);
   void (*push_mesh_func)(void* backend, ECS* ecs, EID entity);
   uint32_t (*render_voxels_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, size_t num_draws);
-  void (*destroy_func)(void* backend, Allocator* allocator);
+  void (*cull_pass_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes, VkPipelineLayout layout, size_t num_draws);
+  void (*destroy_func)(void* backend, Allocator* allocator, Deletion_Queue* dq);
 
 } Voxel_Drawer;
 
@@ -611,25 +613,21 @@ CreateVoxelBackend_Slow(void* backend, Video_Memory* cpu_memory, Allocator* allo
 #endif
   VkMemoryRequirements requirements;
   MergeMemoryRequirements(buffer_requirements, ARR_SIZE(buffer_requirements), &requirements);
-  // try to allocate device local memory accessible from CPU
-  // TODO: don't reallocate if we don't have to
   const VkMemoryPropertyFlags required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  err = AllocateVideoMemory(cpu_memory, requirements.size,
-                            required_flags|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                            requirements.memoryTypeBits,
-                            "voxel-drawer/memory");
+  // try to allocate GPU memory accessible from CPU because it's fast
+  err = ReallocateMemoryIfNeeded(cpu_memory, &requirements,
+                                 required_flags|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 "voxel-drawer/memory");
   if (err != VK_SUCCESS) {
-    // if failed try to allocate any memory accessible from CPU
-    err = AllocateVideoMemory(cpu_memory, requirements.size,
-                              required_flags,
-                              requirements.memoryTypeBits,
-                              "voxel-drawer/memory");
+    // didn't succeed, fallback to 'slow' memory
+    err = ReallocateMemoryIfNeeded(cpu_memory, &requirements,
+                                   required_flags, "voxel-drawer/memory");
     if (err != VK_SUCCESS) {
       LOG_ERROR("failed to allocate video memory for voxels with error %s", ToString_VkResult(err));
       return err;
     }
   }
-  LOG_TRACE("allocated %u bytes for voxels", (uint32_t)requirements.size);
+
   // bind buffers to allocated memory
 #define BIND_BUFFER(memory, buffer, requirements, mapped) do {          \
     err = BufferBindToMemory(memory, drawer->buffer,                    \
@@ -857,14 +855,33 @@ RenderVoxels_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
 }
 
 INTERNAL void
-DestroyVoxel_Slow(void* backend, Allocator* allocator)
+CullPass_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes, VkPipelineLayout layout,
+              size_t num_draws)
+{
+  // do nothing, culling happens when submitting draws
+  (void)backend;
+  (void)cmd;
+  (void)mesh_passes;
+  (void)num_passes;
+  (void)layout;
+  (void)num_draws;
+}
+
+INTERNAL void
+DestroyVoxel_Slow(void* backend, Allocator* allocator, Deletion_Queue* dq)
 {
   Voxel_Backend_Slow* drawer = backend;
   FreeAllocation(allocator, drawer->meshes);
   FreeAllocation(allocator, drawer->draws);
-  vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
-  vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
-  vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
+  if (dq == NULL) {
+    vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
+    vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
+    vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
+  } else {
+    AddForDeletion(dq, (uint64_t)drawer->index_buffer, VK_OBJECT_TYPE_BUFFER);
+    AddForDeletion(dq, (uint64_t)drawer->transform_buffer, VK_OBJECT_TYPE_BUFFER);
+    AddForDeletion(dq, (uint64_t)drawer->vertex_buffer, VK_OBJECT_TYPE_BUFFER);
+  }
 }
 
 
@@ -904,6 +921,7 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                 "voxel-drawer/vertex-count-buffer");
 #undef CREATE_BUFFER
+
   VkMemoryRequirements cpu_requirements[4];
   vkGetBufferMemoryRequirements(g_device->logical_device,
                                 drawer->vertex_buffer, &cpu_requirements[0]);
@@ -915,24 +933,18 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
                                 drawer->storage_buffer, &cpu_requirements[3]);
   VkMemoryRequirements requirements;
   MergeMemoryRequirements(cpu_requirements, ARR_SIZE(cpu_requirements), &requirements);
-  // try to allocate device local memory accessible from CPU
   const VkMemoryPropertyFlags required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  err = AllocateVideoMemory(cpu_memory, requirements.size,
-                            required_flags|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                            requirements.memoryTypeBits,
-                            "voxel-drawer/memory");
+  err = ReallocateMemoryIfNeeded(cpu_memory, &requirements,
+                                 required_flags|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 "voxel-drawer/memory");
   if (err != VK_SUCCESS) {
-    // if failed try to allocate any memory accessible from CPU
-    err = AllocateVideoMemory(cpu_memory, requirements.size,
-                              required_flags,
-                              requirements.memoryTypeBits,
-                              "voxel-drawer/memory");
+    err = ReallocateMemoryIfNeeded(cpu_memory, &requirements,
+                                   required_flags, "voxel-drawer/memory");
     if (err != VK_SUCCESS) {
       LOG_ERROR("failed to allocate video memory for voxels with error %s", ToString_VkResult(err));
       return err;
     }
   }
-  LOG_TRACE("allocated %u bytes for voxels at CPU side", (uint32_t)requirements.size);
 
   VkMemoryRequirements gpu_requirements[2];
   // allocate device local memory for buffers that we will not be accessing from CPU
@@ -941,15 +953,13 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
   vkGetBufferMemoryRequirements(g_device->logical_device,
                                 drawer->vertex_count_buffer, &gpu_requirements[1]);
   MergeMemoryRequirements(gpu_requirements, 2, &requirements);
-  err = AllocateVideoMemory(gpu_memory, requirements.size,
-                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                            requirements.memoryTypeBits,
-                            "voxel-drawer/fast-memory");
+  err = ReallocateMemoryIfNeeded(gpu_memory, &requirements,
+                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 "voxel-drawer/fast-memory");
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to allocate video memory for voxels with error %s", ToString_VkResult(err));
     return err;
   }
-  LOG_TRACE("allocated %u bytes for voxels at GPU side", (uint32_t)requirements.size);
 
   // bind buffers to allocated memory
 #define BIND_BUFFER(memory, buffer, requirements, mapped) do {          \
@@ -1122,16 +1132,53 @@ RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_
 }
 
 INTERNAL void
-DestroyVoxel_Indirect(void* backend, Allocator* allocator)
+CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes,
+                  VkPipelineLayout layout, size_t num_draws)
+{
+  Voxel_Backend_Indirect* drawer = backend;
+  struct {
+    Vec3 camera_front;
+    uint32_t cull_mask;
+    Vec3 camera_position;
+    uint32_t out_offset;
+    uint32_t in_offset;
+    uint32_t num_draws;
+  } push_constant;
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout,
+                          0, 1, &drawer->ds_set, 0, NULL);
+  for (uint32_t i = 0; i < num_passes; i++) {
+    push_constant.cull_mask = mesh_passes[i].cull_mask;
+    push_constant.camera_front = mesh_passes[i].camera_dir;
+    push_constant.camera_position = mesh_passes[i].camera_pos;
+    push_constant.out_offset = Log2_u32(mesh_passes[i].cull_mask) * num_draws;
+    push_constant.in_offset = drawer->draw_offset - num_draws;
+    push_constant.num_draws = num_draws;
+    vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                       0, sizeof(push_constant), &push_constant);
+    vkCmdDispatch(cmd, (num_draws+63) / 64, 1, 1);
+  }
+}
+
+INTERNAL void
+DestroyVoxel_Indirect(void* backend, Allocator* allocator, Deletion_Queue* dq)
 {
   (void)allocator;
   Voxel_Backend_Indirect* drawer = backend;
-  vkDestroyBuffer(g_device->logical_device, drawer->vertex_count_buffer, NULL);
-  vkDestroyBuffer(g_device->logical_device, drawer->indirect_buffer, NULL);
-  vkDestroyBuffer(g_device->logical_device, drawer->storage_buffer, NULL);
-  vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
-  vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
-  vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
+  if (dq == NULL) {
+    vkDestroyBuffer(g_device->logical_device, drawer->vertex_count_buffer, NULL);
+    vkDestroyBuffer(g_device->logical_device, drawer->indirect_buffer, NULL);
+    vkDestroyBuffer(g_device->logical_device, drawer->storage_buffer, NULL);
+    vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
+    vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
+    vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
+  } else {
+    AddForDeletion(dq, (uint64_t)drawer->vertex_count_buffer, VK_OBJECT_TYPE_BUFFER);
+    AddForDeletion(dq, (uint64_t)drawer->indirect_buffer, VK_OBJECT_TYPE_BUFFER);
+    AddForDeletion(dq, (uint64_t)drawer->storage_buffer, VK_OBJECT_TYPE_BUFFER);
+    AddForDeletion(dq, (uint64_t)drawer->index_buffer, VK_OBJECT_TYPE_BUFFER);
+    AddForDeletion(dq, (uint64_t)drawer->transform_buffer, VK_OBJECT_TYPE_BUFFER);
+    AddForDeletion(dq, (uint64_t)drawer->vertex_buffer, VK_OBJECT_TYPE_BUFFER);
+  }
 }
 
 
@@ -1140,9 +1187,17 @@ DestroyVoxel_Indirect(void* backend, Allocator* allocator)
 INTERNAL VkResult
 SetVoxelBackend_Slow(Voxel_Drawer* drawer, Allocator* allocator, Deletion_Queue* dq)
 {
-  if (dq) {
-    // TODO: destroy old backend
+  // HACK: this works for now, but we'd want to do something better
+  FOREACH_COMPONENT(Voxel_Cached) {
+    components[i].first_vertex = UINT32_MAX;
   }
+
+  if (dq) {
+    drawer->clear_cache_func(&drawer->backend);
+    drawer->destroy_func(&drawer->backend, allocator, dq);
+  }
+  ResetVideoMemory(&drawer->cpu_memory);
+  ResetVideoMemory(&drawer->gpu_memory);
   VkResult err = CreateVoxelBackend_Slow(&drawer->backend, &drawer->cpu_memory, allocator, drawer->max_vertices, drawer->max_draws);
   if (err != VK_SUCCESS)
     return err;
@@ -1152,18 +1207,27 @@ SetVoxelBackend_Slow(Voxel_Drawer* drawer, Allocator* allocator, Deletion_Queue*
   drawer->regenerate_mesh_func = RegenerateVoxel_Slow;
   drawer->push_mesh_func = PushMeshVoxel_Slow;
   drawer->render_voxels_func = RenderVoxels_Slow;
+  drawer->cull_pass_func = CullPass_Slow;
   drawer->destroy_func = DestroyVoxel_Slow;
 
+  LOG_INFO("classic voxel drawing backend set");
   return err;
 }
 
 INTERNAL VkResult
 SetVoxelBackend_Indirect(Voxel_Drawer* drawer, Allocator* allocator, Deletion_Queue* dq)
 {
-  (void)allocator;
-  if (dq) {
-    // TODO: destroy old backend
+  // HACK: this works for now, but we'd want to do something better
+  FOREACH_COMPONENT(Voxel_Cached) {
+    components[i].first_vertex = UINT32_MAX;
   }
+
+  if (dq) {
+    drawer->clear_cache_func(&drawer->backend);
+    drawer->destroy_func(&drawer->backend, allocator, dq);
+  }
+  ResetVideoMemory(&drawer->cpu_memory);
+  ResetVideoMemory(&drawer->gpu_memory);
   VkResult err = CreateVoxelBackend_Indirect(&drawer->backend, &drawer->cpu_memory, &drawer->gpu_memory, drawer->max_vertices, drawer->max_draws);
   if (err != VK_SUCCESS)
     return err;
@@ -1173,8 +1237,10 @@ SetVoxelBackend_Indirect(Voxel_Drawer* drawer, Allocator* allocator, Deletion_Qu
   drawer->regenerate_mesh_func = RegenerateVoxel_Indirect;
   drawer->push_mesh_func = PushMeshVoxel_Indirect;
   drawer->render_voxels_func = RenderVoxels_Indirect;
+  drawer->cull_pass_func = CullPass_Indirect;
   drawer->destroy_func = DestroyVoxel_Indirect;
 
+  LOG_INFO("indirect voxel drawing backend set");
   return err;
 }
 
@@ -1187,6 +1253,8 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
 #if VX_USE_INDICES
   drawer->max_indices = max_vertices * 3 / 2;
 #endif
+  drawer->cpu_memory.handle = VK_NULL_HANDLE;
+  drawer->gpu_memory.handle = VK_NULL_HANDLE;
 
   // use fast backend by default
   VkResult err = SetVoxelBackend_Indirect(drawer, allocator, NULL);
@@ -1198,7 +1266,7 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator, uint32_t max_verti
 INTERNAL void
 DestroyVoxelDrawer(Voxel_Drawer* drawer, Allocator* allocator)
 {
-  drawer->destroy_func(&drawer->backend, allocator);
+  drawer->destroy_func(&drawer->backend, allocator, NULL);
   FreeVideoMemory(&drawer->gpu_memory);
   FreeVideoMemory(&drawer->cpu_memory);
 }
@@ -1315,25 +1383,20 @@ CalculateVoxelGridOBB(const Voxel_Grid* grid, const Transform* transform, OBB* o
 }
 
 INTERNAL void
-MeshPass(VkCommandBuffer cmd, Voxel_Drawer* drawer, const Mesh_Pass* mesh_pass, VkPipelineLayout pipeline_layout)
+CullPass(VkCommandBuffer cmd, Voxel_Drawer* drawer, const Mesh_Pass* mesh_passes, uint32_t num_passes, VkPipelineLayout pipeline_layout)
 {
-  struct {
-    Vec3 camera_front;
-    uint32_t cull_mask;
-    Vec3 camera_position;
-    uint32_t out_offset;
-    uint32_t in_offset;
-    uint32_t num_draws;
-  } push_constant;
-  push_constant.cull_mask = mesh_pass->cull_mask;
-  push_constant.camera_front = mesh_pass->camera_dir;
-  push_constant.camera_position = mesh_pass->camera_pos;
-  push_constant.out_offset = Log2_u32(mesh_pass->cull_mask) * drawer->num_draws;
-  push_constant.in_offset = drawer->backend.indirect.draw_offset - drawer->num_draws;
-  push_constant.num_draws = drawer->num_draws;
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout,
-                          0, 1, &drawer->backend.indirect.ds_set, 0, NULL);
-  vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                     0, sizeof(push_constant), &push_constant);
-  vkCmdDispatch(cmd, (drawer->num_draws+63) / 64, 1, 1);
+  drawer->cull_pass_func(&drawer->backend, cmd, mesh_passes, num_passes, pipeline_layout, drawer->num_draws);
+}
+
+// CLEANUP: remove following 2 functions
+INTERNAL int
+IsUsingClassicVoxelBackend(Voxel_Drawer* drawer)
+{
+  return drawer->destroy_func == DestroyVoxel_Slow;
+}
+
+INTERNAL int
+IsUsingIndirectVoxelBackend(Voxel_Drawer* drawer)
+{
+  return drawer->destroy_func == DestroyVoxel_Indirect;
 }

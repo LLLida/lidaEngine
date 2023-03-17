@@ -454,6 +454,7 @@ INTERNAL void CMD_make_voxel_change(uint32_t num, const char** args);
 INTERNAL void CMD_spawn_sphere(uint32_t num, const char** args);
 INTERNAL void CMD_spawn_cube(uint32_t num, const char** args);
 INTERNAL void CMD_remove_script(uint32_t num, const char** args);
+INTERNAL void CMD_set_voxel_backend(uint32_t num, const char** args);
 
 
 /// public functions
@@ -544,6 +545,10 @@ InitConsole()
               " R, G, B - color components of cube.\n"
               " X, Y, Z - position in global space.\n"
               " S - scale.");
+  ADD_COMMAND(set_voxel_backend,
+              "set_voxel_backend BACKEND\n"
+              " Set voxel rendering backend.\n"
+              " BACKEND can either be 'indirect' or 'classic'.");
 }
 
 INTERNAL void
