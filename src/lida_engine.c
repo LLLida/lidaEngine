@@ -192,6 +192,7 @@ EngineInit(const Engine_Startup_Info* info)
 #define ADD_PIPELINE(pipeline, shader) AddComputePipelineComponent(g_ecs, g_asset_manager, pipeline, \
                                                                    shader, g_deletion_queue)
   ADD_PIPELINE(g_vox_drawer->pipeline_compute, "vox_cull_ortho.comp.spv");
+  ADD_PIPELINE(g_vox_drawer->pipeline_compute_ext, "vox_cull_ext.comp.spv");
 
   CreateDebugDrawer(&g_context->debug_drawer, 1024);
 

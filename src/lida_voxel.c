@@ -8,6 +8,7 @@
 typedef uint8_t Voxel;
 #define VX_USE_INDICES 1
 #define VX_USE_CULLING 1
+#define MAX_MESH_PASSES 8
 
 // stores voxels as plain 3D array
 typedef struct {
@@ -159,6 +160,7 @@ typedef struct {
   EID pipeline_indirect;
   EID pipeline_shadow;
   EID pipeline_compute;
+  EID pipeline_compute_ext;
 
 } Voxel_Drawer;
 
@@ -915,6 +917,7 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
       break;
     }
   }
+
 #if !VX_USE_INDICES
   Assert(0 && "Indirect drawing without index buffers is not implemented.");
 #endif
@@ -935,11 +938,14 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT, "voxel-draw/index-buffer");
   CREATE_BUFFER(storage_buffer, max_draws * sizeof(VX_Draw_Data),
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "voxel-drawer/storage-buffer");
-  // NOTE: 32 is max number of passes
-  CREATE_BUFFER(indirect_buffer, 32 * max_draws * 32/*sizeof(VkDrawIndexedIndirectCommand)*/,
-                VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                "voxel-drawer/indirect-buffer");
-  CREATE_BUFFER(vertex_count_buffer, 32 * max_draws * sizeof(VX_Vertex_Count),
+  uint32_t indirect_flags = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  if (drawer->enabled_KHR_draw_indirect_count) {
+    // we'll be using vkCmdFillBuffer for filling this buffer with zeros
+    indirect_flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  }
+  CREATE_BUFFER(indirect_buffer, MAX_MESH_PASSES * max_draws * 32/*sizeof(VkDrawIndexedIndirectCommand)*/,
+                indirect_flags, "voxel-drawer/indirect-buffer");
+  CREATE_BUFFER(vertex_count_buffer, MAX_MESH_PASSES * max_draws * sizeof(VX_Vertex_Count),
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                 "voxel-drawer/vertex-count-buffer");
 #undef CREATE_BUFFER
@@ -1000,24 +1006,25 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
 #undef BIND_BUFFER
 
   // create descriptor set
-  VkDescriptorSetLayoutBinding bindings[4];
-  for (uint32_t i = 0; i < ARR_SIZE(bindings); i++)
+  VkDescriptorSetLayoutBinding bindings[5];
+  const uint32_t count = (drawer->enabled_KHR_draw_indirect_count) ? 5 : 4;
+  for (uint32_t i = 0; i < count; i++)
     bindings[i] = (VkDescriptorSetLayoutBinding) {
       .binding = i,
       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
       .descriptorCount = 1,
       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
     };
-  err = AllocateDescriptorSets(bindings, ARR_SIZE(bindings), &drawer->ds_set, 1, 0, "voxel/cull-set");
+  err = AllocateDescriptorSets(bindings, count, &drawer->ds_set, 1, 0, "voxel/cull-set");
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to allocate descriptor set with error %s", ToString_VkResult(err));
     return err;
   }
   // update descriptor set
-  VkWriteDescriptorSet write_sets[4];
-  VkDescriptorBufferInfo buffer_infos[4];
-  VkBuffer buffers[] = { drawer->storage_buffer, drawer->transform_buffer, drawer->indirect_buffer, drawer->vertex_count_buffer };
-  for (size_t i = 0; i < ARR_SIZE(write_sets); i++) {
+  VkWriteDescriptorSet write_sets[5];
+  VkDescriptorBufferInfo buffer_infos[5];
+  VkBuffer buffers[] = { drawer->storage_buffer, drawer->transform_buffer, drawer->indirect_buffer, drawer->vertex_count_buffer, drawer->indirect_buffer };
+  for (size_t i = 0; i < count; i++) {
     buffer_infos[i] = (VkDescriptorBufferInfo) {
       .buffer = buffers[i],
       .offset = 0,
@@ -1032,7 +1039,7 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
       .pBufferInfo = &buffer_infos[i]
     };
   }
-  UpdateDescriptorSets(write_sets, ARR_SIZE(write_sets));
+  UpdateDescriptorSets(write_sets, count);
 
   return err;
 }
@@ -1144,16 +1151,29 @@ RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_
   // bind pipeline
   cmdBindGraphics(cmd, prog, num_sets, sets);
 
-  // submit draw commands
-  uint32_t draw_calls = num_draws * 3;
-  // HACK: I hate std140
-  const uint32_t stride = 32;
-  uint32_t offset = Log2_u32(mesh_pass->cull_mask) * draw_calls * stride;
-  VkBuffer buffer = drawer->indirect_buffer;
-  vkCmdDrawIndexedIndirect(cmd, buffer,
-                           offset,
-                           draw_calls,
-                           stride);
+  if (!drawer->enabled_KHR_draw_indirect_count) {
+    // submit draw commands
+    uint32_t draw_calls = num_draws * 3;
+    // HACK: I hate std140
+    const uint32_t stride = 32;
+    uint32_t offset = Log2_u32(mesh_pass->cull_mask) * draw_calls * stride;
+    VkBuffer buffer = drawer->indirect_buffer;
+    vkCmdDrawIndexedIndirect(cmd, buffer,
+                             offset,
+                             draw_calls,
+                             stride);
+  } else {
+    uint32_t draw_calls = num_draws * 5;
+    // HACK: I hate std140
+    const uint32_t stride = 32;
+    uint32_t offset = Log2_u32(mesh_pass->cull_mask) * draw_calls * stride;
+    uint32_t count_offset = MAX_MESH_PASSES * draw_calls * stride +
+      Log2_u32(mesh_pass->cull_mask) * 16; // 16 stands for stride. I don't now why uints should be padded 16 but ok, fine, I'm not angry
+    vkCmdDrawIndexedIndirectCountKHR(cmd,
+                                     drawer->indirect_buffer, offset,
+                                     drawer->indirect_buffer, count_offset,
+                                     draw_calls, stride);
+  }
   return 1;
 }
 
@@ -1163,33 +1183,62 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
 {
   Voxel_Backend_Indirect* drawer = backend;
   Compute_Pipeline* prog = GetComponent(Compute_Pipeline, pipeline);
-  struct {
-    Vec3 camera_front;
-    uint32_t cull_mask;
-    Vec3 camera_position;
-    uint32_t out_offset;
-    uint32_t in_offset;
-    uint32_t num_draws;
-  } push_constant;
-  cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
-  for (uint32_t i = 0; i < num_passes; i++) {
-    push_constant.cull_mask = mesh_passes[i].cull_mask;
-    push_constant.camera_front = mesh_passes[i].camera_dir;
-    push_constant.camera_position = mesh_passes[i].camera_pos;
-    push_constant.out_offset = Log2_u32(mesh_passes[i].cull_mask) * num_draws;
-    push_constant.in_offset = drawer->draw_offset - num_draws;
-    push_constant.num_draws = num_draws;
-    vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(push_constant), &push_constant);
-    vkCmdDispatch(cmd, (num_draws+63) / 64, 1, 1);
+  if (drawer->enabled_KHR_draw_indirect_count) {
+    // fill draw counts with 0
+    uint32_t dst_offset = MAX_MESH_PASSES * num_draws * 5 * 32;
+    const uint32_t uint_stride = 16;
+    vkCmdFillBuffer(cmd, drawer->indirect_buffer, dst_offset, MAX_MESH_PASSES * uint_stride, 0);
+    cmdExecutionBarrier(cmd,
+                        VK_PIPELINE_STAGE_TRANSFER_BIT,
+                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+    struct {
+      Vec3 camera_front;
+      uint32_t cull_mask;
+      Vec3 camera_position;
+      uint32_t pass_id;
+      uint32_t out_offset;
+      uint32_t in_offset;
+      uint32_t num_draws;
+    } push_constant;
+    cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
+    for (uint32_t i = 0; i < num_passes; i++) {
+      push_constant.cull_mask = mesh_passes[i].cull_mask;
+      push_constant.camera_front = mesh_passes[i].camera_dir;
+      push_constant.camera_position = mesh_passes[i].camera_pos;
+      push_constant.pass_id = dst_offset / uint_stride + Log2_u32(mesh_passes[i].cull_mask);
+      push_constant.out_offset = Log2_u32(mesh_passes[i].cull_mask) * num_draws;
+      push_constant.in_offset = drawer->draw_offset - num_draws;
+      push_constant.num_draws = num_draws;
+      vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                         0, sizeof(push_constant), &push_constant);
+      vkCmdDispatch(cmd, (num_draws+63) / 64, 1, 1);
+    }
+  } else {
+    struct {
+      Vec3 camera_front;
+      uint32_t cull_mask;
+      Vec3 camera_position;
+      uint32_t out_offset;
+      uint32_t in_offset;
+      uint32_t num_draws;
+    } push_constant;
+    cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
+    for (uint32_t i = 0; i < num_passes; i++) {
+      push_constant.cull_mask = mesh_passes[i].cull_mask;
+      push_constant.camera_front = mesh_passes[i].camera_dir;
+      push_constant.camera_position = mesh_passes[i].camera_pos;
+      push_constant.out_offset = Log2_u32(mesh_passes[i].cull_mask) * num_draws;
+      push_constant.in_offset = drawer->draw_offset - num_draws;
+      push_constant.num_draws = num_draws;
+      vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                         0, sizeof(push_constant), &push_constant);
+      vkCmdDispatch(cmd, (num_draws+63) / 64, 1, 1);
+    }
   }
-  vkCmdPipelineBarrier(cmd,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                       VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                       0,
-                       0, NULL,
-                       0, NULL,
-                       0, NULL);
+  cmdExecutionBarrier(cmd,
+                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                      VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT);
 }
 
 INTERNAL void
@@ -1295,6 +1344,8 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
   drawer->pipeline_classic = CreateEntity(g_ecs);
   drawer->pipeline_indirect = CreateEntity(g_ecs);
   drawer->pipeline_shadow = CreateEntity(g_ecs);
+  drawer->pipeline_compute = CreateEntity(g_ecs);
+  drawer->pipeline_compute_ext = CreateEntity(g_ecs);
 
   return err;
 }
@@ -1432,7 +1483,11 @@ CalculateVoxelGridOBB(const Voxel_Grid* grid, const Transform* transform, OBB* o
 INTERNAL void
 CullPass(VkCommandBuffer cmd, Voxel_Drawer* drawer, const Mesh_Pass* mesh_passes, uint32_t num_passes)
 {
-  drawer->cull_pass_func(&drawer->backend, cmd, mesh_passes, num_passes, drawer->pipeline_compute, drawer->num_draws);
+  EID pipeline = drawer->pipeline_compute;
+  if (drawer->cull_pass_func == CullPass_Indirect && drawer->backend.indirect.enabled_KHR_draw_indirect_count) {
+    pipeline = drawer->pipeline_compute_ext;
+  }
+  drawer->cull_pass_func(&drawer->backend, cmd, mesh_passes, num_passes, pipeline, drawer->num_draws);
 }
 
 INTERNAL void

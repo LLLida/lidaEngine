@@ -894,6 +894,15 @@ UpdateDeletionQueue(Deletion_Queue* dq)
   }
 }
 
+INTERNAL void
+cmdExecutionBarrier(VkCommandBuffer cmd, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage)
+{
+  vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0,
+                       0, NULL,
+                       0, NULL,
+                       0, NULL);
+}
+
 INTERNAL VkResult
 CreateDebugDrawer(Debug_Drawer* drawer, uint32_t max_vertices)
 {
