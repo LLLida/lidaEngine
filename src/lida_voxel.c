@@ -151,13 +151,14 @@ typedef struct {
   void (*clear_cache_func)(void* backend);
   void (*regenerate_mesh_func)(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid);
   void (*push_mesh_func)(void* backend, ECS* ecs, EID entity);
-  uint32_t (*render_voxels_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, size_t num_draws);
-  void (*cull_pass_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes, VkPipelineLayout layout, size_t num_draws);
+  uint32_t (*render_voxels_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, uint32_t num_sets, VkDescriptorSet* sets, size_t num_draws);
+  void (*cull_pass_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes, EID pipeline, size_t num_draws);
   void (*destroy_func)(void* backend, Deletion_Queue* dq);
 
   EID pipeline_classic;
   EID pipeline_indirect;
   EID pipeline_shadow;
+  EID pipeline_compute;
 
 } Voxel_Drawer;
 
@@ -582,6 +583,7 @@ CreateVoxelBackend_Slow(void* backend, Video_Memory* cpu_memory, uint32_t max_ve
 {
   Voxel_Backend_Slow* drawer = backend;
   drawer->vertex_offset = 0;
+  drawer->transform_offset = 0;
   drawer->draws = DoAllocation(g_vox_allocator, 6 * max_draws * sizeof(VX_Draw_Command),
                                "voxel-draws");
   drawer->meshes = DoAllocation(g_vox_allocator, max_draws * sizeof(EID),
@@ -774,7 +776,7 @@ PushMeshVoxel_Slow(void* backend, ECS* ecs, EID entity)
 }
 
 INTERNAL uint32_t
-RenderVoxels_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, size_t num_draws)
+RenderVoxels_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, uint32_t num_sets, VkDescriptorSet* sets, size_t num_draws)
 {
   Voxel_Backend_Slow* drawer = backend;
   (void)num_draws; // FIXME: maybe we should get rid of num_draws argument
@@ -787,6 +789,8 @@ RenderVoxels_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
 #if VX_USE_INDICES
   vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
 #endif
+
+  cmdBindGraphics(cmd, prog, num_sets, sets);
 
   VX_Draw_Command* draws = drawer->draws->ptr;
 #if VX_USE_CULLING
@@ -865,7 +869,7 @@ RenderVoxels_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
 }
 
 INTERNAL void
-CullPass_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes, VkPipelineLayout layout,
+CullPass_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes, EID pipeline,
               size_t num_draws)
 {
   // do nothing, culling happens when submitting draws
@@ -873,7 +877,7 @@ CullPass_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, 
   (void)cmd;
   (void)mesh_passes;
   (void)num_passes;
-  (void)layout;
+  (void)pipeline;
   (void)num_draws;
 }
 
@@ -902,6 +906,7 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
                             uint32_t max_vertices, uint32_t max_draws)
 {
   Voxel_Backend_Indirect* drawer = backend;
+  drawer->transform_offset = 0;
   drawer->vertex_offset = 0;
   drawer->enabled_KHR_draw_indirect_count = 0;
   for (uint32_t i = 0; i < g_device->num_enabled_device_extensions; i++) {
@@ -1122,10 +1127,10 @@ PushMeshVoxel_Indirect(void* backend, ECS* ecs, EID entity)
 }
 
 INTERNAL uint32_t
-RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, size_t num_draws)
+RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, uint32_t num_sets, VkDescriptorSet* sets, size_t num_draws)
 {
-  (void)pipeline;
   Voxel_Backend_Indirect* drawer = backend;
+  Graphics_Pipeline* prog = GetComponent(Graphics_Pipeline, pipeline);
   // bind buffers
   VkDeviceSize offsets[] = {
     0,
@@ -1135,6 +1140,10 @@ RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_
   VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer, drawer->vertex_count_buffer };
   vkCmdBindVertexBuffers(cmd, 0, (mesh_pass->flags & MESH_PASS_USE_NORMALS) ? 3 : 2, buffers, offsets);
   vkCmdBindIndexBuffer(cmd, drawer->index_buffer, 0, VK_INDEX_TYPE_UINT32);
+
+  // bind pipeline
+  cmdBindGraphics(cmd, prog, num_sets, sets);
+
   // submit draw commands
   uint32_t draw_calls = num_draws * 3;
   // HACK: I hate std140
@@ -1150,9 +1159,10 @@ RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_
 
 INTERNAL void
 CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes,
-                  VkPipelineLayout layout, size_t num_draws)
+                  EID pipeline, size_t num_draws)
 {
   Voxel_Backend_Indirect* drawer = backend;
+  Compute_Pipeline* prog = GetComponent(Compute_Pipeline, pipeline);
   struct {
     Vec3 camera_front;
     uint32_t cull_mask;
@@ -1161,8 +1171,7 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
     uint32_t in_offset;
     uint32_t num_draws;
   } push_constant;
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout,
-                          0, 1, &drawer->ds_set, 0, NULL);
+  cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
   for (uint32_t i = 0; i < num_passes; i++) {
     push_constant.cull_mask = mesh_passes[i].cull_mask;
     push_constant.camera_front = mesh_passes[i].camera_dir;
@@ -1170,10 +1179,17 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
     push_constant.out_offset = Log2_u32(mesh_passes[i].cull_mask) * num_draws;
     push_constant.in_offset = drawer->draw_offset - num_draws;
     push_constant.num_draws = num_draws;
-    vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_COMPUTE_BIT,
+    vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(push_constant), &push_constant);
     vkCmdDispatch(cmd, (num_draws+63) / 64, 1, 1);
   }
+  vkCmdPipelineBarrier(cmd,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                       0,
+                       0, NULL,
+                       0, NULL,
+                       0, NULL);
 }
 
 INTERNAL void
@@ -1312,13 +1328,24 @@ PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
 }
 
 INTERNAL uint32_t
-DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline)
+DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass,
+           uint32_t num_sets, VkDescriptorSet* sets)
 {
-  return drawer->render_voxels_func(&drawer->backend, cmd, mesh_pass, pipeline, drawer->num_draws);
+  EID pipeline;
+  if (mesh_pass->flags & MESH_PASS_USE_NORMALS) {
+    // TODO: find a better way to specify pipeline
+    if (drawer->render_voxels_func == RenderVoxels_Slow) {
+      pipeline = drawer->pipeline_classic;
+    } else {
+      pipeline = drawer->pipeline_indirect;
+    }
+  } else {
+    pipeline = drawer->pipeline_shadow;
+  }
+  return drawer->render_voxels_func(&drawer->backend, cmd, mesh_pass, pipeline,
+                                    num_sets, sets, drawer->num_draws);
 }
 
-// Following 2 functions look extremely dumb... I'm sure there's
-// better way to do the thing, but we have what we have
 INTERNAL void
 PipelineVoxelVertices1(const VkVertexInputAttributeDescription** attributes, uint32_t* num_attributes,
                        const VkVertexInputBindingDescription** bindings, uint32_t* num_bindings,
@@ -1403,22 +1430,9 @@ CalculateVoxelGridOBB(const Voxel_Grid* grid, const Transform* transform, OBB* o
 }
 
 INTERNAL void
-CullPass(VkCommandBuffer cmd, Voxel_Drawer* drawer, const Mesh_Pass* mesh_passes, uint32_t num_passes, VkPipelineLayout pipeline_layout)
+CullPass(VkCommandBuffer cmd, Voxel_Drawer* drawer, const Mesh_Pass* mesh_passes, uint32_t num_passes)
 {
-  drawer->cull_pass_func(&drawer->backend, cmd, mesh_passes, num_passes, pipeline_layout, drawer->num_draws);
-}
-
-// CLEANUP: remove following 2 functions
-INTERNAL int
-IsUsingClassicVoxelBackend(Voxel_Drawer* drawer)
-{
-  return drawer->destroy_func == DestroyVoxel_Slow;
-}
-
-INTERNAL int
-IsUsingIndirectVoxelBackend(Voxel_Drawer* drawer)
-{
-  return drawer->destroy_func == DestroyVoxel_Indirect;
+  drawer->cull_pass_func(&drawer->backend, cmd, mesh_passes, num_passes, drawer->pipeline_compute, drawer->num_draws);
 }
 
 INTERNAL void

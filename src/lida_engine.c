@@ -52,7 +52,6 @@ typedef struct {
   EID rect_pipeline;
   EID triangle_pipeline;
   EID debug_pipeline;
-  EID compute_pipeline;
 
   // fonts
   EID arial_font;
@@ -190,9 +189,9 @@ EngineInit(const Engine_Startup_Info* info)
   ADD_PIPELINE(g_context->debug_pipeline, "debug_draw.vert.spv", "debug_draw.frag.spv", CreateDebugDrawPipeline);
 #undef ADD_PIPELINE
 
-#define ADD_PIPELINE(pipeline, shader) AddComputePipelineComponent(g_ecs, g_asset_manager, g_context->pipeline, \
+#define ADD_PIPELINE(pipeline, shader) AddComputePipelineComponent(g_ecs, g_asset_manager, pipeline, \
                                                                    shader, g_deletion_queue)
-  ADD_PIPELINE(compute_pipeline, "vox_cull_ortho.comp.spv");
+  ADD_PIPELINE(g_vox_drawer->pipeline_compute, "vox_cull_ortho.comp.spv");
 
   CreateDebugDrawer(&g_context->debug_drawer, 1024);
 
@@ -509,21 +508,7 @@ EngineUpdateAndRender()
   VkDescriptorSet ds_set;
   g_context->voxel_draw_calls = 0;
 
-  {
-    Compute_Pipeline* pipeline = GetComponent(Compute_Pipeline, g_context->compute_pipeline);
-    cmdBindCompute(cmd, pipeline, 0, NULL);
-    CullPass(cmd, g_vox_drawer, ComponentData(Mesh_Pass), ComponentCount(Mesh_Pass), pipeline->layout);
-  }
-  if (IsUsingIndirectVoxelBackend(g_vox_drawer)) {
-    // insert execution barrier
-    vkCmdPipelineBarrier(cmd,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-                         0,
-                         0, NULL,
-                         0, NULL,
-                         0, NULL);
-  }
+  CullPass(cmd, g_vox_drawer, ComponentData(Mesh_Pass), ComponentCount(Mesh_Pass));
 
   vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool,
                       TIMESTAMP_SHADOW_PASS_BEGIN);
@@ -533,17 +518,14 @@ EngineUpdateAndRender()
     float depth_bias_constant = *GetVar_Float(g_config, "Render.depth_bias_constant");
     float depth_bias_slope = *GetVar_Float(g_config, "Render.depth_bias_slope");
     vkCmdSetDepthBias(cmd, depth_bias_constant, 0.0f, depth_bias_slope);
-    Graphics_Pipeline* prog = GetComponent(Graphics_Pipeline, g_vox_drawer->pipeline_shadow);
-    ds_set = g_shadow_pass->scene_data_set;
-    cmdBindGraphics(cmd, prog, 1, &ds_set);
     g_context->voxel_draw_calls += DrawVoxels(g_vox_drawer, cmd, GetComponent(Mesh_Pass, g_context->shadow_cull),
-                                              g_vox_drawer->pipeline_shadow);
+                                              1, &g_shadow_pass->scene_data_set);
   }
   vkCmdEndRenderPass(cmd);
 
   vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool,
                       TIMESTAMP_FORWARD_PASS_BEGIN);
-  // render to offscreen buffer
+  // render scene to offscreen framebuffer
   float clear_color[4] = { 0.08f, 0.2f, 0.25f, 1.0f };
   BeginForwardPass(g_forward_pass, cmd, clear_color);
   {
@@ -569,17 +551,9 @@ EngineUpdateAndRender()
                        0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     // draw voxels
-    EID voxel_pipeline;
-    if (IsUsingIndirectVoxelBackend(g_vox_drawer)) {
-      voxel_pipeline = g_vox_drawer->pipeline_indirect;
-    } else {
-      voxel_pipeline = g_vox_drawer->pipeline_classic;
-    }
-    prog = GetComponent(Graphics_Pipeline, voxel_pipeline);
     VkDescriptorSet ds_sets[] = { ds_set, g_shadow_pass->shadow_set };
-    cmdBindGraphics(cmd, prog, ARR_SIZE(ds_sets), ds_sets);
     g_context->voxel_draw_calls += DrawVoxels(g_vox_drawer, cmd, GetComponent(Mesh_Pass, g_context->main_cull),
-                                              voxel_pipeline);
+                                              ARR_SIZE(ds_sets), ds_sets);
     // draw debug lines
     prog = GetComponent(Graphics_Pipeline, g_context->debug_pipeline);
     // NOTE: forward_pass's descriptor set has VK_SHADER_STAGE_FRAGMENT_BIT, it doesn't fit us
