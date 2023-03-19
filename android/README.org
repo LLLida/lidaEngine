@@ -1,0 +1,37 @@
+#+AUTHOR: Adil Mokhammad
+#+TITLE: Build instructions for android
+
+* Steps to build
+
+1. Build is done with =Android SDK= and =Android NDK=. Install them.
+
+2. Download SDL2 library source and copy(or symlink) it to =android/app/jni/=.
+
+3. Do the same with FreeType2 library.
+
+4. Symlink =data/= to =android/app/src/main/assets/=.
+
+5. Make sure shaders are compiled running =make= at project root.
+
+6. You're done! Now you can =cd android= and build with following command:
+   #+begin_src sh
+     ./gradlew assembleDebug
+   #+end_src
+
+* Additional information
+
+** Logcat
+
+- see logs from the application:
+  #+begin_src sh
+    adb logcat -s SDL:* lida:*
+  #+end_src
+- clear output from previous runs:
+  #+begin_src sh
+    adb logcat -c
+  #+end_src
+
+** Frequent problems
+
+- can't run =./gradlew installDebug=
+  Enable developer mode.
