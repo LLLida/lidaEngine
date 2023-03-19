@@ -10,3 +10,10 @@ vulkan
 .ccls-cache/
 compile_commands.json
 data/
+# android stuff
+android/local.properties
+android/app/jni/SDL2
+android/app/jni/freetype
+android/app/src/main/assets
+android/.gradle
+android/app/.cxx
