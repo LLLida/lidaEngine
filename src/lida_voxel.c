@@ -1337,9 +1337,13 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
   drawer->cpu_memory.handle = VK_NULL_HANDLE;
   drawer->gpu_memory.handle = VK_NULL_HANDLE;
 
-  // use fast backend by default
-  VkResult err = SetVoxelBackend_Indirect(drawer, NULL);
-  // VkResult err = SetVoxelBackend_Slow(drawer, NULL);
+  VkResult err;
+  // use fast backend if possible
+  if (g_device->features.multiDrawIndirect) {
+    err = SetVoxelBackend_Indirect(drawer, NULL);
+  } else {
+    err = SetVoxelBackend_Slow(drawer, NULL);
+  }
 
   drawer->pipeline_classic = CreateEntity(g_ecs);
   drawer->pipeline_indirect = CreateEntity(g_ecs);

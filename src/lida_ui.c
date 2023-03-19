@@ -136,7 +136,7 @@ CreateBitmapRenderer(Quad_Renderer* renderer)
   VkMemoryRequirements requirements;
   MergeMemoryRequirements(buffer_requirements, ARR_SIZE(buffer_requirements), &requirements);
   err = AllocateVideoMemory(&renderer->cpu_memory, requirements.size,
-                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, requirements.memoryTypeBits,
+                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, requirements.memoryTypeBits,
                             "bitmap/staging-memory");
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to allocate memory for vertex buffer with error '%s'",

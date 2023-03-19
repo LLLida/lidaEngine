@@ -222,7 +222,7 @@ CreateSwapchain(VkPresentModeKHR present_mode)
   // recreate render pass if needed
   if (old_format.format != g_window->format.format) {
     if (g_window->render_pass) vkDestroyRenderPass(g_device->logical_device, g_window->render_pass, NULL);
-    err = CreateMainPass(g_window);
+    err = CreateMainPass();
     if (err != VK_SUCCESS) {
       LOG_ERROR("failed to create render pass with errror %s", ToString_VkResult(err));
       return err;

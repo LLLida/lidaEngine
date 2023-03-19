@@ -364,7 +364,7 @@ VulkanDebugLogCallback(VkDebugReportFlagsEXT flags,
     return 1;
   }
   else if (flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT) {
-    LOG_DEBUG("[Vulkan:%d: %s]: %s\n", code, layer_prefix, msg);
+    LOG_INFO("[Vulkan:%d: %s]: %s\n", code, layer_prefix, msg);
     return 1;
   }
   return 1;
@@ -789,6 +789,15 @@ CreateDevice(int enable_debug_layers, uint32_t gpu_id,
   INIT_HT(pipeline_layout);
 #undef INIT_HT
 
+#if 0
+  // print info about available video memory
+  for (uint32_t i = 0; i < g_device->memory_properties.memoryTypeCount; i++) {
+    LOG_DEBUG("memory heap %u: flags=%u size=%lu", i,
+              g_device->memory_properties.memoryTypes[i].propertyFlags,
+              g_device->memory_properties.memoryHeaps[g_device->memory_properties.memoryTypes[i].heapIndex].size);
+  }
+#endif
+
   return VK_SUCCESS;
  error:
   PersistentRelease(g_device);
@@ -987,11 +996,14 @@ AllocateVideoMemory(Video_Memory* memory, VkDeviceSize size,
 {
   uint32_t best_type = 0;
   for (uint32_t i = 0; i < g_device->memory_properties.memoryTypeCount; i++) {
-    if ((g_device->memory_properties.memoryTypes[i].propertyFlags & flags) &&
+    if ((g_device->memory_properties.memoryTypes[i].propertyFlags & flags) == flags &&
         (1 << i) & memory_type_bits) {
-      uint32_t a = g_device->memory_properties.memoryTypes[i].propertyFlags ^ flags;
+      // NOTE CLEANUP: this seems incorrect
+      /*uint32_t a = g_device->memory_properties.memoryTypes[i].propertyFlags ^ flags;
       uint32_t b = g_device->memory_properties.memoryTypes[best_type].propertyFlags ^ flags;
-      if (a < b) best_type = i;
+      if (a < b) best_type = i;*/
+      best_type = i;
+      break;
     }
   }
   VkMemoryAllocateInfo allocate_info = {
@@ -1098,7 +1110,7 @@ BufferBindToMemory(Video_Memory* memory, VkBuffer buffer,
       if (memory->mapped) {
         *mapped = (char*)memory->mapped + memory->offset;
       } else {
-        LOG_WARN("memory is not mapped, can't access it's contents from CPU");
+        LOG_WARN("memory is not mapped(%p), can't access it's contents from CPU", memory->mapped);
       }
       if (mappedRange) {
         mappedRange->sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
