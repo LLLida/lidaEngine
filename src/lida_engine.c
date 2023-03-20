@@ -17,8 +17,7 @@
 #include "lida_platform.h"
 
 #define LIDA_ENGINE_VERSION 202303
-/* #define INTERNAL static */
-#define INTERNAL
+#define INTERNAL static
 #define GLOBAL static
 
 #include "lida_base.c"
@@ -170,6 +169,9 @@ EngineInit(const Engine_Startup_Info* info)
 
   g_context->prev_time = PlatformGetTicks();
   g_context->curr_time = g_context->prev_time;
+
+  g_random = PersistentAllocate(sizeof(Random_State));
+  SeedRandom(g_random, 420, 420);
 
   const uint32_t max_vertices = 1024*1024;
   const uint32_t max_draws = 32;

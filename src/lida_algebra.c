@@ -423,6 +423,17 @@ QuatFromEulerAngles(float yaw, float pitch, float roll, Quat* q)
 }
 
 INTERNAL void
+QuatFromAxisAngle(const Vec3* axis, float angle, Quat* q)
+{
+  float a = cosf(angle * 0.5f);
+  float b = sinf(angle * 0.5f);
+  q->w = a;
+  q->x = axis->x * b;
+  q->y = axis->y * b;
+  q->z = axis->z * b;
+}
+
+INTERNAL void
 CameraUpdateProjection(Camera* camera)
 {
   PerspectiveMatrix(camera->fovy, camera->aspect_ratio, camera->z_near, &camera->projection_matrix);

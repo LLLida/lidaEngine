@@ -831,6 +831,8 @@ typedef struct {
 
 } Random_State;
 
+Random_State *g_random;
+
 INTERNAL uint32_t
 Random(Random_State* rng)
 {

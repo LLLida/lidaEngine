@@ -455,6 +455,7 @@ INTERNAL void CMD_spawn_sphere(uint32_t num, const char** args);
 INTERNAL void CMD_spawn_cube(uint32_t num, const char** args);
 INTERNAL void CMD_remove_script(uint32_t num, const char** args);
 INTERNAL void CMD_set_voxel_backend(uint32_t num, const char** args);
+INTERNAL void CMD_spawn_random_voxels(uint32_t num, const char** args);
 
 
 /// public functions
@@ -549,6 +550,10 @@ InitConsole()
               "set_voxel_backend BACKEND\n"
               " Set voxel rendering backend.\n"
               " BACKEND can either be 'indirect' or 'classic'.");
+  ADD_COMMAND(spawn_random_voxels,
+              "spawn_random_voxels NUMBER\n"
+              " Spawn NUMBER voxel models rotated and translated randomly.\n"
+              " They can be either spheres or cubes.");
 }
 
 INTERNAL void
@@ -841,16 +846,7 @@ CMD_spawn_sphere(uint32_t num, const char** args)
     int b = atoi(args[3]);
     grid->palette[1] = PACK_COLOR(r, g, b, 255);
   }
-  for (int z = 0; z < radius*2+1; z++)
-    for (int y = 0; y < radius*2+1; y++)
-      for (int x = 0; x < radius*2+1; x++) {
-        int xr = abs(x-radius);
-        int yr = abs(y-radius);
-        int zr = abs(z-radius);
-        if (xr*xr + yr*yr + zr*zr <= radius*radius+1) {
-          GetInVoxelGrid(grid, x, y, z) = 1;
-        }
-      }
+  GenerateVoxelSphere(grid, radius, 1);
   // don't forget to update hash
   grid->hash = HashMemory64(grid->data->ptr, grid->width*grid->height*grid->depth);
   Transform* transform = AddComponent(g_ecs, Transform, entity);
@@ -894,7 +890,7 @@ CMD_spawn_cube(uint32_t num, const char** args)
     int b = atoi(args[5]);
     grid->palette[1] = PACK_COLOR(r, g, b, 255);
   }
-  memset(grid->data->ptr, 1, width*height*depth);
+  FillVoxelGrid(grid, 1);
   // don't forget to update hash
   grid->hash = HashMemory64(grid->data->ptr, grid->width*grid->height*grid->depth);
   Transform* transform = AddComponent(g_ecs, Transform, entity);
@@ -942,5 +938,98 @@ CMD_set_voxel_backend(uint32_t num, const char** args)
     SetVoxelBackend_Slow(g_vox_drawer, g_deletion_queue);
   } else {
     LOG_WARN("undefined backend '%s'", args[0]);
+  }
+}
+
+void
+CMD_spawn_random_voxels(uint32_t num, const char** args)
+{
+  if (num != 1) {
+    LOG_WARN("command spawn_random_voxels accepts only 1 argument; see spawn_random_voxels");
+    return;
+  }
+  enum VOXEL_TYPE {
+    VOXEL_TYPE_SPHERE,
+    VOXEL_TYPE_CUBE,
+    MAX_VOXEL_TYPES,
+  };
+  int number = atoi(args[0]);
+  for (int i = 0; i < number; i++) {
+    enum VOXEL_TYPE type = Random(g_random) % MAX_VOXEL_TYPES;
+    EID entity = CreateEntity(g_ecs);
+    Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, entity);
+    grid->palette[1] = Random(g_random);
+    grid->palette[2] = Random(g_random);
+    // generate voxel data
+    switch (type)
+      {
+      case VOXEL_TYPE_SPHERE:
+        {
+          int radius = Random(g_random) % 15 + 1;
+          AllocateVoxelGrid(g_vox_allocator, grid, radius*2+1, radius*2+1, radius*2+1);
+          GenerateVoxelSphere(grid, radius, 1);
+        }break;
+
+      case VOXEL_TYPE_CUBE:
+        {
+          AllocateVoxelGrid(g_vox_allocator, grid, 16, 16, 16);
+          FillVoxelGrid(grid, 1);
+          int num = Random(g_random)%255;
+          while (num--) {
+            uint32_t r = Random(g_random);
+            // this surely can be written in a shorter way...
+            // but I wan't to get job done
+            switch (r%6)
+              {
+              case 0:
+                GetInVoxelGrid(grid, r&15, (r>>4)&15, 0) = 2;
+                break;
+              case 1:
+                GetInVoxelGrid(grid, r&15, (r>>4)&15, 15) = 2;
+                break;
+              case 2:
+                GetInVoxelGrid(grid, 0, r&15, (r>>4)&15) = 2;
+                break;
+              case 3:
+                GetInVoxelGrid(grid, 15, r&15, (r>>4)&15) = 2;
+                break;
+              case 4:
+                GetInVoxelGrid(grid, r&15, 0, (r>>4)&15) = 2;
+                break;
+              case 5:
+                GetInVoxelGrid(grid, r&15, 15, (r>>4)&15) = 2;
+                break;
+              }
+          }
+        }break;
+
+      default: assert(0);
+      }
+    grid->hash = HashMemory64(grid->data->ptr, grid->width*grid->height*grid->depth);
+    // create transform
+    Transform* transform = AddComponent(g_ecs, Transform, entity);
+    transform->scale = (float)(Random(g_random)%5+1);
+    transform->position.x = (float)(Random(g_random)%63)-36.0f;
+    transform->position.y = (float)(Random(g_random)%10)-0.5f;
+    transform->position.z = (float)(Random(g_random)%63)-36.0f;
+#if 1
+    /*Vec3 rotation;
+    transform->rotation.x = (float)(Random(g_random)%314) / 100.0f;
+    transform->rotation.y = (float)(Random(g_random)%314) / 100.0f;
+    transform->rotation.z = (float)(Random(g_random)%314) / 100.0f;
+    QuatFromEulerAngles(rotation.x, rotation.y, rotation.z, &transform->rotation);*/
+    Vec3 axis;
+    axis.x = (float)(Random(g_random)&255);
+    axis.y = (float)(Random(g_random)&255);
+    axis.z = (float)(Random(g_random)&255);
+    Vec3_Normalize(&axis, &axis);
+    float angle = (float)(Random(g_random)%628) / 100.0f;
+    QuatFromAxisAngle(&axis, angle, &transform->rotation);
+#else
+    transform->rotation = QUAT_IDENTITY();
+#endif
+    // just add OBB
+    AddComponent(g_ecs, OBB, entity);
+    LOG_INFO("spawned at [%.3f %.3f %.3f]", transform->position.x, transform->position.y, transform->position.z);
   }
 }

@@ -1587,3 +1587,34 @@ CreateVoxelPipelineShadow(Pipeline_Desc* description)
                         0);
   ShadowPassViewport(g_shadow_pass, &description->viewport, &description->scissor);
 }
+
+
+/// Voxel generation (procedural or not)
+
+INTERNAL void
+GenerateVoxelSphere(Voxel_Grid* grid, int radius, Voxel fill)
+{
+  if ((int)grid->width != radius*2+1 ||
+      (int)grid->depth != radius*2+1 ||
+      (int)grid->height != radius*2+1) {
+    LOG_WARN("radius doesn't match grid's extents");
+    return;
+  }
+
+  for (int z = 0; z < radius*2+1; z++)
+    for (int y = 0; y < radius*2+1; y++)
+      for (int x = 0; x < radius*2+1; x++) {
+        int xr = abs(x-radius);
+        int yr = abs(y-radius);
+        int zr = abs(z-radius);
+        if (xr*xr + yr*yr + zr*zr <= radius*radius) {
+          GetInVoxelGrid(grid, x, y, z) = fill;
+        }
+      }
+}
+
+INTERNAL void
+FillVoxelGrid(Voxel_Grid* grid, Voxel fill)
+{
+  memset(grid->data->ptr, fill, grid->width*grid->height*grid->depth);
+}
