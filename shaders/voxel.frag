@@ -24,8 +24,6 @@ void main() {
     if (depth > shadow_coord.z) shadow = g.sun_ambient;
   }
 
-  // float shadow = texture(shadow_map, (shadow_coord/shadow_coord.w).xy).r;
-
   float diffuse = max(dot(inNormal, g.sun_dir), 0.0);
 
   vec3 light = (g.sun_ambient + diffuse) * inColor.xyz;

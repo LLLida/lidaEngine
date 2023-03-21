@@ -186,16 +186,16 @@ EngineInit(const Engine_Startup_Info* info)
 
   ADD_PIPELINE(g_context->rect_pipeline, "rect.vert.spv", "rect.frag.spv", CreateRectPipeline);
   ADD_PIPELINE(g_context->triangle_pipeline, "triangle.vert.spv", "triangle.frag.spv", CreateTrianglePipeline);
-  ADD_PIPELINE(g_vox_drawer->pipeline_classic, "voxel.vert.spv", "voxel.frag.spv", CreateVoxelPipelineClassic);
-  ADD_PIPELINE(g_vox_drawer->pipeline_indirect, "voxel_new.vert.spv", "voxel.frag.spv", CreateVoxelPipelineIndirect);
-  ADD_PIPELINE(g_vox_drawer->pipeline_shadow, "shadow_voxel.vert.spv", NULL, CreateVoxelPipelineShadow);
+  ADD_PIPELINE(g_voxel_pipeline_classic, "voxel.vert.spv", "voxel.frag.spv", CreateVoxelPipelineClassic);
+  ADD_PIPELINE(g_voxel_pipeline_indirect, "voxel_new.vert.spv", "voxel.frag.spv", CreateVoxelPipelineIndirect);
+  ADD_PIPELINE(g_voxel_pipeline_shadow, "shadow_voxel.vert.spv", NULL, CreateVoxelPipelineShadow);
   ADD_PIPELINE(g_context->debug_pipeline, "debug_draw.vert.spv", "debug_draw.frag.spv", CreateDebugDrawPipeline);
 #undef ADD_PIPELINE
 
 #define ADD_PIPELINE(pipeline, shader) AddComputePipelineComponent(g_ecs, g_asset_manager, pipeline, \
                                                                    shader, g_deletion_queue)
-  ADD_PIPELINE(g_vox_drawer->pipeline_compute, "vox_cull_ortho.comp.spv");
-  ADD_PIPELINE(g_vox_drawer->pipeline_compute_ext, "vox_cull_ext.comp.spv");
+  ADD_PIPELINE(g_voxel_pipeline_compute, "vox_cull_ortho.comp.spv");
+  ADD_PIPELINE(g_voxel_pipeline_compute_ext_ortho, "vox_cull_ext_ortho.comp.spv");
 
   CreateDebugDrawer(&g_context->debug_drawer, 1024);
 
@@ -360,7 +360,7 @@ EngineUpdateAndRender()
     OrthographicMatrix(-extent, extent, -extent, extent, near, far, &light_proj);
     // Vec3 light_pos = { 0.0f, 10.0f, 0.0f };
     // Vec3 light_target = { 0.05f, 11.0f, 0.1f };
-    Vec3 light_pos = VEC3_MUL(sc_data->sun_dir, 10.0f);
+    Vec3 light_pos = VEC3_MUL(sc_data->sun_dir, 20.0f);
     Vec3 light_target = VEC3_ADD(light_pos, sc_data->sun_dir);
     Vec3 up = { 1.0f, 0.0f, 0.0f };
     LookAtMatrix(&light_pos, &light_target, &up, &light_view);

@@ -152,15 +152,9 @@ typedef struct {
   void (*clear_cache_func)(void* backend);
   void (*regenerate_mesh_func)(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid);
   void (*push_mesh_func)(void* backend, ECS* ecs, EID entity);
-  uint32_t (*render_voxels_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, uint32_t num_sets, VkDescriptorSet* sets, size_t num_draws);
-  void (*cull_pass_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes, EID pipeline, size_t num_draws);
+  uint32_t (*render_voxels_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, uint32_t num_sets, VkDescriptorSet* sets, size_t num_draws);
+  void (*cull_pass_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes, size_t num_draws);
   void (*destroy_func)(void* backend, Deletion_Queue* dq);
-
-  EID pipeline_classic;
-  EID pipeline_indirect;
-  EID pipeline_shadow;
-  EID pipeline_compute;
-  EID pipeline_compute_ext;
 
 } Voxel_Drawer;
 
@@ -172,6 +166,12 @@ Voxel_Drawer* g_vox_drawer;
 #define GetInVoxelGrid(grid, x, y, z) ((Voxel*)(grid)->data->ptr)[(x) + (y)*(grid)->width + (z)*(grid)->width*(grid)->height]
 
 Allocator* g_vox_allocator;
+
+EID g_voxel_pipeline_classic;
+EID g_voxel_pipeline_indirect;
+EID g_voxel_pipeline_shadow;
+EID g_voxel_pipeline_compute;
+EID g_voxel_pipeline_compute_ext_ortho;
 
 // TODO: compress voxels on disk using RLE(Run length Encoding)
 
@@ -457,6 +457,7 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
         }
         const uint32_t start_pos[3] = { pos[0], pos[1], pos[2] };
         uint32_t min_i = dims[u];
+#if 0
         // grow quad while all voxels in that quad are the same
         while (pos[v] < dims[v]) {
           pos[u] = i;
@@ -466,6 +467,20 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
           while (pos[u] < min_i &&
                  GetInVoxelGrid(grid, pos[0], pos[1], pos[2]) == start_voxel) {
             pos[u]++;
+        int p[3] = { 0 };
+        // check if at least 1 voxel is visible. FIXME: I think when
+        // this approach generates the most perfect meshes, it
+        // generates ugly meshes: when camera is inside a mesh some
+        // unnecessary voxels are seen.
+        for (p[v] = start_pos[v], p[d] = layer; (uint32_t)p[v] < start_pos[v] + offset[v]; p[v]++) {
+          for (p[u] = start_pos[u]; (uint32_t)p[u] < start_pos[u] + offset[u]; p[u]++) {
+            Voxel near_voxel = GetInVoxelGridChecked(grid,
+                                                     p[0] + vox_normals[face].x,
+                                                     p[1] + vox_normals[face].y,
+                                                     p[2] + vox_normals[face].z);
+            if (near_voxel == 0) goto process;
+          }
+        }
           }
           if (pos[u] < min_i) min_i = pos[u];
           pos[v]++;
@@ -489,6 +504,36 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
         }
         continue;
       process:
+#else
+        // grow quad while all voxels in that quad are the same and visible
+        while (pos[v] < dims[v]) {
+          pos[u] = i;
+          if (GetInVoxelGrid(grid, pos[0], pos[1], pos[2]) != start_voxel ||
+              GetInVoxelGridChecked(grid,
+                                    pos[0] + vox_normals[face].x,
+                                    pos[1] + vox_normals[face].y,
+                                    pos[2] + vox_normals[face].z) != 0)
+            break;
+          pos[u]++;
+          while (pos[u] < min_i &&
+                 GetInVoxelGrid(grid, pos[0], pos[1], pos[2]) == start_voxel &&
+                 GetInVoxelGridChecked(grid,
+                                       pos[0] + vox_normals[face].x,
+                                       pos[1] + vox_normals[face].y,
+                                       pos[2] + vox_normals[face].z) == 0) {
+            pos[u]++;
+          }
+          if (pos[u] < min_i) min_i = pos[u];
+          pos[v]++;
+        }
+        if (min_i == start_pos[u] ||
+            pos[v] == start_pos[v]) {
+          continue;
+        }
+        uint32_t offset[3] = { 0 };
+        offset[u] = min_i - start_pos[u]; // width of quad
+        offset[v] = pos[v] - start_pos[v]; // height of quad
+#endif
 #if VX_USE_INDICES
         // write 4 vertices and 6 indices for this quad
         for (uint32_t i = 0; i < 6; i++) {
@@ -778,11 +823,16 @@ PushMeshVoxel_Slow(void* backend, ECS* ecs, EID entity)
 }
 
 INTERNAL uint32_t
-RenderVoxels_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, uint32_t num_sets, VkDescriptorSet* sets, size_t num_draws)
+RenderVoxels_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, uint32_t num_sets, VkDescriptorSet* sets, size_t num_draws)
 {
   Voxel_Backend_Slow* drawer = backend;
   (void)num_draws; // FIXME: maybe we should get rid of num_draws argument
-  Graphics_Pipeline* prog = GetComponent(Graphics_Pipeline, pipeline);
+  Graphics_Pipeline* prog;
+  if (mesh_pass->flags & MESH_PASS_USE_NORMALS) {
+    prog = GetComponent(Graphics_Pipeline, g_voxel_pipeline_classic);
+  } else {
+    prog = GetComponent(Graphics_Pipeline, g_voxel_pipeline_classic);
+  }
   // bind vertices
   VkDeviceSize offsets[] = { 0, drawer->start_transform_offset * sizeof(Transform) };
   VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer };
@@ -871,7 +921,7 @@ RenderVoxels_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
 }
 
 INTERNAL void
-CullPass_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes, EID pipeline,
+CullPass_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes,
               size_t num_draws)
 {
   // do nothing, culling happens when submitting draws
@@ -879,7 +929,6 @@ CullPass_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, 
   (void)cmd;
   (void)mesh_passes;
   (void)num_passes;
-  (void)pipeline;
   (void)num_draws;
 }
 
@@ -1134,10 +1183,15 @@ PushMeshVoxel_Indirect(void* backend, ECS* ecs, EID entity)
 }
 
 INTERNAL uint32_t
-RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, EID pipeline, uint32_t num_sets, VkDescriptorSet* sets, size_t num_draws)
+RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, uint32_t num_sets, VkDescriptorSet* sets, size_t num_draws)
 {
   Voxel_Backend_Indirect* drawer = backend;
-  Graphics_Pipeline* prog = GetComponent(Graphics_Pipeline, pipeline);
+  Graphics_Pipeline* prog;
+  if (mesh_pass->flags & MESH_PASS_USE_NORMALS) {
+    prog = GetComponent(Graphics_Pipeline, g_voxel_pipeline_indirect);
+  } else {
+    prog = GetComponent(Graphics_Pipeline, g_voxel_pipeline_shadow);
+  }
   // bind buffers
   VkDeviceSize offsets[] = {
     0,
@@ -1179,11 +1233,12 @@ RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_
 
 INTERNAL void
 CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes,
-                  EID pipeline, size_t num_draws)
+                  size_t num_draws)
 {
   Voxel_Backend_Indirect* drawer = backend;
-  Compute_Pipeline* prog = GetComponent(Compute_Pipeline, pipeline);
+  Compute_Pipeline* prog;
   if (drawer->enabled_KHR_draw_indirect_count) {
+    prog = GetComponent(Compute_Pipeline, g_voxel_pipeline_compute_ext_ortho);
     // fill draw counts with 0
     uint32_t dst_offset = MAX_MESH_PASSES * num_draws * 5 * 32;
     const uint32_t uint_stride = 16;
@@ -1215,6 +1270,7 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
       vkCmdDispatch(cmd, (num_draws+63) / 64, 1, 1);
     }
   } else {
+    prog = GetComponent(Compute_Pipeline, g_voxel_pipeline_compute);
     struct {
       Vec3 camera_front;
       uint32_t cull_mask;
@@ -1345,11 +1401,11 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
     err = SetVoxelBackend_Slow(drawer, NULL);
   }
 
-  drawer->pipeline_classic = CreateEntity(g_ecs);
-  drawer->pipeline_indirect = CreateEntity(g_ecs);
-  drawer->pipeline_shadow = CreateEntity(g_ecs);
-  drawer->pipeline_compute = CreateEntity(g_ecs);
-  drawer->pipeline_compute_ext = CreateEntity(g_ecs);
+  g_voxel_pipeline_classic = CreateEntity(g_ecs);
+  g_voxel_pipeline_indirect = CreateEntity(g_ecs);
+  g_voxel_pipeline_shadow = CreateEntity(g_ecs);
+  g_voxel_pipeline_compute = CreateEntity(g_ecs);
+  g_voxel_pipeline_compute_ext_ortho = CreateEntity(g_ecs);
 
   return err;
 }
@@ -1386,18 +1442,7 @@ INTERNAL uint32_t
 DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass,
            uint32_t num_sets, VkDescriptorSet* sets)
 {
-  EID pipeline;
-  if (mesh_pass->flags & MESH_PASS_USE_NORMALS) {
-    // TODO: find a better way to specify pipeline
-    if (drawer->render_voxels_func == RenderVoxels_Slow) {
-      pipeline = drawer->pipeline_classic;
-    } else {
-      pipeline = drawer->pipeline_indirect;
-    }
-  } else {
-    pipeline = drawer->pipeline_shadow;
-  }
-  return drawer->render_voxels_func(&drawer->backend, cmd, mesh_pass, pipeline,
+  return drawer->render_voxels_func(&drawer->backend, cmd, mesh_pass,
                                     num_sets, sets, drawer->num_draws);
 }
 
@@ -1487,11 +1532,7 @@ CalculateVoxelGridOBB(const Voxel_Grid* grid, const Transform* transform, OBB* o
 INTERNAL void
 CullPass(VkCommandBuffer cmd, Voxel_Drawer* drawer, const Mesh_Pass* mesh_passes, uint32_t num_passes)
 {
-  EID pipeline = drawer->pipeline_compute;
-  if (drawer->cull_pass_func == CullPass_Indirect && drawer->backend.indirect.enabled_KHR_draw_indirect_count) {
-    pipeline = drawer->pipeline_compute_ext;
-  }
-  drawer->cull_pass_func(&drawer->backend, cmd, mesh_passes, num_passes, pipeline, drawer->num_draws);
+  drawer->cull_pass_func(&drawer->backend, cmd, mesh_passes, num_passes, drawer->num_draws);
 }
 
 INTERNAL void
