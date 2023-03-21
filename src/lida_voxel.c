@@ -25,6 +25,14 @@ DECLARE_COMPONENT(Voxel_Grid);
 
 typedef struct {
 
+#if 1
+  Vec3 half_size;
+  uint32_t first_vertex;
+  // NOTE: we don't use instancing currently, should we implement support for it?
+  uint32_t first_instance;
+  uint32_t vertex_count[6];
+  uint32_t cull_mask;
+#else
   uint32_t first_vertex;
   uint32_t instance_count;
   uint32_t first_instance;
@@ -32,6 +40,7 @@ typedef struct {
   uint32_t cull_mask;
   // HACK TODO: mess with std140
   char padding[8];
+#endif
 
 } VX_Draw_Data;
 
@@ -992,7 +1001,8 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
     // we'll be using vkCmdFillBuffer for filling this buffer with zeros
     indirect_flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   }
-  CREATE_BUFFER(indirect_buffer, MAX_MESH_PASSES * max_draws * 32/*sizeof(VkDrawIndexedIndirectCommand)*/,
+  // NOTE: 5 is max number of faces produced by a single model
+  CREATE_BUFFER(indirect_buffer, MAX_MESH_PASSES * 5 * max_draws * 32/*sizeof(VkDrawIndexedIndirectCommand)*/,
                 indirect_flags, "voxel-drawer/indirect-buffer");
   CREATE_BUFFER(vertex_count_buffer, MAX_MESH_PASSES * max_draws * sizeof(VX_Vertex_Count),
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -1118,8 +1128,9 @@ RegenerateVoxel_Indirect(void* backend, Voxel_Cached* cached, const Voxel_Grid* 
   cached->hash = grid->hash;
   uint32_t base_index = 0;
   VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset++];
+  CalculateVoxelGridSize(grid, &draw->half_size);
   draw->first_vertex = drawer->vertex_offset;
-  draw->instance_count = 1;
+  // draw->instance_count = 1;
   draw->first_instance = drawer->transform_offset - drawer->start_transform_offset;
   draw->cull_mask = cached->cull_mask;
   cached->first_vertex = draw->first_vertex;
@@ -1142,20 +1153,6 @@ PushMeshVoxel_Indirect(void* backend, ECS* ecs, EID entity)
   memcpy(&drawer->pTransforms[drawer->transform_offset],
          transform, sizeof(Transform));
   Voxel_Grid* grid = GetComponent(Voxel_Grid, entity);
-  // try to use instancing if same mesh is pushed twice
-  // TODO: remember last pushed entity to use instancing
-  /*if (index > 0) {
-    Voxel_Cached* prev = GetComponent(Voxel_Cached, meshes[index-1]);
-    if (prev->hash == grid->hash) {
-      VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset];
-      draw->instance_count++;
-      Voxel_Cached* cached = GetComponent(Voxel_Cached, entity);
-      if (cached) {
-        draw->cull_mask |= cached->cull_mask;
-      }
-      goto end;
-    }
-    }*/
 
   // try to use cache
   Voxel_Cached* cached = GetComponent(Voxel_Cached, entity);
@@ -1166,8 +1163,9 @@ PushMeshVoxel_Indirect(void* backend, ECS* ecs, EID entity)
       goto end;
     }
     VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset++];
+    CalculateVoxelGridSize(grid, &draw->half_size);
     draw->first_vertex = cached->first_vertex;
-    draw->instance_count = 1;
+    // draw->instance_count = 1;
     draw->first_instance = drawer->transform_offset - drawer->start_transform_offset;
     draw->cull_mask = cached->cull_mask;
     for (uint32_t i = 0; i < 6; i++) {
@@ -1248,19 +1246,29 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
     struct {
+#if 0
       Vec3 camera_front;
       uint32_t cull_mask;
       Vec3 camera_position;
+#else
+      Mat4 projview_matrix;
+      uint32_t cull_mask;
+#endif
       uint32_t pass_id;
       uint32_t out_offset;
       uint32_t in_offset;
       uint32_t num_draws;
     } push_constant;
+
     cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
     for (uint32_t i = 0; i < num_passes; i++) {
       push_constant.cull_mask = mesh_passes[i].cull_mask;
+#if 0
       push_constant.camera_front = mesh_passes[i].camera_dir;
       push_constant.camera_position = mesh_passes[i].camera_pos;
+#else
+      memcpy(&push_constant.projview_matrix, &mesh_passes[i].projview_matrix, sizeof(Mat4));
+#endif
       push_constant.pass_id = dst_offset / uint_stride + Log2_u32(mesh_passes[i].cull_mask);
       push_constant.out_offset = Log2_u32(mesh_passes[i].cull_mask) * num_draws;
       push_constant.in_offset = drawer->draw_offset - num_draws;

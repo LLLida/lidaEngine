@@ -195,7 +195,8 @@ EngineInit(const Engine_Startup_Info* info)
 #define ADD_PIPELINE(pipeline, shader) AddComputePipelineComponent(g_ecs, g_asset_manager, pipeline, \
                                                                    shader, g_deletion_queue)
   ADD_PIPELINE(g_voxel_pipeline_compute, "vox_cull_ortho.comp.spv");
-  ADD_PIPELINE(g_voxel_pipeline_compute_ext_ortho, "vox_cull_ext_ortho.comp.spv");
+  // ADD_PIPELINE(g_voxel_pipeline_compute_ext_ortho, "vox_cull_ext_ortho.comp.spv");
+  ADD_PIPELINE(g_voxel_pipeline_compute_ext_ortho, "vox_cull_ext_new.comp.spv");
 
   CreateDebugDrawer(&g_context->debug_drawer, 1024);
 
@@ -339,6 +340,7 @@ EngineUpdateAndRender()
   Mat4_Mul(&camera->projection_matrix, &camera->view_matrix, &camera->projview_matrix);
   {
     Mesh_Pass* pass = GetComponent(Mesh_Pass, g_context->main_cull);
+    memcpy(&pass->projview_matrix, &camera->projview_matrix, sizeof(Mat4));
     pass->camera_pos = g_context->camera.position;
     pass->camera_dir = g_context->camera.front;
   }
@@ -352,8 +354,8 @@ EngineUpdateAndRender()
   sc_data->sun_ambient = 0.1f;
   Vec3_Normalize(&sc_data->sun_dir, &sc_data->sun_dir);
 
-  Mat4 light_proj, light_view;
   {
+    Mat4 light_proj, light_view;
     float extent = *GetVar_Float(g_config, "Render.shadow_extent");
     float near = *GetVar_Float(g_config, "Render.shadow_near");
     float far = *GetVar_Float(g_config, "Render.shadow_far");
@@ -364,13 +366,14 @@ EngineUpdateAndRender()
     Vec3 light_target = VEC3_ADD(light_pos, sc_data->sun_dir);
     Vec3 up = { 1.0f, 0.0f, 0.0f };
     LookAtMatrix(&light_pos, &light_target, &up, &light_view);
+    Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
     {
       Mesh_Pass* pass = GetComponent(Mesh_Pass, g_context->shadow_cull);
+      memcpy(&pass->projview_matrix, &sc_data->light_space, sizeof(Mat4));
       pass->camera_pos = light_pos;
       Vec3_Normalize(&VEC3_MUL(light_target, -1.0f), &pass->camera_dir);
     }
   }
-  Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
 
   // run scripts
   {

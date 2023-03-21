@@ -456,6 +456,7 @@ INTERNAL void CMD_spawn_cube(uint32_t num, const char** args);
 INTERNAL void CMD_remove_script(uint32_t num, const char** args);
 INTERNAL void CMD_set_voxel_backend(uint32_t num, const char** args);
 INTERNAL void CMD_spawn_random_voxels(uint32_t num, const char** args);
+INTERNAL void CMD_print_transform(uint32_t num, const char** args);
 
 
 /// public functions
@@ -554,6 +555,9 @@ InitConsole()
               "spawn_random_voxels NUMBER\n"
               " Spawn NUMBER voxel models rotated and translated randomly.\n"
               " They can be either spheres or cubes.");
+  ADD_COMMAND(print_transform,
+              "print_transform ENTITY\n"
+              " Print entity's transform component.");
 }
 
 INTERNAL void
@@ -1032,4 +1036,26 @@ CMD_spawn_random_voxels(uint32_t num, const char** args)
     AddComponent(g_ecs, OBB, entity);
     LOG_INFO("spawned at [%.3f %.3f %.3f]", transform->position.x, transform->position.y, transform->position.z);
   }
+}
+
+void
+CMD_print_transform(uint32_t num, const char** args)
+{
+  if (num != 1) {
+    LOG_WARN("command spawn_random_voxels accepts only 1 argument; see spawn_random_voxels");
+    return;
+  }
+  EID entity = atoi(args[0]);
+  Transform* transform = GetComponent(Transform, entity);
+  if (transform == NULL) {
+    LOG_WARN("entity %u doesn't have transform component", entity);
+    return;
+  }
+  char buff[128];
+  stbsp_sprintf(buff, "position: %.3f %.3f %.3f", transform->position.x, transform->position.y, transform->position.z);
+  ConsolePutLine(buff, PACK_COLOR(100, 100, 255, 255));
+  stbsp_sprintf(buff, "rotation: %.3f %.3f %.3f %.3f", transform->rotation.x, transform->rotation.y, transform->rotation.z, transform->rotation.w);
+  ConsolePutLine(buff, PACK_COLOR(100, 100, 255, 255));
+  stbsp_sprintf(buff, "scale: %.3f", transform->scale);
+  ConsolePutLine(buff, PACK_COLOR(100, 100, 255, 255));
 }
