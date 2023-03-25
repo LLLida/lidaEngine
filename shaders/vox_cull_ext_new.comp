@@ -157,15 +157,29 @@ void main() {
     // position on screen
     vec4 ndc = projview_matrix * vec4(global_space, 1.0);
     // do perspective division
+    // obb_corners[i] = ndc.xy / abs(ndc.w);
     obb_corners[i] = ndc.xy / ndc.w;
+    // if (ndc.w < 0.0) {
+    //   if (ndc.x <= ndc.w || ndc.x >= ndc.w) obb_corners[i].x *= -1.0;
+    //   if (ndc.y <= ndc.w || ndc.y >= ndc.w) obb_corners[i].y *= -1.0;
+    // }
   }
   const uint face_indices[18] = {
+#if 0
+    0, 1, 3, // -x
+    4, 5, 7, // +x
+    0, 4, 5, // -y
+    2, 6, 7, // +y
+    0, 4, 6, // -z
+    1, 5, 7, // +z
+#else
     4, 6, 7, // -x
     0, 1, 3, // +x
     2, 3, 7, // -y
     0, 4, 5, // +y
     1, 5, 7, // -z
     0, 2, 6, // +z
+#endif
   };
   uint total_count = 0;
   for (int i = 0; i < 6; i++) {

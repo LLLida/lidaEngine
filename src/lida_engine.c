@@ -195,8 +195,8 @@ EngineInit(const Engine_Startup_Info* info)
 #define ADD_PIPELINE(pipeline, shader) AddComputePipelineComponent(g_ecs, g_asset_manager, pipeline, \
                                                                    shader, g_deletion_queue)
   ADD_PIPELINE(g_voxel_pipeline_compute, "vox_cull_ortho.comp.spv");
-  // ADD_PIPELINE(g_voxel_pipeline_compute_ext_ortho, "vox_cull_ext_ortho.comp.spv");
-  ADD_PIPELINE(g_voxel_pipeline_compute_ext_ortho, "vox_cull_ext_new.comp.spv");
+  ADD_PIPELINE(g_voxel_pipeline_compute_ext_ortho, "vox_cull_ext_ortho.comp.spv");
+  // ADD_PIPELINE(g_voxel_pipeline_compute_ext_ortho, "vox_cull_ext_new.comp.spv");
 
   CreateDebugDrawer(&g_context->debug_drawer, 1024);
 
@@ -355,6 +355,7 @@ EngineUpdateAndRender()
   {
     Mesh_Pass* pass = GetComponent(Mesh_Pass, g_context->main_cull);
     memcpy(&pass->projview_matrix, &camera->projview_matrix, sizeof(Mat4));
+    // PerspectiveMatrix(RADIANS(90.0f), camera->aspect_ratio, camera->z_near, &pass->projview_matrix);
     pass->camera_pos = g_context->camera.position;
     pass->camera_dir = g_context->camera.front;
   }
@@ -679,6 +680,12 @@ RootKeymap_Pressed(PlatformKeyCode key, void* udata)
       // '4' toggles render mode
     case PlatformKey_4:
       g_context->render_mode = (g_context->render_mode + 1) % RENDER_MODE_COUNT;
+      break;
+      // '5' prints camera stats
+    case PlatformKey_5:
+      LOG_INFO("Camera.position=[%.3f %.3f %.3f]", g_context->camera.position.x, g_context->camera.position.y, g_context->camera.position.z);
+      LOG_INFO("Camera.front=[%.3f %.3f %.3f]", g_context->camera.front.x, g_context->camera.front.y, g_context->camera.front.z);
+      // TODO: print other fields such as fovy, etc.
       break;
       // '7' shrinks memory
     case PlatformKey_7:

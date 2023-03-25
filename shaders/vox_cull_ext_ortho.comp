@@ -7,8 +7,10 @@ layout (local_size_x = 64, local_size_y = 1) in;
 
 // stride: 48 bytes
 struct Draw_Data {
+  float half_size_x;
+  float half_size_y;
+  float half_size_z;
   uint first_vertex;
-  uint instance_count;
   uint first_instance;
   uint vertex_count0;
   uint vertex_count1;
@@ -116,15 +118,30 @@ void main() {
   if ((d.cull_mask & cull_mask) == 0) {
     return;
   }
-  vec3 dist = transform.position - camera_position;
+
+  vec3 box[3];
+  box[0] = rotate(vec3(d.half_size_x, 0.0, 0.0), transform.rotation);
+  box[1] = rotate(vec3(0.0, d.half_size_y, 0.0), transform.rotation);
+  box[2] = rotate(vec3(0.0, 0.0, d.half_size_z), transform.rotation);
+
   // backface culling
   uint num_added = 0;
   for (int i = 0; i < 6; i++) {
+    vec3 basis[3];
+    basis[0] = -box[0] * vox_normals[i].x * transform.scale;
+    basis[1] = -box[1] * vox_normals[i].y * transform.scale;
+    basis[2] = -box[2] * vox_normals[i].z * transform.scale;
+    vec3 point;
+    point.x = basis[0].x + basis[1].x + basis[2].x + transform.position.x;
+    point.y = basis[0].y + basis[1].y + basis[2].y + transform.position.y;
+    point.z = basis[0].z + basis[1].z + basis[2].z + transform.position.z;
+
+    vec3 dist = point - camera_position;
     vec3 normal = rotate(vox_normals[i], transform.rotation);
     if (dot(dist, normal) <= 0.01) {
       uint id = atomicAdd(draw_count[pass_id].count, 1);
       out_draws[draw_offset * 5 + id].index_count = vertex_count[i] * 3 / 2;
-      out_draws[draw_offset * 5 + id].instance_count = d.instance_count;
+      out_draws[draw_offset * 5 + id].instance_count = 1;
       out_draws[draw_offset * 5 + id].first_index = vertex_offset * 3 / 2;
       out_draws[draw_offset * 5 + id].vertex_offset = d.first_vertex;
       out_draws[draw_offset * 5 + id].first_instance = d.first_instance;

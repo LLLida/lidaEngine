@@ -1246,7 +1246,7 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
     struct {
-#if 0
+#if 1
       Vec3 camera_front;
       uint32_t cull_mask;
       Vec3 camera_position;
@@ -1263,7 +1263,7 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
     cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
     for (uint32_t i = 0; i < num_passes; i++) {
       push_constant.cull_mask = mesh_passes[i].cull_mask;
-#if 0
+#if 1
       push_constant.camera_front = mesh_passes[i].camera_dir;
       push_constant.camera_position = mesh_passes[i].camera_pos;
 #else
