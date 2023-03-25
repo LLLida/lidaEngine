@@ -423,6 +423,11 @@ EngineUpdateAndRender()
     }
   }
 
+  // draw axes
+  AddDebugLine(&g_context->debug_drawer, &VEC3_CREATE(0.0, 0.0, 0.0), &VEC3_CREATE(3.0, 0.0, 0.0), PACK_COLOR(255, 0, 0, 255));
+  AddDebugLine(&g_context->debug_drawer, &VEC3_CREATE(0.0, 0.0, 0.0), &VEC3_CREATE(0.0, 3.0, 0.0), PACK_COLOR(0, 255, 0, 255));
+  AddDebugLine(&g_context->debug_drawer, &VEC3_CREATE(0.0, 0.0, 0.0), &VEC3_CREATE(0.0, 0.0, 3.0), PACK_COLOR(0, 0, 255, 255));
+
   enum {
     TIMESTAMP_SHADOW_PASS_BEGIN = 0,
     // TIMESTAMP_CULL_PASS_BEGIN, // TODO: measure culling time

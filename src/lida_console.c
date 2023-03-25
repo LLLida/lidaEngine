@@ -457,6 +457,7 @@ INTERNAL void CMD_remove_script(uint32_t num, const char** args);
 INTERNAL void CMD_set_voxel_backend(uint32_t num, const char** args);
 INTERNAL void CMD_spawn_random_voxels(uint32_t num, const char** args);
 INTERNAL void CMD_print_transform(uint32_t num, const char** args);
+INTERNAL void CMD_remove_voxel(uint32_t num, const char** args);
 
 
 /// public functions
@@ -558,6 +559,9 @@ InitConsole()
   ADD_COMMAND(print_transform,
               "print_transform ENTITY\n"
               " Print entity's transform component.");
+  ADD_COMMAND(remove_voxel,
+              "remove_voxel ENITY\n"
+              " Remove voxel model from scene.");
 }
 
 INTERNAL void
@@ -1058,4 +1062,19 @@ CMD_print_transform(uint32_t num, const char** args)
   ConsolePutLine(buff, PACK_COLOR(100, 100, 255, 255));
   stbsp_sprintf(buff, "scale: %.3f", transform->scale);
   ConsolePutLine(buff, PACK_COLOR(100, 100, 255, 255));
+}
+
+void
+CMD_remove_voxel(uint32_t num, const char** args)
+{
+  if (num != 1) {
+    LOG_WARN("command remove_voxels accepts only 1 argument; see remove_voxels");
+    return;
+  }
+  EID entity = atoi(args[0]);
+  RemoveComponent(g_ecs, Voxel_Grid, entity);
+  RemoveComponent(g_ecs, OBB, entity);
+  RemoveComponent(g_ecs, Voxel_Cached, entity);
+  RemoveComponent(g_ecs, Script, entity);
+  RemoveComponent(g_ecs, Transform, entity);
 }

@@ -27,8 +27,8 @@ LDFLAGS += $(shell pkg-config --libs sdl2)
 # uncomment if using ASAN
 # NOTE: don't forget to do 'make clean' before build if you changed flags!
 # NOTE: renderdoc doesn't work with ASAN enabled
-CFLAGS += -fsanitize=address -fno-omit-frame-pointer
-LDFLAGS += -fsanitize=address -fno-omit-frame-pointer -lrt
+# CFLAGS += -fsanitize=address -fno-omit-frame-pointer
+# LDFLAGS += -fsanitize=address -fno-omit-frame-pointer -lrt
 
 SHADERS := $(wildcard shaders/*.comp) $(wildcard shaders/*.vert) $(wildcard shaders/*.frag)
 SPIRVS := $(addprefix $(DATADIR)/, $(SHADERS:shaders/%=%.spv))
@@ -60,8 +60,9 @@ $(BUILDIR)/lida_engine.o: $(SOURCES) $(HEADERS)
 $(BUILDIR)/volk.o: src/lib/volk.c
 	$(CC) $(CFLAGS) $^ -c -o $@
 
+# -gVS is for debugging https://renderdoc.org/docs/how/how_debug_shader.html
 define compile_shader =
-	$(GLSLANG) $(1) -V -o $(2)
+	$(GLSLANG) $(1) -V -gVS -o $(2)
 endef
 
 $(DATADIR)/%.comp.spv: shaders/%.comp

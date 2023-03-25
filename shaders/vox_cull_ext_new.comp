@@ -5,7 +5,7 @@ layout (local_size_x = 64, local_size_y = 1) in;
 
 #include "common.h"
 
-#define NEW_BACKFACE_CULLING 1
+#define MAX_DRAWCALLS 5
 
 // stride: 48 bytes
 struct Draw_Data {
@@ -49,9 +49,6 @@ struct Vertex_Count {
   float udata1;
   float udata2;
   float udata3;
-  // float obb2_x;
-  // float obb2_y;
-  // float obb2_z;
 };
 
 // stride: 16 bytes
@@ -82,14 +79,8 @@ layout (std140, set = 0, binding = 4) writeonly buffer Draw_Counts {
 };
 
 PUSH_CONSTANT Pass_Info {
-#if NEW_BACKFACE_CULLING
   mat4 projview_matrix;
   uint cull_mask;
-#else
-  vec3 cull_front;
-  uint cull_mask;
-  vec3 camera_position;
-#endif
   uint pass_id;
   uint draw_offset;
   uint in_offset;
@@ -129,9 +120,14 @@ void main() {
   uint out_id = (draw_index + draw_offset) * 3;
 
   if ((d.cull_mask & cull_mask) == 0) {
+    // CLEANUP: remove this
+    vertex_counts[draw_offset + d.first_instance].count0 = 0;
+    vertex_counts[draw_offset + d.first_instance].count1 = 0;
+    vertex_counts[draw_offset + d.first_instance].count2 = 0;
+    vertex_counts[draw_offset + d.first_instance].count3 = 0;
+    vertex_counts[draw_offset + d.first_instance].count4 = 0;
     return;
   }
-#if NEW_BACKFACE_CULLING
   // calculate OBB
   vec3 box[3];
   box[0] = rotate(vec3(d.half_size_x, 0.0, 0.0), transform.rotation);
@@ -147,117 +143,51 @@ void main() {
     vec3( 1.0, 1.0, -1.0 ),
     vec3( 1.0, 1.0, 1.0 ),
   };
-  vec3 obb_corners[8];
+  vec2 obb_corners[8];
   for (int i = 0; i < 8; i++) {
     vec3 basis[3];
     basis[0] = box[0] * muls[i].x * transform.scale;
     basis[1] = box[1] * muls[i].y * transform.scale;
     basis[2] = box[2] * muls[i].z * transform.scale;
     // position in global space
-    obb_corners[i].x = basis[0].x + basis[1].x + basis[2].x + transform.position.x;
-    obb_corners[i].y = basis[0].y + basis[1].y + basis[2].y + transform.position.y;
-    obb_corners[i].z = basis[0].z + basis[1].z + basis[2].z + transform.position.z;
+    vec3 global_space;
+    global_space.x = basis[0].x + basis[1].x + basis[2].x + transform.position.x;
+    global_space.y = basis[0].y + basis[1].y + basis[2].y + transform.position.y;
+    global_space.z = basis[0].z + basis[1].z + basis[2].z + transform.position.z;
     // position on screen
-    vec4 ndc = projview_matrix * vec4(obb_corners[i], 1.0);
+    vec4 ndc = projview_matrix * vec4(global_space, 1.0);
     // do perspective division
-    obb_corners[i] = ndc.xyz / ndc.w;
+    obb_corners[i] = ndc.xy / ndc.w;
   }
   const uint face_indices[18] = {
-    0, 1, 3, // -x
-    4, 5, 7, // +x
-    0, 1, 5, // -y
-    2, 3, 7, // +y
-    0, 2, 6, // -z
-    1, 3, 7, // +z
+    4, 6, 7, // -x
+    0, 1, 3, // +x
+    2, 3, 7, // -y
+    0, 4, 5, // +y
+    1, 5, 7, // -z
+    0, 2, 6, // +z
   };
-  // do backface culling
-#if 1
-  for (int i = 0; i < 3; i++) {
-    vec3 a = obb_corners[face_indices[i*6]];
-    vec3 b = obb_corners[face_indices[i*6+1]];
-    vec3 c = obb_corners[face_indices[i*6+2]];
-    vec3 dir1 = b-a;
-    vec3 dir2 = c-a;
-    vec3 normal1 = cross(dir1, dir2);
-    a = obb_corners[face_indices[i*6+3]];
-    b = obb_corners[face_indices[i*6+4]];
-    c = obb_corners[face_indices[i*6+5]];
-    dir1 = b-a;
-    dir2 = c-a;
-    vec3 normal2 = cross(dir1, dir2);
-    if (normal1.z < 0.0 ||
-        normal2.z > 0.0) {
-      // add draw
-      uint id = atomicAdd(draw_count[pass_id].count, 1);
-      out_draws[draw_offset * 5 + id].index_count = vertex_count[2*i] * 3 / 2;
-      out_draws[draw_offset * 5 + id].instance_count = 1;
-      out_draws[draw_offset * 5 + id].first_index = vertex_offset * 3 / 2;
-      out_draws[draw_offset * 5 + id].vertex_offset = d.first_vertex;
-      out_draws[draw_offset * 5 + id].first_instance = d.first_instance;
-    }
-    vertex_offset += vertex_count[2*i];
-    if (normal1.z > 0.0 ||
-        normal2.z < 0.0) {
-      uint id = atomicAdd(draw_count[pass_id].count, 1);
-      out_draws[draw_offset * 5 + id].index_count = vertex_count[2*i+1] * 3 / 2;
-      out_draws[draw_offset * 5 + id].instance_count = 1;
-      out_draws[draw_offset * 5 + id].first_index = vertex_offset * 3 / 2;
-      out_draws[draw_offset * 5 + id].vertex_offset = d.first_vertex;
-      out_draws[draw_offset * 5 + id].first_instance = d.first_instance;
-    }
-    vertex_offset += vertex_count[2*i+1];
-  }
-#else
-  float sizes[3] = { d.half_size_x*transform.scale, d.half_size_y*transform.scale, d.half_size_y*transform.scale };
-  for (int i = 0; i < 3; i++) {
-    vec3 a = obb_corners[face_indices[i*6]] + sizes[i];
-    vec3 b = obb_corners[face_indices[i*6+1]] + sizes[i];
-    vec3 c = obb_corners[face_indices[i*6+2]] + sizes[i];
-    vec3 dir1 = b-a;
-    vec3 dir2 = c-a;
-    vec3 normal = cross(dir1, dir2);
-    if (normal.z < 0.0) {
-      // add draw
-      uint id = atomicAdd(draw_count[pass_id].count, 1);
-      out_draws[draw_offset * 5 + id].index_count = vertex_count[2*i] * 3 / 2;
-      out_draws[draw_offset * 5 + id].instance_count = 1;
-      out_draws[draw_offset * 5 + id].first_index = vertex_offset * 3 / 2;
-      out_draws[draw_offset * 5 + id].vertex_offset = d.first_vertex;
-      out_draws[draw_offset * 5 + id].first_instance = d.first_instance;
-    }
-    vertex_offset += vertex_count[2*i];
-    if (normal.z > 0.0) {
-      uint id = atomicAdd(draw_count[pass_id].count, 1);
-      out_draws[draw_offset * 5 + id].index_count = vertex_count[2*i+1] * 3 / 2;
-      out_draws[draw_offset * 5 + id].instance_count = 1;
-      out_draws[draw_offset * 5 + id].first_index = vertex_offset * 3 / 2;
-      out_draws[draw_offset * 5 + id].vertex_offset = d.first_vertex;
-      out_draws[draw_offset * 5 + id].first_instance = d.first_instance;
-    }
-    vertex_offset += vertex_count[2*i+1];
-  }
-#endif
-
-
-#else
-  vec3 dist = transform.position - camera_position;
-  // backface culling
-  uint num_added = 0;
+  uint total_count = 0;
   for (int i = 0; i < 6; i++) {
-    vec3 normal = rotate(vox_normals[i], transform.rotation);
-    if (dot(dist, normal) <= 0.01) {
+    vec2 a = obb_corners[face_indices[i*3]];
+    vec2 b = obb_corners[face_indices[i*3+1]];
+    vec2 c = obb_corners[face_indices[i*3+2]];
+    vec2 d1 = b-a;
+    vec2 d2 = c-a;
+    float z = d1.x*d2.y - d1.y*d2.x;
+    if (z < 0.0) {
       uint id = atomicAdd(draw_count[pass_id].count, 1);
-      out_draws[draw_offset * 5 + id].index_count = vertex_count[i] * 3 / 2;
-      out_draws[draw_offset * 5 + id].instance_count = 1;
-      out_draws[draw_offset * 5 + id].first_index = vertex_offset * 3 / 2;
-      out_draws[draw_offset * 5 + id].vertex_offset = d.first_vertex;
-      out_draws[draw_offset * 5 + id].first_instance = d.first_instance;
-
-      num_added++;
+      uint index = draw_offset * MAX_DRAWCALLS + id;
+      out_draws[index].index_count = vertex_count[i] * 3 / 2;
+      out_draws[index].instance_count = 1;
+      out_draws[index].first_index = vertex_offset * 3 / 2;
+      out_draws[index].vertex_offset = d.first_vertex;
+      out_draws[index].first_instance = d.first_instance;
+      total_count++;
     }
     vertex_offset += vertex_count[i];
   }
-#endif
+  vertex_counts[draw_offset + d.first_instance].udata1 = float(total_count);
 
   vertex_offset = d.first_vertex;
   vertex_counts[draw_offset + d.first_instance].count0 = vertex_offset + d.vertex_count0; vertex_offset += d.vertex_count0;
@@ -265,11 +195,4 @@ void main() {
   vertex_counts[draw_offset + d.first_instance].count2 = vertex_offset + d.vertex_count2; vertex_offset += d.vertex_count2;
   vertex_counts[draw_offset + d.first_instance].count3 = vertex_offset + d.vertex_count3; vertex_offset += d.vertex_count3;
   vertex_counts[draw_offset + d.first_instance].count4 = vertex_offset + d.vertex_count4; vertex_offset += d.vertex_count4;
-
-  // vertex_counts[draw_offset + d.first_instance].obb1_x = obb_corners[0].x;
-  // vertex_counts[draw_offset + d.first_instance].obb1_y = obb_corners[0].y;
-  // vertex_counts[draw_offset + d.first_instance].obb1_z = obb_corners[0].z;
-  // vertex_counts[draw_offset + d.first_instance].obb2_x = obb_corners[7].x;
-  // vertex_counts[draw_offset + d.first_instance].obb2_y = obb_corners[7].y;
-  // vertex_counts[draw_offset + d.first_instance].obb2_z = obb_corners[7].z;
 }
