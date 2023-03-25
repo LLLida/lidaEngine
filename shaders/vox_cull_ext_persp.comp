@@ -136,8 +136,9 @@ void main() {
     point.y = basis[0].y + basis[1].y + basis[2].y + transform.position.y;
     point.z = basis[0].z + basis[1].z + basis[2].z + transform.position.z;
 
+    vec3 dist = point - camera_position;
     vec3 normal = rotate(vox_normals[i], transform.rotation);
-    if (dot(camera_front, normal) <= 0.01) {
+    if (dot(dist, normal) <= 0.01) {
       uint id = atomicAdd(draw_count[pass_id].count, 1);
       out_draws[draw_offset * 5 + id].index_count = vertex_count[i] * 3 / 2;
       out_draws[draw_offset * 5 + id].instance_count = 1;

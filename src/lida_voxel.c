@@ -25,22 +25,12 @@ DECLARE_COMPONENT(Voxel_Grid);
 
 typedef struct {
 
-#if 1
   Vec3 half_size;
   uint32_t first_vertex;
   // NOTE: we don't use instancing currently, should we implement support for it?
   uint32_t first_instance;
   uint32_t vertex_count[6];
   uint32_t cull_mask;
-#else
-  uint32_t first_vertex;
-  uint32_t instance_count;
-  uint32_t first_instance;
-  uint32_t vertex_count[6];
-  uint32_t cull_mask;
-  // HACK TODO: mess with std140
-  char padding[8];
-#endif
 
 } VX_Draw_Data;
 
@@ -181,6 +171,7 @@ EID g_voxel_pipeline_indirect;
 EID g_voxel_pipeline_shadow;
 EID g_voxel_pipeline_compute;
 EID g_voxel_pipeline_compute_ext_ortho;
+EID g_voxel_pipeline_compute_ext_persp;
 
 // TODO: compress voxels on disk using RLE(Run length Encoding)
 
@@ -1236,7 +1227,6 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
   Voxel_Backend_Indirect* drawer = backend;
   Compute_Pipeline* prog;
   if (drawer->enabled_KHR_draw_indirect_count) {
-    prog = GetComponent(Compute_Pipeline, g_voxel_pipeline_compute_ext_ortho);
     // fill draw counts with 0
     uint32_t dst_offset = MAX_MESH_PASSES * num_draws * 5 * 32;
     const uint32_t uint_stride = 16;
@@ -1246,29 +1236,26 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
     struct {
-#if 1
       Vec3 camera_front;
       uint32_t cull_mask;
       Vec3 camera_position;
-#else
-      Mat4 projview_matrix;
-      uint32_t cull_mask;
-#endif
       uint32_t pass_id;
       uint32_t out_offset;
       uint32_t in_offset;
       uint32_t num_draws;
     } push_constant;
 
-    cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
+    EID last = ENTITY_NIL;
     for (uint32_t i = 0; i < num_passes; i++) {
+      EID pipeline_id = (mesh_passes[i].flags & MESH_PASS_PERSP) ? g_voxel_pipeline_compute_ext_persp : g_voxel_pipeline_compute_ext_ortho;
+      if (pipeline_id != last) {
+        prog = GetComponent(Compute_Pipeline, pipeline_id);
+        cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
+        last = pipeline_id;
+      }
       push_constant.cull_mask = mesh_passes[i].cull_mask;
-#if 1
       push_constant.camera_front = mesh_passes[i].camera_dir;
       push_constant.camera_position = mesh_passes[i].camera_pos;
-#else
-      memcpy(&push_constant.projview_matrix, &mesh_passes[i].projview_matrix, sizeof(Mat4));
-#endif
       push_constant.pass_id = dst_offset / uint_stride + Log2_u32(mesh_passes[i].cull_mask);
       push_constant.out_offset = Log2_u32(mesh_passes[i].cull_mask) * num_draws;
       push_constant.in_offset = drawer->draw_offset - num_draws;
@@ -1414,6 +1401,7 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
   g_voxel_pipeline_shadow = CreateEntity(g_ecs);
   g_voxel_pipeline_compute = CreateEntity(g_ecs);
   g_voxel_pipeline_compute_ext_ortho = CreateEntity(g_ecs);
+  g_voxel_pipeline_compute_ext_persp = CreateEntity(g_ecs);
 
   return err;
 }

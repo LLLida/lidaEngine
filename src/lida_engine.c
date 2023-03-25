@@ -196,7 +196,7 @@ EngineInit(const Engine_Startup_Info* info)
                                                                    shader, g_deletion_queue)
   ADD_PIPELINE(g_voxel_pipeline_compute, "vox_cull_ortho.comp.spv");
   ADD_PIPELINE(g_voxel_pipeline_compute_ext_ortho, "vox_cull_ext_ortho.comp.spv");
-  // ADD_PIPELINE(g_voxel_pipeline_compute_ext_ortho, "vox_cull_ext_new.comp.spv");
+  ADD_PIPELINE(g_voxel_pipeline_compute_ext_persp, "vox_cull_ext_persp.comp.spv");
 
   CreateDebugDrawer(&g_context->debug_drawer, 1024);
 
