@@ -116,6 +116,42 @@ typedef struct {
 
 /// private functions
 
+INTERNAL int
+AddForDeletion(Deletion_Queue* dq, uint64_t handle, VkObjectType type)
+{
+  const size_t max = ARR_SIZE(dq->objs);
+  if (dq->count == max) {
+    LOG_WARN("deletion queue is out of space");
+    return -1;
+  }
+  size_t id = (dq->left+dq->count) % max;
+  dq->objs[id].handle = handle;
+  dq->objs[id].type = type;
+  dq->objs[id].frame = g_window->frame_counter;
+  dq->count++;
+  return 0;
+}
+
+// HACK: for some reason vulkan doesn't define VK_OBJECT_TYPE_MEMORY so we define it ourselves
+#define VK_OBJECT_TYPE_MEMORY 50
+
+INTERNAL VkResult
+ReallocateMemoryIfNeeded(Video_Memory* memory, Deletion_Queue* dq, const VkMemoryRequirements* requirements,
+                         VkMemoryPropertyFlags flags, const char* marker)
+{
+  if (memory->handle &&
+      ALIGN_TO(memory->offset, requirements->alignment) + requirements->size <= memory->size) {
+    return VK_SUCCESS;
+  }
+  if (memory->handle != VK_NULL_HANDLE) {
+    if (memory->mapped) {
+      vkUnmapMemory(g_device->logical_device, memory->handle);
+    }
+    AddForDeletion(dq, (uint64_t)memory->handle, VK_OBJECT_TYPE_MEMORY);
+  }
+  return AllocateVideoMemory(memory, requirements->size, flags, requirements->memoryTypeBits, marker);
+}
+
 INTERNAL void
 FWD_ChooseFromats(Forward_Pass* pass, VkSampleCountFlagBits samples)
 {
@@ -477,7 +513,7 @@ SH_CreateRenderPass(Shadow_Pass* pass, const Forward_Pass* fwd_pass)
 }
 
 INTERNAL VkResult
-SH_CreateAttachments(Shadow_Pass* pass, const Forward_Pass* fwd_pass)
+SH_CreateAttachments(Shadow_Pass* pass, const Forward_Pass* fwd_pass, Deletion_Queue* dq)
 {
   // typical Vulkan boring stuff ... 😴
   VkImageCreateInfo image_info = {
@@ -500,9 +536,8 @@ SH_CreateAttachments(Shadow_Pass* pass, const Forward_Pass* fwd_pass)
   }
   VkMemoryRequirements requirements;
   vkGetImageMemoryRequirements(g_device->logical_device, pass->image, &requirements);
-  err = AllocateVideoMemory(&pass->memory, requirements.size,
-                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, requirements.memoryTypeBits,
-                            "shadow/attachment-memory");
+  err = ReallocateMemoryIfNeeded(&pass->memory, dq, &requirements,
+                                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, "shadow/attachment-memory");
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to allocate memory for shadow attachment with error %s",
               ToString_VkResult(err));
@@ -760,7 +795,8 @@ CreateShadowPass(Shadow_Pass* pass, const Forward_Pass* fwd_pass, uint32_t width
               ToString_VkResult(err));
     return err;
   }
-  err = SH_CreateAttachments(pass, fwd_pass);
+  pass->memory.handle = VK_NULL_HANDLE;
+  err = SH_CreateAttachments(pass, fwd_pass, NULL);
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to create attachments for rendering to shadow map with error %s",
               ToString_VkResult(err));
@@ -846,22 +882,6 @@ cmdBindCompute(VkCommandBuffer cmd, const Compute_Pipeline* prog,
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prog->pipeline);
 }
 
-INTERNAL int
-AddForDeletion(Deletion_Queue* dq, uint64_t handle, VkObjectType type)
-{
-  const size_t max = ARR_SIZE(dq->objs);
-  if (dq->count == max) {
-    LOG_WARN("deletion queue is out of space");
-    return -1;
-  }
-  size_t id = (dq->left+dq->count) % max;
-  dq->objs[id].handle = handle;
-  dq->objs[id].type = type;
-  dq->objs[id].frame = g_window->frame_counter;
-  dq->count++;
-  return 0;
-}
-
 INTERNAL void
 UpdateDeletionQueue(Deletion_Queue* dq)
 {
@@ -870,7 +890,8 @@ UpdateDeletionQueue(Deletion_Queue* dq)
     size_t id = dq->left % max;
     if (dq->objs[id].frame + 2 > g_window->frame_counter)
       break;
-    switch (dq->objs[id].type)
+    // HACK: avoid warning "case value ‘50’ not in enumerated type ‘VkObjectType’"
+    switch ((uint32_t)dq->objs[id].type)
       {
 #define CASE(upper, camel) case VK_OBJECT_TYPE_##upper:\
         vkDestroy##camel (g_device->logical_device, (Vk##camel)dq->objs[id].handle, NULL);\
@@ -883,6 +904,9 @@ UpdateDeletionQueue(Deletion_Queue* dq)
         CASE(BUFFER, Buffer);
 
 #undef CASE
+      case VK_OBJECT_TYPE_MEMORY:
+        vkFreeMemory(g_device->logical_device, (VkDeviceMemory)dq->objs[id].handle, NULL);
+        break;
 
       default:
         LOG_WARN("deletion queue: undefined type object %d", dq->objs[id].type);
@@ -892,6 +916,31 @@ UpdateDeletionQueue(Deletion_Queue* dq)
     dq->left = (dq->left+1) % max;
     dq->count--;
   }
+}
+
+INTERNAL VkResult
+RecreateShadowPass(Shadow_Pass* pass, Deletion_Queue* dq, uint32_t dim)
+{
+  AddForDeletion(dq, (uint64_t)pass->framebuffer, VK_OBJECT_TYPE_FRAMEBUFFER);
+  AddForDeletion(dq, (uint64_t)pass->image_view, VK_OBJECT_TYPE_IMAGE_VIEW);
+  AddForDeletion(dq, (uint64_t)pass->image, VK_OBJECT_TYPE_IMAGE);
+
+  ResetVideoMemory(&pass->memory);
+  pass->extent.width = dim;
+  pass->extent.height = dim;
+  VkResult err = SH_CreateAttachments(pass, g_forward_pass, dq);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to recreate attachments for shadow map with error %s",
+              ToString_VkResult(err));
+    return err;
+  }
+  err = SH_AllocateDescriptorSets(pass, g_forward_pass);
+  if (err != VK_SUCCESS) {
+    LOG_ERROR("failed to reallocate descriptor sets for rendering to shadow map with error %s",
+              ToString_VkResult(err));
+    return err;
+  }
+  return err;
 }
 
 INTERNAL void

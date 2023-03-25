@@ -324,6 +324,20 @@ EngineUpdateAndRender()
       g_context->camera.fovy = RADIANS(*GetVar_Float(g_config, "Camera.fovy"));
       g_context->camera.rotation_speed = *GetVar_Float(g_config, "Camera.rotation_speed");
       g_context->camera.movement_speed = *GetVar_Float(g_config, "Camera.movement_speed");
+
+      uint32_t new_shadow_map_dim = *GetVar_Int(g_config, "Render.shadow_map_dim");
+      if (new_shadow_map_dim != g_shadow_pass->extent.width) {
+        // recreate shadow map if extent is changed
+        RecreateShadowPass(g_shadow_pass, g_deletion_queue, new_shadow_map_dim);
+        // need to recreate shadow pipeline
+        Graphics_Pipeline* pipeline = GetComponent(Graphics_Pipeline, g_voxel_pipeline_shadow);
+        AddForDeletion(g_deletion_queue, (uint64_t)pipeline->pipeline, VK_OBJECT_TYPE_PIPELINE);
+        Pipeline_Desc desc;
+        pipeline->create_func(&desc);
+        desc.vertex_shader = pipeline->vertex_shader;
+        CreateGraphicsPipelines(&pipeline->pipeline, 1, &desc, &pipeline->layout);
+      }
+
       break;
 
     case 30:

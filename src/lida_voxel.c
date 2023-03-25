@@ -683,12 +683,12 @@ CreateVoxelBackend_Slow(void* backend, Video_Memory* cpu_memory, uint32_t max_ve
   MergeMemoryRequirements(buffer_requirements, ARR_SIZE(buffer_requirements), &requirements);
   const VkMemoryPropertyFlags required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
   // try to allocate GPU memory accessible from CPU because it's fast
-  err = ReallocateMemoryIfNeeded(cpu_memory, &requirements,
+  err = ReallocateMemoryIfNeeded(cpu_memory, g_deletion_queue, &requirements,
                                  required_flags|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                                  "voxel-drawer/memory");
   if (err != VK_SUCCESS) {
     // didn't succeed, fallback to 'slow' memory
-    err = ReallocateMemoryIfNeeded(cpu_memory, &requirements,
+    err = ReallocateMemoryIfNeeded(cpu_memory, g_deletion_queue, &requirements,
                                    required_flags, "voxel-drawer/memory");
     if (err != VK_SUCCESS) {
       LOG_ERROR("failed to allocate video memory for voxels with error %s", ToString_VkResult(err));
@@ -1021,11 +1021,11 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
   VkMemoryRequirements requirements;
   MergeMemoryRequirements(cpu_requirements, ARR_SIZE(cpu_requirements), &requirements);
   const VkMemoryPropertyFlags required_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  err = ReallocateMemoryIfNeeded(cpu_memory, &requirements,
+  err = ReallocateMemoryIfNeeded(cpu_memory, g_deletion_queue, &requirements,
                                  required_flags|VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                                  "voxel-drawer/memory");
   if (err != VK_SUCCESS) {
-    err = ReallocateMemoryIfNeeded(cpu_memory, &requirements,
+    err = ReallocateMemoryIfNeeded(cpu_memory, g_deletion_queue, &requirements,
                                    required_flags, "voxel-drawer/memory");
     if (err != VK_SUCCESS) {
       LOG_ERROR("failed to allocate video memory for voxels with error %s", ToString_VkResult(err));
@@ -1040,7 +1040,7 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
   vkGetBufferMemoryRequirements(g_device->logical_device,
                                 drawer->vertex_count_buffer, &gpu_requirements[1]);
   MergeMemoryRequirements(gpu_requirements, 2, &requirements);
-  err = ReallocateMemoryIfNeeded(gpu_memory, &requirements,
+  err = ReallocateMemoryIfNeeded(gpu_memory, g_deletion_queue, &requirements,
                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                                  "voxel-drawer/fast-memory");
   if (err != VK_SUCCESS) {

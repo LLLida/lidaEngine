@@ -1127,20 +1127,6 @@ BufferBindToMemory(Video_Memory* memory, VkBuffer buffer,
   return err;
 }
 
-INTERNAL VkResult
-ReallocateMemoryIfNeeded(Video_Memory* memory, const VkMemoryRequirements* requirements,
-                         VkMemoryPropertyFlags flags, const char* marker)
-{
-  if (memory->handle &&
-      ALIGN_TO(memory->offset, requirements->alignment) + requirements->size <= memory->size) {
-    return VK_SUCCESS;
-  }
-  if (memory->handle != VK_NULL_HANDLE) {
-    FreeVideoMemory(memory);
-  }
-  return AllocateVideoMemory(memory, requirements->size, flags, requirements->memoryTypeBits, marker);
-}
-
 typedef struct {
 
   uint32_t opcode;
