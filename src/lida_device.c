@@ -1038,7 +1038,7 @@ AllocateVideoMemory(Video_Memory* memory, VkDeviceSize size,
 INTERNAL void
 FreeVideoMemory(Video_Memory* memory)
 {
-  if (memory->mapped) {
+  if (memory->handle && memory->mapped) {
     vkUnmapMemory(g_device->logical_device, memory->handle);
   }
   vkFreeMemory(g_device->logical_device, memory->handle, NULL);

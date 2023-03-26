@@ -6,8 +6,10 @@ layout (local_size_x = 64, local_size_y = 1) in;
 #include "common.h"
 
 struct Draw_Data {
+  float half_size_x;
+  float half_size_y;
+  float half_size_z;
   uint first_vertex;
-  uint instance_count;
   uint first_instance;
   uint vertex_count0;
   uint vertex_count1;
@@ -38,6 +40,9 @@ struct Vertex_Count {
   uint count2;
   uint count3;
   uint count4;
+  uint debug_data1;
+  uint debug_data2;
+  uint debug_data3;
 };
 
 // storage buffer
@@ -99,39 +104,39 @@ void main() {
   uint vertex_offset = d.first_vertex;
   uint out_id = (draw_index + draw_offset) * 3;
 
-#define FILL_ZEROS(i)                                 \
-  out_draws[out_id + i].index_count = 0;        \
-  out_draws[out_id + i].instance_count = 0;     \
-  out_draws[out_id + i].first_index = 0;        \
-  out_draws[out_id + i].vertex_offset = 0;      \
-  out_draws[out_id + i].first_instance = 0
-
-#define EMIT_DRAW(i, id)                                           \
-  out_draws[out_id + i].index_count = vertex_count[id] * 3 / 2; \
-  out_draws[out_id + i].instance_count = d.instance_count;      \
-  out_draws[out_id + i].first_index = vertex_offset * 3 / 2;    \
-  out_draws[out_id + i].vertex_offset = d.first_vertex;         \
-  out_draws[out_id + i].first_instance = d.first_instance
-
+  // zero out unused drawcalls
+  for (int i = 0; i < 3; i++) {
+    out_draws[out_id + i].instance_count = 0;
+  }
+  // frustum culling
   if ((d.cull_mask & cull_mask) == 0) {
-    FILL_ZEROS(0);
-    FILL_ZEROS(1);
-    FILL_ZEROS(2);
     return;
   }
+
+  uint last_written_vertex = 0xffffffff;
+  uint draw_count = 0;
+
   vec3 dist = transform.position - camera_position;
   // backface culling
-  for (int i = 0; i < 3; i++) {
-    vec3 normal = rotate(vox_normals[2*i], transform.rotation);
-    if (dot(dist, normal) <= 0) {
-      EMIT_DRAW(i, 2*i);
-      vertex_offset += vertex_count[2*i] + vertex_count[2*i+1];
-    } else {
-      vertex_offset += vertex_count[2*i];
-      EMIT_DRAW(i, 2*i+1);
-      vertex_offset += vertex_count[2*i+1];
+  // Theorem: there're at most 3 drawcalls submitted after this loop.
+  for (int i = 0; i < 6; i++) {
+    vec3 normal = rotate(vox_normals[i], transform.rotation);
+    if (dot(camera_front, normal) <= 0.0) {
+      if (last_written_vertex == vertex_offset) {
+        out_draws[out_id + draw_count-1].index_count += vertex_count[i] * 3 / 2;
+      } else {
+        out_draws[out_id + draw_count].index_count = vertex_count[i] * 3 / 2;
+        out_draws[out_id + draw_count].instance_count = 1;
+        out_draws[out_id + draw_count].first_index = vertex_offset * 3 / 2;
+        out_draws[out_id + draw_count].vertex_offset = d.first_vertex;
+        out_draws[out_id + draw_count].first_instance = d.first_instance;
+        draw_count++;
+      }
+      last_written_vertex = vertex_offset + vertex_count[i];
     }
+    vertex_offset += vertex_count[i];
   }
+  vertex_counts[draw_offset + d.first_instance].debug_data1 = draw_count;
 
   vertex_offset = d.first_vertex;
   vertex_counts[draw_offset + d.first_instance].count0 = (vertex_offset + d.vertex_count0); vertex_offset += d.vertex_count0;

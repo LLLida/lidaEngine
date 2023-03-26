@@ -186,15 +186,15 @@ EngineInit(const Engine_Startup_Info* info)
 
   ADD_PIPELINE(g_context->rect_pipeline, "rect.vert.spv", "rect.frag.spv", CreateRectPipeline);
   ADD_PIPELINE(g_context->triangle_pipeline, "triangle.vert.spv", "triangle.frag.spv", CreateTrianglePipeline);
-  ADD_PIPELINE(g_voxel_pipeline_classic, "voxel.vert.spv", "voxel.frag.spv", CreateVoxelPipelineClassic);
-  ADD_PIPELINE(g_voxel_pipeline_indirect, "voxel_new.vert.spv", "voxel.frag.spv", CreateVoxelPipelineIndirect);
+  ADD_PIPELINE(g_voxel_pipeline_colored, "voxel_new.vert.spv", "voxel.frag.spv", CreateVoxelPipelineIndirect);
   ADD_PIPELINE(g_voxel_pipeline_shadow, "shadow_voxel.vert.spv", NULL, CreateVoxelPipelineShadow);
   ADD_PIPELINE(g_context->debug_pipeline, "debug_draw.vert.spv", "debug_draw.frag.spv", CreateDebugDrawPipeline);
 #undef ADD_PIPELINE
 
 #define ADD_PIPELINE(pipeline, shader) AddComputePipelineComponent(g_ecs, g_asset_manager, pipeline, \
                                                                    shader, g_deletion_queue)
-  ADD_PIPELINE(g_voxel_pipeline_compute, "vox_cull_ortho.comp.spv");
+  ADD_PIPELINE(g_voxel_pipeline_compute_ortho, "vox_cull_ortho.comp.spv");
+  ADD_PIPELINE(g_voxel_pipeline_compute_persp, "vox_cull_persp.comp.spv");
   ADD_PIPELINE(g_voxel_pipeline_compute_ext_ortho, "vox_cull_ext_ortho.comp.spv");
   ADD_PIPELINE(g_voxel_pipeline_compute_ext_persp, "vox_cull_ext_persp.comp.spv");
 

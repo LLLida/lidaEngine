@@ -44,6 +44,9 @@ struct Vertex_Count {
   uint count2;
   uint count3;
   uint count4;
+  uint debug_data1;
+  uint debug_data2;
+  uint debug_data3;
 };
 
 // stride: 16 bytes
@@ -119,33 +122,29 @@ void main() {
     return;
   }
 
-  vec3 box[3];
-  box[0] = rotate(vec3(d.half_size_x, 0.0, 0.0), transform.rotation);
-  box[1] = rotate(vec3(0.0, d.half_size_y, 0.0), transform.rotation);
-  box[2] = rotate(vec3(0.0, 0.0, d.half_size_z), transform.rotation);
+  uint last_written_vertex = 0xffffffff;
+  uint last_id;
 
   // backface culling
   uint num_added = 0;
   for (int i = 0; i < 6; i++) {
-    vec3 basis[3];
-    basis[0] = -box[0] * vox_normals[i].x * transform.scale;
-    basis[1] = -box[1] * vox_normals[i].y * transform.scale;
-    basis[2] = -box[2] * vox_normals[i].z * transform.scale;
-    vec3 point;
-    point.x = basis[0].x + basis[1].x + basis[2].x + transform.position.x;
-    point.y = basis[0].y + basis[1].y + basis[2].y + transform.position.y;
-    point.z = basis[0].z + basis[1].z + basis[2].z + transform.position.z;
-
     vec3 normal = rotate(vox_normals[i], transform.rotation);
-    if (dot(camera_front, normal) <= 0.01) {
-      uint id = atomicAdd(draw_count[pass_id].count, 1);
-      out_draws[draw_offset * 5 + id].index_count = vertex_count[i] * 3 / 2;
-      out_draws[draw_offset * 5 + id].instance_count = 1;
-      out_draws[draw_offset * 5 + id].first_index = vertex_offset * 3 / 2;
-      out_draws[draw_offset * 5 + id].vertex_offset = d.first_vertex;
-      out_draws[draw_offset * 5 + id].first_instance = d.first_instance;
+    if (dot(camera_front, normal) <= 0.0) {
+      // try to merge drawcalls
+      if (last_written_vertex == vertex_offset) {
+        out_draws[draw_offset * 3 + last_id].index_count += vertex_count[i] * 3 / 2;
+      } else {
+        uint id = atomicAdd(draw_count[pass_id].count, 1);
+        out_draws[draw_offset * 3 + id].index_count = vertex_count[i] * 3 / 2;
+        out_draws[draw_offset * 3 + id].instance_count = 1;
+        out_draws[draw_offset * 3 + id].first_index = vertex_offset * 3 / 2;
+        out_draws[draw_offset * 3 + id].vertex_offset = d.first_vertex;
+        out_draws[draw_offset * 3 + id].first_instance = d.first_instance;
+        last_id = id;
+        num_added++;
+      }
 
-      num_added++;
+      last_written_vertex = vertex_offset + vertex_count[i];
     }
     vertex_offset += vertex_count[i];
   }
@@ -158,4 +157,5 @@ void main() {
     vertex_counts[draw_offset + d.first_instance].count3 = (vertex_offset + d.vertex_count3); vertex_offset += d.vertex_count3;
     vertex_counts[draw_offset + d.first_instance].count4 = (vertex_offset + d.vertex_count4); vertex_offset += d.vertex_count4;
   }
+  vertex_counts[draw_offset + d.first_instance].debug_data1 = num_added;
 }

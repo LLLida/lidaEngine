@@ -51,7 +51,6 @@ typedef struct {
   uint32_t vertexCount;
   uint32_t firstVertex;
   uint32_t firstInstance;
-  uint32_t instanceCount;
 
 } VX_Draw_Command;
 
@@ -86,10 +85,12 @@ typedef struct {
 
   VkBuffer vertex_buffer;
   VkBuffer transform_buffer;
+  VkBuffer vertex_count_buffer;
   VkBuffer index_buffer;
 
   Vertex_X3C* pVertices;
   Transform* pTransforms;
+  VX_Vertex_Count* pVertexCounts;
   uint32_t* pIndices;
 
   // reset each frame
@@ -166,10 +167,10 @@ Voxel_Drawer* g_vox_drawer;
 
 Allocator* g_vox_allocator;
 
-EID g_voxel_pipeline_classic;
-EID g_voxel_pipeline_indirect;
+EID g_voxel_pipeline_colored;
 EID g_voxel_pipeline_shadow;
-EID g_voxel_pipeline_compute;
+EID g_voxel_pipeline_compute_ortho;
+EID g_voxel_pipeline_compute_persp;
 EID g_voxel_pipeline_compute_ext_ortho;
 EID g_voxel_pipeline_compute_ext_persp;
 
@@ -457,54 +458,7 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
         }
         const uint32_t start_pos[3] = { pos[0], pos[1], pos[2] };
         uint32_t min_i = dims[u];
-#if 0
-        // grow quad while all voxels in that quad are the same
-        while (pos[v] < dims[v]) {
-          pos[u] = i;
-          if (GetInVoxelGrid(grid, pos[0], pos[1], pos[2]) != start_voxel)
-            break;
-          pos[u]++;
-          while (pos[u] < min_i &&
-                 GetInVoxelGrid(grid, pos[0], pos[1], pos[2]) == start_voxel) {
-            pos[u]++;
-        int p[3] = { 0 };
-        // check if at least 1 voxel is visible. FIXME: I think when
-        // this approach generates the most perfect meshes, it
-        // generates ugly meshes: when camera is inside a mesh some
-        // unnecessary voxels are seen.
-        for (p[v] = start_pos[v], p[d] = layer; (uint32_t)p[v] < start_pos[v] + offset[v]; p[v]++) {
-          for (p[u] = start_pos[u]; (uint32_t)p[u] < start_pos[u] + offset[u]; p[u]++) {
-            Voxel near_voxel = GetInVoxelGridChecked(grid,
-                                                     p[0] + vox_normals[face].x,
-                                                     p[1] + vox_normals[face].y,
-                                                     p[2] + vox_normals[face].z);
-            if (near_voxel == 0) goto process;
-          }
-        }
-          }
-          if (pos[u] < min_i) min_i = pos[u];
-          pos[v]++;
-        }
-        uint32_t offset[3] = { 0 };
-        offset[u] = min_i - start_pos[u]; // width of quad
-        offset[v] = pos[v] - start_pos[v]; // height of quad
-        int p[3] = { 0 };
-        // check if at least 1 voxel is visible. FIXME: I think when
-        // this approach generates the most perfect meshes, it
-        // generates ugly meshes: when camera is inside a mesh some
-        // unnecessary voxels are seen.
-        for (p[v] = start_pos[v], p[d] = layer; (uint32_t)p[v] < start_pos[v] + offset[v]; p[v]++) {
-          for (p[u] = start_pos[u]; (uint32_t)p[u] < start_pos[u] + offset[u]; p[u]++) {
-            Voxel near_voxel = GetInVoxelGridChecked(grid,
-                                                     p[0] + vox_normals[face].x,
-                                                     p[1] + vox_normals[face].y,
-                                                     p[2] + vox_normals[face].z);
-            if (near_voxel == 0) goto process;
-          }
-        }
-        continue;
-      process:
-#else
+
         // grow quad while all voxels in that quad are the same and visible
         while (pos[v] < dims[v]) {
           pos[u] = i;
@@ -533,7 +487,6 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
         uint32_t offset[3] = { 0 };
         offset[u] = min_i - start_pos[u]; // width of quad
         offset[v] = pos[v] - start_pos[v]; // height of quad
-#endif
 #if VX_USE_INDICES
         // write 4 vertices and 6 indices for this quad
         for (uint32_t i = 0; i < 6; i++) {
@@ -650,6 +603,8 @@ CreateVoxelBackend_Slow(void* backend, Video_Memory* cpu_memory, uint32_t max_ve
   CREATE_BUFFER(transform_buffer, max_draws * sizeof(Transform),
                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                 "voxel-drawer/transform-buffer");
+  CREATE_BUFFER(vertex_count_buffer, max_draws * sizeof(VX_Vertex_Count),
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "voxel-drawer/vertex-count-buffer");
 #if VX_USE_INDICES
   CREATE_BUFFER(index_buffer, max_vertices * 3 / 2 * sizeof(uint32_t),
                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT, "voxel-draw/index-buffer");
@@ -658,17 +613,19 @@ CreateVoxelBackend_Slow(void* backend, Video_Memory* cpu_memory, uint32_t max_ve
 
   // allocate memory for buffers
 #if VX_USE_INDICES
-  VkMemoryRequirements buffer_requirements[3];
+  VkMemoryRequirements buffer_requirements[4];
 #else
-  VkMemoryRequirements buffer_requirements[2];
+  VkMemoryRequirements buffer_requirements[3];
 #endif
   vkGetBufferMemoryRequirements(g_device->logical_device,
                                 drawer->vertex_buffer, &buffer_requirements[0]);
   vkGetBufferMemoryRequirements(g_device->logical_device,
                                 drawer->transform_buffer, &buffer_requirements[1]);
+  vkGetBufferMemoryRequirements(g_device->logical_device,
+                                drawer->vertex_count_buffer, &buffer_requirements[2]);
 #if VX_USE_INDICES
   vkGetBufferMemoryRequirements(g_device->logical_device,
-                                drawer->index_buffer, &buffer_requirements[2]);
+                                drawer->index_buffer, &buffer_requirements[3]);
 #endif
   VkMemoryRequirements requirements;
   MergeMemoryRequirements(buffer_requirements, ARR_SIZE(buffer_requirements), &requirements);
@@ -697,8 +654,9 @@ CreateVoxelBackend_Slow(void* backend, Video_Memory* cpu_memory, uint32_t max_ve
   } while (0)
   BIND_BUFFER(cpu_memory, vertex_buffer, buffer_requirements[0], (void**)&drawer->pVertices);
   BIND_BUFFER(cpu_memory, transform_buffer, buffer_requirements[1], (void**)&drawer->pTransforms);
+  BIND_BUFFER(cpu_memory, vertex_count_buffer, buffer_requirements[2], (void**)&drawer->pVertexCounts);
 #if VX_USE_INDICES
-  BIND_BUFFER(cpu_memory, index_buffer, buffer_requirements[2], (void**)&drawer->pIndices);
+  BIND_BUFFER(cpu_memory, index_buffer, buffer_requirements[3], (void**)&drawer->pIndices);
 #endif
 #undef BIND_BUFFER
   return err;
@@ -765,7 +723,6 @@ RegenerateVoxel_Slow(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid
       cached->first_vertex = command->firstVertex;
     }
     command->firstInstance = drawer->transform_offset - drawer->start_transform_offset;
-    command->instanceCount = 1;
     drawer->vertex_offset += command->vertexCount;
     cached->offsets[i] = command->vertexCount;
   }
@@ -775,7 +732,6 @@ INTERNAL void
 PushMeshVoxel_Slow(void* backend, ECS* ecs, EID entity)
 {
   Voxel_Backend_Slow* drawer = backend;
-  uint32_t index = drawer->num_meshes;
   // add transform
   Transform* transform = GetComponent(Transform, entity);
   memcpy(&drawer->pTransforms[drawer->transform_offset],
@@ -783,17 +739,6 @@ PushMeshVoxel_Slow(void* backend, ECS* ecs, EID entity)
   EID* meshes = drawer->meshes->ptr;
   Voxel_Grid* grid = GetComponent(Voxel_Grid, entity);
   VX_Draw_Command* draws = drawer->draws->ptr;
-
-  // try to use instancing if same mesh is pushed twice
-  if (index > 0) {
-    Voxel_Cached* prev = GetComponent(Voxel_Cached, meshes[index-1]);
-    if (prev->hash == grid->hash) {
-      for (uint32_t i = 0; i < 6; i++) {
-        draws[drawer->num_draws-6+i].instanceCount++;
-      }
-      goto end;
-    }
-  }
 
   // try to use cache
   Voxel_Cached* cached = GetComponent(Voxel_Cached, entity);
@@ -809,7 +754,6 @@ PushMeshVoxel_Slow(void* backend, ECS* ecs, EID entity)
       command->firstVertex = vertex_offset;
       command->vertexCount = cached->offsets[i];
       command->firstInstance = drawer->transform_offset - drawer->start_transform_offset;
-      command->instanceCount = 1;
       vertex_offset += cached->offsets[i];
     }
   } else {
@@ -818,6 +762,15 @@ PushMeshVoxel_Slow(void* backend, ECS* ecs, EID entity)
     RegenerateVoxel_Slow(drawer, cached, grid);
   }
  end:
+  {
+    // write vertex count
+    VX_Vertex_Count* table = &drawer->pVertexCounts[drawer->transform_offset];
+    table->count0 = cached->first_vertex + cached->offsets[0];
+    table->count1 = table->count0 + cached->offsets[1];
+    table->count2 = table->count1 + cached->offsets[2];
+    table->count3 = table->count2 + cached->offsets[3];
+    table->count4 = table->count3 + cached->offsets[4];
+  }
   drawer->transform_offset++;
   meshes[drawer->num_meshes++] = entity;
 }
@@ -829,13 +782,13 @@ RenderVoxels_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
   (void)num_draws; // FIXME: maybe we should get rid of num_draws argument
   Graphics_Pipeline* prog;
   if (mesh_pass->flags & MESH_PASS_USE_NORMALS) {
-    prog = GetComponent(Graphics_Pipeline, g_voxel_pipeline_classic);
+    prog = GetComponent(Graphics_Pipeline, g_voxel_pipeline_colored);
   } else {
-    prog = GetComponent(Graphics_Pipeline, g_voxel_pipeline_classic);
+    prog = GetComponent(Graphics_Pipeline, g_voxel_pipeline_shadow);
   }
   // bind vertices
-  VkDeviceSize offsets[] = { 0, drawer->start_transform_offset * sizeof(Transform) };
-  VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer };
+  VkDeviceSize offsets[] = { 0, drawer->start_transform_offset * sizeof(Transform), drawer->start_transform_offset * sizeof(VX_Vertex_Count) };
+  VkBuffer buffers[] = { drawer->vertex_buffer, drawer->transform_buffer, drawer->vertex_count_buffer };
   vkCmdBindVertexBuffers(cmd, 0, ARR_SIZE(buffers), buffers, offsets);
 
 #if VX_USE_INDICES
@@ -849,74 +802,71 @@ RenderVoxels_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
   EID* meshes = drawer->meshes->ptr;
 #endif
   uint32_t draw_calls = 0;
-  if (mesh_pass->flags & MESH_PASS_USE_NORMALS) {
-    for (uint32_t normal_id = 0; normal_id < 6; normal_id++) {
-      // pass normal ID
-      vkCmdPushConstants(cmd, prog->layout, VK_SHADER_STAGE_VERTEX_BIT,
-                         0, sizeof(uint32_t), &normal_id);
-      for (uint32_t i = normal_id; i < drawer->num_draws; i += 6) {
-        VX_Draw_Command* command = &draws[i];
-#if VX_USE_CULLING
-        EID mesh = meshes[i/6];
-        Voxel_Cached* cached = GetComponent(Voxel_Cached, mesh);
-        if ((cached->cull_mask & mesh_pass->cull_mask) == 0) {
-          continue;
-        }
-        // TODO(render): find a way to cull instanced objects.
-        if (command->instanceCount == 1) {
-          Transform* transform = GetComponent(Transform, mesh);
-          // try to backface cull this face
-          Vec3 dist = VEC3_SUB(transform->position, mesh_pass->camera_pos);
-          Vec3 normal = f_vox_normals[normal_id];
-          RotateByQuat(&normal, &transform->rotation, &normal);
-          float dot = VEC3_DOT(dist, normal);
-          if (dot > 0)
-            continue;
-        }
-#endif
 
-#if VX_USE_INDICES
-        uint32_t vertex_offset = draws[i - i%6].firstVertex;
-        vkCmdDrawIndexed(cmd, command->vertexCount*3/2, command->instanceCount,
-                         command->firstVertex*3/2, vertex_offset, command->firstInstance);
-#else
-        vkCmdDraw(cmd,
-                  command->vertexCount, command->instanceCount,
-                  command->firstVertex, command->firstInstance);
+  VX_Draw_Command draw_commands[3];
+  for (uint32_t i = 0; i < drawer->num_meshes; i++) {
+    EID mesh = meshes[i];
+    Voxel_Cached* cached = GetComponent(Voxel_Cached, mesh);
+    if ((cached->cull_mask & mesh_pass->cull_mask) == 0) {
+      continue;
+    }
+    Transform* transform = GetComponent(Transform, mesh);
+    OBB* obb = GetComponent(OBB, mesh);
+    const uint32_t points[24] = {
+      4, 5, 6, 7, // -X
+      0, 1, 2, 3, // +X
+      2, 3, 6, 7, // -Y
+      0, 1, 4, 5, // +Y
+      1, 3, 5, 7, // -Z
+      0, 2, 4, 6, // +Z
+    };
+    uint32_t last_written_vertex = UINT32_MAX;
+    uint32_t draw_count = 0;
+    for (uint32_t normal_id = 0; normal_id < 6; normal_id++) {
+      VX_Draw_Command* command = &draws[i*6+normal_id];
+#if VX_USE_CULLING
+      // try to backface cull this face
+      Vec3 dist;
+      // Hoping that compiler will optimize this check out of loop
+      if (mesh_pass->flags & MESH_PASS_PERSP) {
+        Vec3 point;
+        point.x = 0.25f * (obb->corners[points[normal_id*4]].x + obb->corners[points[normal_id*4+1]].x + obb->corners[points[normal_id*4+2]].x + obb->corners[points[normal_id*4+3]].x);
+        point.y = 0.25f * (obb->corners[points[normal_id*4]].y + obb->corners[points[normal_id*4+1]].y + obb->corners[points[normal_id*4+2]].y + obb->corners[points[normal_id*4+3]].y);
+        point.z = 0.25f * (obb->corners[points[normal_id*4]].z + obb->corners[points[normal_id*4+1]].z + obb->corners[points[normal_id*4+2]].z + obb->corners[points[normal_id*4+3]].z);
+        dist = VEC3_SUB(point, mesh_pass->camera_pos);
+      } else {
+        dist = mesh_pass->camera_dir;
+      }
+      Vec3 normal = f_vox_normals[normal_id];
+      RotateByQuat(&normal, &transform->rotation, &normal);
+      float dot = VEC3_DOT(dist, normal);
+      if (dot > 0)
+        continue;
 #endif
-        draw_calls++;
+      // try to merge this draw call with previous one
+      if (last_written_vertex == command->firstVertex) {
+        draw_commands[draw_count-1].vertexCount += command->vertexCount;
+        last_written_vertex += command->vertexCount;
+      } else {
+        memcpy(&draw_commands[draw_count++], command, sizeof(VX_Draw_Command));
+        last_written_vertex = command->firstVertex + command->vertexCount;
       }
     }
-  } else {
-    for (uint32_t i = 0; i < drawer->num_draws; i += 6) {
-#if VX_USE_CULLING
-      Voxel_Cached* cached = GetComponent(Voxel_Cached, meshes[i/6]);
-      if ((cached->cull_mask & mesh_pass->cull_mask) == 0) {
-        continue;
-      }
-#endif
-      VX_Draw_Command* command = &draws[i];
-      // merge draw calls
+    uint32_t vertex_offset = draws[i*6].firstVertex;
+    for (uint32_t j = 0; j < draw_count; j++) {
+      VX_Draw_Command* command = &draw_commands[j];
 #if VX_USE_INDICES
-      uint32_t index_count = 0;
-      for (uint32_t j = 0; j < 6; j++) {
-        index_count += command[j].vertexCount * 3 / 2;
-      }
-      uint32_t vertex_offset = command->firstVertex;
-      vkCmdDrawIndexed(cmd, index_count, command->instanceCount,
+      vkCmdDrawIndexed(cmd, command->vertexCount*3/2, 1,
                        command->firstVertex*3/2, vertex_offset, command->firstInstance);
 #else
-      uint32_t vertex_count = 0;
-      for (uint32_t j = 0; j < 6; j++) {
-        vertex_count += command[j].vertexCount;
-      }
       vkCmdDraw(cmd,
-                vertex_count, command->instanceCount,
+                command->vertexCount, 1,
                 command->firstVertex, command->firstInstance);
 #endif
       draw_calls++;
     }
   }
+
   return draw_calls;
 }
 
@@ -940,10 +890,12 @@ DestroyVoxel_Slow(void* backend, Deletion_Queue* dq)
   FreeAllocation(g_vox_allocator, drawer->draws);
   if (dq == NULL) {
     vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
+    vkDestroyBuffer(g_device->logical_device, drawer->vertex_count_buffer, NULL);
     vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
     vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
   } else {
     AddForDeletion(dq, (uint64_t)drawer->index_buffer, VK_OBJECT_TYPE_BUFFER);
+    AddForDeletion(dq, (uint64_t)drawer->vertex_count_buffer, VK_OBJECT_TYPE_BUFFER);
     AddForDeletion(dq, (uint64_t)drawer->transform_buffer, VK_OBJECT_TYPE_BUFFER);
     AddForDeletion(dq, (uint64_t)drawer->vertex_buffer, VK_OBJECT_TYPE_BUFFER);
   }
@@ -992,8 +944,8 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
     // we'll be using vkCmdFillBuffer for filling this buffer with zeros
     indirect_flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   }
-  // NOTE: 5 is max number of faces produced by a single model
-  CREATE_BUFFER(indirect_buffer, MAX_MESH_PASSES * 5 * max_draws * 32/*sizeof(VkDrawIndexedIndirectCommand)*/,
+  // NOTE: 3 is max number of draw calls produced by a single model
+  CREATE_BUFFER(indirect_buffer, MAX_MESH_PASSES * 3 * max_draws * 32/*sizeof(VkDrawIndexedIndirectCommand)*/,
                 indirect_flags, "voxel-drawer/indirect-buffer");
   CREATE_BUFFER(vertex_count_buffer, MAX_MESH_PASSES * max_draws * sizeof(VX_Vertex_Count),
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -1177,7 +1129,7 @@ RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_
   Voxel_Backend_Indirect* drawer = backend;
   Graphics_Pipeline* prog;
   if (mesh_pass->flags & MESH_PASS_USE_NORMALS) {
-    prog = GetComponent(Graphics_Pipeline, g_voxel_pipeline_indirect);
+    prog = GetComponent(Graphics_Pipeline, g_voxel_pipeline_colored);
   } else {
     prog = GetComponent(Graphics_Pipeline, g_voxel_pipeline_shadow);
   }
@@ -1206,16 +1158,16 @@ RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_
                              draw_calls,
                              stride);
   } else {
-    uint32_t draw_calls = num_draws * 5;
+    uint32_t max_draw_calls = num_draws * 3;
     // HACK: I hate std140
     const uint32_t stride = 32;
-    uint32_t offset = Log2_u32(mesh_pass->cull_mask) * draw_calls * stride;
-    uint32_t count_offset = MAX_MESH_PASSES * draw_calls * stride +
+    uint32_t offset = Log2_u32(mesh_pass->cull_mask) * max_draw_calls * stride;
+    uint32_t count_offset = MAX_MESH_PASSES * max_draw_calls * stride +
       Log2_u32(mesh_pass->cull_mask) * 16; // 16 stands for stride. I don't now why uints should be padded 16 but ok, fine, I'm not angry
     vkCmdDrawIndexedIndirectCountKHR(cmd,
                                      drawer->indirect_buffer, offset,
                                      drawer->indirect_buffer, count_offset,
-                                     draw_calls, stride);
+                                     max_draw_calls, stride);
   }
   return 1;
 }
@@ -1228,7 +1180,7 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
   Compute_Pipeline* prog;
   if (drawer->enabled_KHR_draw_indirect_count) {
     // fill draw counts with 0
-    uint32_t dst_offset = MAX_MESH_PASSES * num_draws * 5 * 32;
+    uint32_t dst_offset = MAX_MESH_PASSES * num_draws * 3 * 32;
     const uint32_t uint_stride = 16;
     vkCmdFillBuffer(cmd, drawer->indirect_buffer, dst_offset, MAX_MESH_PASSES * uint_stride, 0);
     cmdExecutionBarrier(cmd,
@@ -1265,7 +1217,6 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
       vkCmdDispatch(cmd, (num_draws+63) / 64, 1, 1);
     }
   } else {
-    prog = GetComponent(Compute_Pipeline, g_voxel_pipeline_compute);
     struct {
       Vec3 camera_front;
       uint32_t cull_mask;
@@ -1274,8 +1225,14 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
       uint32_t in_offset;
       uint32_t num_draws;
     } push_constant;
-    cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
+    EID last = ENTITY_NIL;
     for (uint32_t i = 0; i < num_passes; i++) {
+      EID pipeline_id = (mesh_passes[i].flags & MESH_PASS_PERSP) ? g_voxel_pipeline_compute_persp : g_voxel_pipeline_compute_ortho;
+      if (pipeline_id != last) {
+        prog = GetComponent(Compute_Pipeline, pipeline_id);
+        cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
+        last = pipeline_id;
+      }
       push_constant.cull_mask = mesh_passes[i].cull_mask;
       push_constant.camera_front = mesh_passes[i].camera_dir;
       push_constant.camera_position = mesh_passes[i].camera_pos;
@@ -1396,10 +1353,10 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
     err = SetVoxelBackend_Slow(drawer, NULL);
   }
 
-  g_voxel_pipeline_classic = CreateEntity(g_ecs);
-  g_voxel_pipeline_indirect = CreateEntity(g_ecs);
+  g_voxel_pipeline_colored = CreateEntity(g_ecs);
   g_voxel_pipeline_shadow = CreateEntity(g_ecs);
-  g_voxel_pipeline_compute = CreateEntity(g_ecs);
+  g_voxel_pipeline_compute_ortho = CreateEntity(g_ecs);
+  g_voxel_pipeline_compute_persp = CreateEntity(g_ecs);
   g_voxel_pipeline_compute_ext_ortho = CreateEntity(g_ecs);
   g_voxel_pipeline_compute_ext_persp = CreateEntity(g_ecs);
 

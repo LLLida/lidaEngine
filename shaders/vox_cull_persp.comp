@@ -5,7 +5,6 @@ layout (local_size_x = 64, local_size_y = 1) in;
 
 #include "common.h"
 
-// stride: 48 bytes
 struct Draw_Data {
   float half_size_x;
   float half_size_y;
@@ -21,14 +20,12 @@ struct Draw_Data {
   uint cull_mask;
 };
 
-// stride: 32 bytes
 struct Transform {
   quat rotation;
   vec3 position;
   float scale;
 };
 
-// stride: 32 bytes
 struct Draw_Command {
   uint index_count;
   uint instance_count;
@@ -37,7 +34,6 @@ struct Draw_Command {
   uint first_instance;
 };
 
-// stride: 32 bytes
 struct Vertex_Count {
   uint count0;
   uint count1;
@@ -47,11 +43,6 @@ struct Vertex_Count {
   uint debug_data1;
   uint debug_data2;
   uint debug_data3;
-};
-
-// stride: 16 bytes
-struct Draw_Count {
-  uint count;
 };
 
 // storage buffer
@@ -67,19 +58,15 @@ layout (std140, set = 0, binding = 2) writeonly buffer Indirect_Buffer {
   Draw_Command out_draws[];
 };
 
+// TODO: move this to vox_cull_persp.comp
 layout (std140, set = 0, binding = 3) writeonly buffer Vertex_Buffer {
   Vertex_Count vertex_counts[];
-};
-
-layout (std140, set = 0, binding = 4) writeonly buffer Draw_Counts {
-  Draw_Count draw_count[];
 };
 
 PUSH_CONSTANT Pass_Info {
   vec3 camera_front;
   uint cull_mask;
   vec3 camera_position;
-  uint pass_id;
   uint draw_offset;
   uint in_offset;
   uint num_draws;
@@ -117,6 +104,11 @@ void main() {
   uint vertex_offset = d.first_vertex;
   uint out_id = (draw_index + draw_offset) * 3;
 
+  // zero out unused drawcalls
+  for (int i = 0; i < 3; i++) {
+    out_draws[out_id + i].instance_count = 0;
+  }
+  // frustum culling
   if ((d.cull_mask & cull_mask) == 0) {
     return;
   }
@@ -127,10 +119,9 @@ void main() {
   box[2] = rotate(vec3(0.0, 0.0, d.half_size_z), transform.rotation);
 
   uint last_written_vertex = 0xffffffff;
-  uint last_id;
+  uint draw_count = 0;
 
   // backface culling
-  uint num_added = 0;
   for (int i = 0; i < 6; i++) {
     vec3 basis[3];
     basis[0] = -box[0] * vox_normals[i].x * transform.scale;
@@ -144,32 +135,25 @@ void main() {
     vec3 dist = point - camera_position;
     vec3 normal = rotate(vox_normals[i], transform.rotation);
     if (dot(dist, normal) <= 0.0) {
-      // try to merge drawcalls
       if (last_written_vertex == vertex_offset) {
-        out_draws[draw_offset * 3 + last_id].index_count += vertex_count[i] * 3 / 2;
+        out_draws[out_id + draw_count-1].index_count += vertex_count[i] * 3 / 2;
       } else {
-        uint id = atomicAdd(draw_count[pass_id].count, 1);
-        out_draws[draw_offset * 3 + id].index_count = vertex_count[i] * 3 / 2;
-        out_draws[draw_offset * 3 + id].instance_count = 1;
-        out_draws[draw_offset * 3 + id].first_index = vertex_offset * 3 / 2;
-        out_draws[draw_offset * 3 + id].vertex_offset = d.first_vertex;
-        out_draws[draw_offset * 3 + id].first_instance = d.first_instance;
-        last_id = id;
-        num_added++;
+        out_draws[out_id + draw_count].index_count = vertex_count[i] * 3 / 2;
+        out_draws[out_id + draw_count].instance_count = 1;
+        out_draws[out_id + draw_count].first_index = vertex_offset * 3 / 2;
+        out_draws[out_id + draw_count].vertex_offset = d.first_vertex;
+        out_draws[out_id + draw_count].first_instance = d.first_instance;
+        draw_count++;
       }
-
       last_written_vertex = vertex_offset + vertex_count[i];
     }
     vertex_offset += vertex_count[i];
   }
 
-  if (num_added > 0) {
-    vertex_offset = d.first_vertex;
-    vertex_counts[draw_offset + d.first_instance].count0 = (vertex_offset + d.vertex_count0); vertex_offset += d.vertex_count0;
-    vertex_counts[draw_offset + d.first_instance].count1 = (vertex_offset + d.vertex_count1); vertex_offset += d.vertex_count1;
-    vertex_counts[draw_offset + d.first_instance].count2 = (vertex_offset + d.vertex_count2); vertex_offset += d.vertex_count2;
-    vertex_counts[draw_offset + d.first_instance].count3 = (vertex_offset + d.vertex_count3); vertex_offset += d.vertex_count3;
-    vertex_counts[draw_offset + d.first_instance].count4 = (vertex_offset + d.vertex_count4); vertex_offset += d.vertex_count4;
-  }
-  vertex_counts[draw_offset + d.first_instance].debug_data1 = num_added;
+  vertex_offset = d.first_vertex;
+  vertex_counts[draw_offset + d.first_instance].count0 = (vertex_offset + d.vertex_count0); vertex_offset += d.vertex_count0;
+  vertex_counts[draw_offset + d.first_instance].count1 = (vertex_offset + d.vertex_count1); vertex_offset += d.vertex_count1;
+  vertex_counts[draw_offset + d.first_instance].count2 = (vertex_offset + d.vertex_count2); vertex_offset += d.vertex_count2;
+  vertex_counts[draw_offset + d.first_instance].count3 = (vertex_offset + d.vertex_count3); vertex_offset += d.vertex_count3;
+  vertex_counts[draw_offset + d.first_instance].count4 = (vertex_offset + d.vertex_count4); vertex_offset += d.vertex_count4;
 }
