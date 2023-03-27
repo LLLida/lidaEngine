@@ -889,7 +889,9 @@ DestroyVoxel_Slow(void* backend, Deletion_Queue* dq)
   FreeAllocation(g_vox_allocator, drawer->meshes);
   FreeAllocation(g_vox_allocator, drawer->draws);
   if (dq == NULL) {
+#if VX_USE_INDICES
     vkDestroyBuffer(g_device->logical_device, drawer->index_buffer, NULL);
+#endif
     vkDestroyBuffer(g_device->logical_device, drawer->vertex_count_buffer, NULL);
     vkDestroyBuffer(g_device->logical_device, drawer->transform_buffer, NULL);
     vkDestroyBuffer(g_device->logical_device, drawer->vertex_buffer, NULL);
@@ -1079,8 +1081,12 @@ RegenerateVoxel_Indirect(void* backend, Voxel_Cached* cached, const Voxel_Grid* 
   cached->first_vertex = draw->first_vertex;
   for (size_t i = 0; i < 6; i++) {
     uint32_t index_offset = drawer->vertex_offset*3/2;
+#if VX_USE_INDICES
     draw->vertex_count[i] = GenerateVoxelGridMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i,
-                                                       base_index, drawer->pIndices + index_offset);
+                                                        base_index, drawer->pIndices + index_offset);
+#else
+    Assert(0 && "not implemented for vertices only ");
+#endif
     base_index += draw->vertex_count[i];
     drawer->vertex_offset += draw->vertex_count[i];
     cached->offsets[i] = draw->vertex_count[i];
@@ -1352,6 +1358,7 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
   } else {
     err = SetVoxelBackend_Slow(drawer, NULL);
   }
+    // err = SetVoxelBackend_Slow(drawer, NULL);
 
   g_voxel_pipeline_colored = CreateEntity(g_ecs);
   g_voxel_pipeline_shadow = CreateEntity(g_ecs);

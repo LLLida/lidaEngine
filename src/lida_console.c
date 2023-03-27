@@ -959,6 +959,8 @@ CMD_spawn_random_voxels(uint32_t num, const char** args)
   enum VOXEL_TYPE {
     VOXEL_TYPE_SPHERE,
     VOXEL_TYPE_CUBE,
+    VOXEL_TYPE_FRACTAL1,
+    VOXEL_TYPE_FRACTAL2,
     MAX_VOXEL_TYPES,
   };
   int number = atoi(args[0]);
@@ -1011,6 +1013,18 @@ CMD_spawn_random_voxels(uint32_t num, const char** args)
           }
         }break;
 
+      case VOXEL_TYPE_FRACTAL1:
+        {
+          for (uint32_t i = 3; i < 64; i++)
+            grid->palette[i] = Random(g_random);
+          GenerateFractal1(entity);
+        }break;
+
+      case VOXEL_TYPE_FRACTAL2:
+        {
+          GenerateFractal2(entity, Random(g_random) % 2 + 3);
+        }break;
+
       default: assert(0);
       }
     grid->hash = HashMemory64(grid->data->ptr, grid->width*grid->height*grid->depth);
@@ -1020,12 +1034,6 @@ CMD_spawn_random_voxels(uint32_t num, const char** args)
     transform->position.x = (float)(Random(g_random)%63)-36.0f;
     transform->position.y = (float)(Random(g_random)%10)-0.5f;
     transform->position.z = (float)(Random(g_random)%63)-36.0f;
-#if 1
-    /*Vec3 rotation;
-    transform->rotation.x = (float)(Random(g_random)%314) / 100.0f;
-    transform->rotation.y = (float)(Random(g_random)%314) / 100.0f;
-    transform->rotation.z = (float)(Random(g_random)%314) / 100.0f;
-    QuatFromEulerAngles(rotation.x, rotation.y, rotation.z, &transform->rotation);*/
     Vec3 axis;
     axis.x = (float)(Random(g_random)&255);
     axis.y = (float)(Random(g_random)&255);
@@ -1033,9 +1041,6 @@ CMD_spawn_random_voxels(uint32_t num, const char** args)
     Vec3_Normalize(&axis, &axis);
     float angle = (float)(Random(g_random)%628) / 100.0f;
     QuatFromAxisAngle(&axis, angle, &transform->rotation);
-#else
-    transform->rotation = QUAT_IDENTITY();
-#endif
     // just add OBB
     AddComponent(g_ecs, OBB, entity);
     LOG_INFO("spawned at [%.3f %.3f %.3f]", transform->position.x, transform->position.y, transform->position.z);

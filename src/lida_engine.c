@@ -33,6 +33,7 @@
 #include "lida_config.c"
 #include "lida_script.c"
 #include "lida_package.c"
+#include "lida_gen.c"
 #include "lida_console.c"
 
 typedef struct {
