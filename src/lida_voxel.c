@@ -9,6 +9,7 @@ typedef uint8_t Voxel;
 #define VX_USE_INDICES 1
 #define VX_USE_CULLING 1
 #define MAX_MESH_PASSES 8
+#define VOXEL_VERTEX_THRESHOLD 100*1024
 
 // stores voxels as plain 3D array
 typedef struct {
@@ -99,6 +100,7 @@ typedef struct {
   size_t start_transform_offset;
   Allocation* draws;
   size_t num_draws;
+  size_t num_vertices;
 
   Allocation* meshes;
   size_t num_meshes;
@@ -126,6 +128,7 @@ typedef struct {
   size_t transform_offset;
   size_t start_transform_offset;
   size_t draw_offset;
+  size_t num_vertices;
 
   int enabled_KHR_draw_indirect_count;
 
@@ -526,7 +529,7 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
       }
   }
   PersistentRelease(merged_mask);
-  LOG_DEBUG("wrote %u vertices", (uint32_t)(vertices - first_vertex));
+  // LOG_DEBUG("wrote %u vertices", (uint32_t)(vertices - first_vertex));
   return vertices - first_vertex;
 }
 
@@ -672,6 +675,7 @@ NewFrameVoxel_Slow(void* backend)
   drawer->num_draws = 0;
   drawer->num_meshes = 0;
   drawer->start_transform_offset = drawer->transform_offset;
+  drawer->num_vertices = 0;
 }
 
 INTERNAL void
@@ -686,6 +690,10 @@ RegenerateVoxel_Slow(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid
 {
   Voxel_Backend_Slow* drawer = backend;
   cached->hash = grid->hash;
+
+  // skip this vertex if we're exceeding threshold...
+  if (drawer->num_vertices >= VOXEL_VERTEX_THRESHOLD)
+    return;
 
   VX_Draw_Command* current_draws = drawer->draws->ptr;
 #if VX_USE_INDICES
@@ -725,6 +733,7 @@ RegenerateVoxel_Slow(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid
     command->firstInstance = drawer->transform_offset - drawer->start_transform_offset;
     drawer->vertex_offset += command->vertexCount;
     cached->offsets[i] = command->vertexCount;
+    drawer->num_vertices += command->vertexCount;
   }
 }
 
@@ -1057,6 +1066,7 @@ NewFrameVoxel_Indirect(void* backend)
     drawer->draw_offset = 0;
   }
   drawer->start_transform_offset = drawer->transform_offset;
+  drawer->num_vertices = 0;
 }
 
 INTERNAL void
@@ -1070,6 +1080,11 @@ INTERNAL void
 RegenerateVoxel_Indirect(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid)
 {
   Voxel_Backend_Indirect* drawer = backend;
+
+  // skip this vertex if we're exceeding threshold...
+  if (drawer->num_vertices >= VOXEL_VERTEX_THRESHOLD)
+    return;
+
   cached->hash = grid->hash;
   uint32_t base_index = 0;
   VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset++];
@@ -1090,6 +1105,7 @@ RegenerateVoxel_Indirect(void* backend, Voxel_Cached* cached, const Voxel_Grid* 
     base_index += draw->vertex_count[i];
     drawer->vertex_offset += draw->vertex_count[i];
     cached->offsets[i] = draw->vertex_count[i];
+    drawer->num_vertices += draw->vertex_count[i];
   }
 }
 
@@ -1133,6 +1149,11 @@ INTERNAL uint32_t
 RenderVoxels_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, uint32_t num_sets, VkDescriptorSet* sets, size_t num_draws)
 {
   Voxel_Backend_Indirect* drawer = backend;
+
+  if (drawer->num_vertices != 0) {
+    LOG_DEBUG("submitted %u", (uint32_t)drawer->num_vertices);
+  }
+
   Graphics_Pipeline* prog;
   if (mesh_pass->flags & MESH_PASS_USE_NORMALS) {
     prog = GetComponent(Graphics_Pipeline, g_voxel_pipeline_colored);

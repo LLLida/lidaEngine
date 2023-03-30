@@ -1022,7 +1022,7 @@ CMD_spawn_random_voxels(uint32_t num, const char** args)
 
       case VOXEL_TYPE_FRACTAL2:
         {
-          GenerateFractal2(entity, Random(g_random) % 2 + 3);
+          GenerateFractal2(entity, (grid->palette[1] & 1) ? 3 : 4);
         }break;
 
       default: assert(0);
