@@ -58,7 +58,6 @@ layout (std140, set = 0, binding = 2) writeonly buffer Indirect_Buffer {
   Draw_Command out_draws[];
 };
 
-// TODO: move this to vox_cull_persp.comp
 layout (std140, set = 0, binding = 3) writeonly buffer Vertex_Buffer {
   Vertex_Count vertex_counts[];
 };

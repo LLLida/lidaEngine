@@ -24,9 +24,15 @@ void main() {
     if (depth > shadow_coord.z) shadow = g.sun_ambient;
   }
 
+  // vec3 view_dir = normalize(inPosition - g.camera_pos);
+  vec3 view_dir = normalize(g.camera_pos - inPosition);
+
   float diffuse = max(dot(inNormal, g.sun_dir), 0.0);
 
-  vec3 light = (g.sun_ambient + diffuse) * inColor.xyz;
+  vec3 refl = reflect(-g.sun_dir, inNormal);
+  float spec = pow(max(dot(view_dir, refl), 0.0), 12.0);
+
+  vec3 light = (g.sun_ambient + diffuse + spec) * inColor.xyz;
   light *= shadow;
 
   outColor = vec4(light, 1.0);

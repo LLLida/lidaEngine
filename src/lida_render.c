@@ -39,6 +39,7 @@ typedef struct {
   Mat4 light_space;
   Vec3 sun_dir;
   float sun_ambient;
+  Vec3 camera_pos;
 
 } Scene_Data_Struct;
 

@@ -11,6 +11,7 @@ layout (set = 0, binding = 0) uniform SceneInfo {
   mat4 light_space_matrix;
   vec3 sun_dir;
   float sun_ambient;
+  vec3 camera_pos;
 } g;
 
 #endif

@@ -369,6 +369,7 @@ EngineUpdateAndRender()
   sc_data->sun_dir = VEC3_CREATE(0.03f, 1.9f, 0.09f);
   sc_data->sun_ambient = 0.1f;
   Vec3_Normalize(&sc_data->sun_dir, &sc_data->sun_dir);
+  memcpy(&sc_data->camera_pos, &camera->position, sizeof(Vec3));
 
   {
     Mat4 light_proj, light_view;
