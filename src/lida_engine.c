@@ -365,7 +365,6 @@ EngineUpdateAndRender()
   memcpy(&sc_data->camera_projection, &camera->projection_matrix, sizeof(Mat4));
   memcpy(&sc_data->camera_view, &camera->view_matrix, sizeof(Mat4));
   memcpy(&sc_data->camera_projview, &camera->projview_matrix, sizeof(Mat4));
-  // sc_data->sun_dir = VEC3_CREATE(0.03f, 0.9f, 0.09f);
   sc_data->sun_dir = VEC3_CREATE(0.03f, 1.9f, 0.09f);
   sc_data->sun_ambient = 0.1f;
   Vec3_Normalize(&sc_data->sun_dir, &sc_data->sun_dir);

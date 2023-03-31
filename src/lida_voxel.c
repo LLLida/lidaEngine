@@ -543,7 +543,7 @@ LoadVoxelGrid(Allocator* allocator, Voxel_Grid* grid, const uint8_t* buffer, uin
     return -1;
   }
   const ogt_vox_model* model = scene->models[0];
-  if (AllocateVoxelGrid(allocator, grid, model->size_x, model->size_y, model->size_z)) {
+  if (AllocateVoxelGrid(allocator, grid, model->size_x, model->size_z, model->size_y)) {
     // if out of memory
     return -1;
   }

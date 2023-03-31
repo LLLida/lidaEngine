@@ -458,6 +458,7 @@ INTERNAL void CMD_set_voxel_backend(uint32_t num, const char** args);
 INTERNAL void CMD_spawn_random_voxels(uint32_t num, const char** args);
 INTERNAL void CMD_print_transform(uint32_t num, const char** args);
 INTERNAL void CMD_remove_voxel(uint32_t num, const char** args);
+INTERNAL void CMD_spawn_random_vox_models(uint32_t num, const char** args);
 
 
 /// public functions
@@ -555,13 +556,16 @@ InitConsole()
   ADD_COMMAND(spawn_random_voxels,
               "spawn_random_voxels NUMBER\n"
               " Spawn NUMBER voxel models rotated and translated randomly.\n"
-              " They can be either spheres or cubes.");
+              " They can be either spheres, cubes or some fractals.");
   ADD_COMMAND(print_transform,
               "print_transform ENTITY\n"
               " Print entity's transform component.");
   ADD_COMMAND(remove_voxel,
               "remove_voxel ENITY\n"
               " Remove voxel model from scene.");
+  ADD_COMMAND(spawn_random_vox_models,
+              "spawn_random_vox_models NUMBER\n"
+              " Spwan NUMBER random voxel models specified in CVar Misc.vox_models.");
 }
 
 INTERNAL void
@@ -1082,4 +1086,55 @@ CMD_remove_voxel(uint32_t num, const char** args)
   RemoveComponent(g_ecs, Voxel_Cached, entity);
   RemoveComponent(g_ecs, Script, entity);
   RemoveComponent(g_ecs, Transform, entity);
+}
+
+void
+CMD_spawn_random_vox_models(uint32_t num, const char** args)
+{
+  if (num != 1) {
+    LOG_WARN("command spawn_random_voxels accepts only 1 argument; see spawn_random_voxels");
+    return;
+  }
+  const char* left = GetVar_String(g_config, "Misc.vox_models");
+  const char* right = left;
+  uint32_t count = 0;
+  uint32_t offsets[128];
+  char buff[1024];
+  char* curr = buff;
+  while (1) {
+    // paths are separated by commas
+    if (*right == ',' || *right == '\0') {
+      strncpy(curr, left, right-left);
+      curr[right-left] = '\0';
+      offsets[count++] = curr - buff;
+      curr += right-left+1;
+      left = right+1;
+      if (*right == '\0') break;
+    }
+    right++;
+  }
+  int model_count = atoi(args[0]);
+  while (model_count--) {
+    uint32_t id = Random(g_random) % count;
+    EID entity = CreateEntity(g_ecs);
+    // load model from file
+    Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, entity);
+    LoadVoxelGridFromFile(g_vox_allocator, grid, buff + offsets[id]);
+    // create transform
+    Transform* transform = AddComponent(g_ecs, Transform, entity);
+    transform->scale = (float)(Random(g_random)%5+3);
+    transform->position.x = (float)(Random(g_random)%63)-36.0f;
+    transform->position.y = (float)(Random(g_random)%10)-0.5f;
+    transform->position.z = (float)(Random(g_random)%63)-36.0f;
+    Vec3 axis;
+    axis.x = (float)(Random(g_random)&255);
+    axis.y = (float)(Random(g_random)&255);
+    axis.z = (float)(Random(g_random)&255);
+    Vec3_Normalize(&axis, &axis);
+    float angle = (float)(Random(g_random)%628) / 100.0f;
+    QuatFromAxisAngle(&axis, angle, &transform->rotation);
+    // just add OBB
+    AddComponent(g_ecs, OBB, entity);
+    LOG_INFO("spawned at [%.3f %.3f %.3f]", transform->position.x, transform->position.y, transform->position.z);
+  }
 }

@@ -4,6 +4,9 @@
   Math goes brrrrrrrrrrrrrrrrrrrrr...
  */
 
+
+/// Some silly shape
+
 INTERNAL void
 GenerateFractal1(EID entity)
 {
@@ -40,6 +43,10 @@ GenerateFractal1(EID entity)
   }
 }
 
+
+/// Menger sponge
+/// https://en.wikipedia.org/wiki/Menger_sponge
+
 // recursive function to do nasty thing
 INTERNAL void
 Fractal2_Helper(Voxel_Grid* grid, uVec3 pos, uint32_t size)
@@ -64,15 +71,19 @@ Fractal2_Helper(Voxel_Grid* grid, uVec3 pos, uint32_t size)
       }
 }
 
+// NOTE: don't pass level > 5 or your computer will die
 INTERNAL void
-GenerateFractal2(EID entity, uint32_t pow_3)
+GenerateFractal2(EID entity, uint32_t level)
 {
    Voxel_Grid* grid = GetComponent(Voxel_Grid, entity);
    uint32_t size = 1;
-   while (pow_3--) {
+   while (level--) {
      size *= 3;
    }
    AllocateVoxelGrid(g_vox_allocator, grid, size, size, size);
    FillVoxelGrid(grid, 0);
    Fractal2_Helper(grid, (uVec3){0, 0, 0}, size);
 }
+
+
+/// TODO: do tree generation
