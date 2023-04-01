@@ -1395,11 +1395,8 @@ ReflectSPIRV(const uint32_t* code, uint32_t size, Shader_Reflect* shader)
         }
         break;
       case SpvOpTypeImage:
-        if (id->data.binding.inputAttachmentIndex != UINT32_MAX) {
-          *ds_type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
-        } else {
-          *ds_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        }
+        // TODO: support input attachments
+        *ds_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         break;
       case SpvOpTypeSampler:
         *ds_type = VK_DESCRIPTOR_TYPE_SAMPLER;

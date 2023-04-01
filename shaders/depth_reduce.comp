@@ -1,0 +1,23 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+layout (local_size_x = 16, local_size_y = 16) in;
+
+layout (binding = 0) uniform sampler2D big_image;
+layout (binding = 1, r32f) uniform writeonly image2D small_image;
+
+void main() {
+  uvec2 pos = gl_GlobalInvocationID.xy;
+
+  vec2 size = imageSize(small_image);
+
+  // make sure we're not writing out of bounds
+  // I don't know if this necessary
+  if (any(greaterThanEqual(gl_GlobalInvocationID.xy, size)))
+    return;
+
+  vec4 depth4 = textureGather(big_image, (vec2(pos) + vec2(0.5)) / size);
+  float depth = min(min(depth4.x, depth4.y), min(depth4.z, depth4.w));
+
+  imageStore(small_image, ivec2(pos), vec4(depth));
+}

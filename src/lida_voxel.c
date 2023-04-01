@@ -9,7 +9,7 @@ typedef uint8_t Voxel;
 #define VX_USE_INDICES 1
 #define VX_USE_CULLING 1
 #define MAX_MESH_PASSES 8
-#define VOXEL_VERTEX_THRESHOLD 100*1024
+#define VOXEL_VERTEX_THRESHOLD 20*1024
 
 // stores voxels as plain 3D array
 typedef struct {

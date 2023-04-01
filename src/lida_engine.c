@@ -53,6 +53,7 @@ typedef struct {
   EID rect_pipeline;
   EID triangle_pipeline;
   EID debug_pipeline;
+  EID depth_reduce_pipeline;
 
   // fonts
   EID arial_font;
@@ -136,18 +137,12 @@ EngineInit(const Engine_Startup_Info* info)
                           CreateEntity(g_ecs), "variables.ini");
   g_profiler.enabled = *GetVar_Int(g_config, "Misc.profiling");
 
-  int options[] = { 1, 2, 4, 8, 16, 32 };
-  VkSampleCountFlagBits values[] = { VK_SAMPLE_COUNT_1_BIT, VK_SAMPLE_COUNT_2_BIT, VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_8_BIT, VK_SAMPLE_COUNT_16_BIT, VK_SAMPLE_COUNT_32_BIT };
-  VkSampleCountFlagBits msaa_samples = VK_SAMPLE_COUNT_4_BIT;
-  for (size_t i = 0; i < ARR_SIZE(values); i++)
-    if (info->msaa_samples == options[i]) {
-      msaa_samples = values[i];
-      break;
-    }
   g_forward_pass = PersistentAllocate(sizeof(Forward_Pass));
   CreateForwardPass(g_forward_pass,
                     g_window->swapchain_extent.width, g_window->swapchain_extent.height,
-                    msaa_samples);
+                    // NOTE: for now occlusion culling will work without MSAA,
+                    // in future we might considering moving to other AA algorithm or just supporting MSAA.
+                    VK_SAMPLE_COUNT_1_BIT);
 
   {
     // TODO: check for null
@@ -160,7 +155,7 @@ EngineInit(const Engine_Startup_Info* info)
   CreateBitmapRenderer(&g_context->quad_renderer);
   CreateFontAtlas(&g_context->quad_renderer, &g_context->font_atlas, 512, 128);
 
-  g_context->camera.z_near = 0.01f;
+  g_context->camera.z_near = 0.3f;
   g_context->camera.position = VEC3_CREATE(0.0f, 0.0f, -2.0f);
   g_context->camera.rotation = VEC3_CREATE(0.0f, 3.141f, 0.0f);
   g_context->camera.up = VEC3_CREATE(0.0f, 1.0f, 0.0f);
@@ -198,6 +193,8 @@ EngineInit(const Engine_Startup_Info* info)
   ADD_PIPELINE(g_voxel_pipeline_compute_persp, "vox_cull_persp.comp.spv");
   ADD_PIPELINE(g_voxel_pipeline_compute_ext_ortho, "vox_cull_ext_ortho.comp.spv");
   ADD_PIPELINE(g_voxel_pipeline_compute_ext_persp, "vox_cull_ext_persp.comp.spv");
+  g_context->depth_reduce_pipeline = CreateEntity(g_ecs);
+  ADD_PIPELINE(g_context->depth_reduce_pipeline, "depth_reduce.comp.spv");
 
   CreateDebugDrawer(&g_context->debug_drawer, 1024);
 
@@ -535,6 +532,11 @@ EngineUpdateAndRender()
 
   VkDescriptorSet ds_set;
   g_context->voxel_draw_calls = 0;
+
+  {
+    Compute_Pipeline* pip = GetComponent(Compute_Pipeline, g_context->depth_reduce_pipeline);
+    DepthReductionPass(g_forward_pass, cmd, pip);
+  }
 
   CullPass(cmd, g_vox_drawer, ComponentData(Mesh_Pass), ComponentCount(Mesh_Pass));
 
