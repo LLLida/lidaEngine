@@ -63,12 +63,14 @@ typedef struct {
   uint32_t curr_time;
   int render_mode;
   uint32_t voxel_draw_calls;
+  uint32_t debug_depth_pyramid;
 
 } Engine_Context;
 
 enum {
   RENDER_MODE_DEFAULT,
   RENDER_MODE_SHADOW_MAP,
+  RENDER_MODE_DEPTH_PYRAMID,
   RENDER_MODE_COUNT,
 };
 
@@ -605,6 +607,9 @@ EngineUpdateAndRender()
     case RENDER_MODE_SHADOW_MAP:
       ds_set = g_shadow_pass->shadow_set;
       break;
+    case RENDER_MODE_DEPTH_PYRAMID:
+      ds_set = g_forward_pass->depth_pyramid_debug_sets[g_context->debug_depth_pyramid];
+      break;
     default:
       Assert(0);
     }
@@ -703,6 +708,12 @@ RootKeymap_Pressed(PlatformKeyCode key, void* udata)
         ShowConsoleBig();
       } else {
         ShowConsole();
+      }
+      break;
+    case PlatformKey_O:
+      // SHIFT-O cicles through depth pyramid
+      if (modkey_shift) {
+        g_context->debug_depth_pyramid = (g_context->debug_depth_pyramid + 1) % g_forward_pass->num_depth_mips;
       }
       break;
       // ALT-C goes to camera mode

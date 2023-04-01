@@ -24,6 +24,7 @@ typedef struct {
   VkDescriptorSet scene_data_set;
   VkDescriptorSet resulting_image_set;
   VkDescriptorSet depth_pyramid_sets[15];
+  VkDescriptorSet depth_pyramid_debug_sets[15];
   VkFormat color_format;
   VkFormat depth_format;
   VkSampleCountFlagBits msaa_samples;
@@ -479,6 +480,14 @@ FWD_AllocateDescriptorSets(Forward_Pass* pass)
       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
     };
     err = AllocateDescriptorSets(bindings, 2, pass->depth_pyramid_sets, pass->num_depth_mips, 1, "depth-pyramid-set");
+    // allocate descriptor sets for visualizing depth pyramid
+    bindings[0] = (VkDescriptorSetLayoutBinding) {
+      .binding = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+    };
+    err = AllocateDescriptorSets(bindings, 1, pass->depth_pyramid_debug_sets, pass->num_depth_mips, 1, "depth-pyramid-debug-set");
   }
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to allocate descriptor sets with error %s", ToString_VkResult(err));
@@ -548,6 +557,23 @@ FWD_AllocateDescriptorSets(Forward_Pass* pass)
       };
     }
     UpdateDescriptorSets(write_sets, pass->num_depth_mips * 2);
+    for (uint32_t i = 0; i < pass->num_depth_mips; i++) {
+      image_infos[i] = (VkDescriptorImageInfo) {
+        .imageView = pass->depth_mips[i],
+        .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                              VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
+      };
+      write_sets[i] = (VkWriteDescriptorSet) {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = pass->depth_pyramid_debug_sets[i],
+        .dstBinding = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo = &image_infos[i]
+      };
+    }
+    UpdateDescriptorSets(write_sets, pass->num_depth_mips);
   }
   return err;
 }
