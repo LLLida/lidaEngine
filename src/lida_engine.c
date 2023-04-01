@@ -476,21 +476,6 @@ EngineUpdateAndRender()
     DrawText(&g_context->quad_renderer, font,
              GetVar_String(g_config, "Misc.some_string"), &text_size, color, &pos);
 
-    // camera front
-    // {
-    //   pos = VEC2_CREATE(0.005f, 0.9f);
-    //   text_size = (Vec2) { 0.025f, 0.025f };
-    //   color = PACK_COLOR(255, 255, 255, 160);
-    //   char buff[64];
-    //   stbsp_sprintf(buff, "front=[%.3f, %.3f, %.3f]",
-    //                 g_context->camera.front.x, g_context->camera.front.y, g_context->camera.front.z);
-    //   DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
-    //   pos = VEC2_CREATE(0.005f, 0.95f);
-    //   stbsp_sprintf(buff, "pos=[%.3f, %.3f, %.3f]",
-    //                 g_context->camera.position.x, g_context->camera.position.y, g_context->camera.position.z);
-    //   DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
-    // }
-
     // draw call info
     {
       pos = VEC2_CREATE(0.005f, 0.9f);
@@ -499,6 +484,39 @@ EngineUpdateAndRender()
       char buff[64];
       stbsp_sprintf(buff, "draw calls: %u", g_context->voxel_draw_calls);
       DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
+    }
+    // draw rects for debugging occlusion culling
+    FOREACH_COMPONENT(Voxel_Grid) {
+      Transform* transform = GetComponent(Transform, entities[i]);
+      OBB* obb = GetComponent(OBB, entities[i]);
+      float radius2 = 0.0f;
+      for (int i = 0; i < 8; i++) {
+        Vec3 diff = VEC3_SUB(obb->corners[i], transform->position);
+        float d = VEC3_DOT(diff, diff);
+        if (d > radius2) {
+          radius2 = d;
+        }
+      }
+      Vec3 dist = VEC3_SUB(transform->position, camera->position);
+      float tsquared = VEC3_DOT(dist, dist);
+      if (tsquared <= radius2)
+        continue;
+      Vec4 rect = { 1.0f, 1.0f, -1.0f, -1.0f };
+      for (int i = 0; i < 8; i++) {
+        Vec4 pos = { obb->corners[i].x, obb->corners[i].y, obb->corners[i].z, 1.0f };
+        Mat4_Mul_Vec4(&camera->projview_matrix, &pos, &pos);
+        pos.x /= pos.w;
+        pos.y /= pos.w;
+        if (pos.x < rect.x) rect.x = pos.x;
+        if (pos.y < rect.y) rect.y = pos.y;
+        if (pos.x > rect.z) rect.z = pos.x;
+        if (pos.y > rect.w) rect.w = pos.y;
+      }
+      /* LOG_DEBUG("rect: [%f %f %f %f]", rect.x, rect.y, rect.z, rect.w); */
+      DrawQuad(&g_context->quad_renderer,
+               &VEC2_CREATE(rect.x*0.5+0.5, rect.y*0.5+0.5),
+               &VEC2_CREATE(0.5*(rect.z-rect.x), 0.5*(rect.w-rect.y)),
+               PACK_COLOR(120, 180, 120, 150), 1);
     }
 
     // GPU timestamps
