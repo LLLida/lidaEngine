@@ -418,27 +418,27 @@ CreateVkInstance(int enable_debug_layers,
   }
   // finally create instance
   VkApplicationInfo app_info = {
-    .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-    .pApplicationName = app_name,
+    .sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+    .pApplicationName   = app_name,
     .applicationVersion = app_version,
-    .pEngineName = "lida",
+    .pEngineName        = "lida",
     // TODO: use VK_MAKE_VERSION
-    .engineVersion = LIDA_ENGINE_VERSION,
-    .apiVersion = VK_API_VERSION_1_0
+    .engineVersion      = LIDA_ENGINE_VERSION,
+    .apiVersion         = VK_API_VERSION_1_0
   };
   VkInstanceCreateInfo instance_info = {
-    .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-    .pApplicationInfo = &app_info,
-    .enabledLayerCount = layer_count,
-    .ppEnabledLayerNames = validation_layers,
-    .enabledExtensionCount = g_device->num_enabled_instance_extensions,
+    .sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+    .pApplicationInfo        = &app_info,
+    .enabledLayerCount       = layer_count,
+    .ppEnabledLayerNames     = validation_layers,
+    .enabledExtensionCount   = g_device->num_enabled_instance_extensions,
     .ppEnabledExtensionNames = g_device->enabled_instance_extensions,
   };
   VkDebugReportCallbackCreateInfoEXT callback_info = {
-    .sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT,
-    .flags = VK_DEBUG_REPORT_ERROR_BIT_EXT|VK_DEBUG_REPORT_WARNING_BIT_EXT|VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT,
+    .sType       = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT,
+    .flags       = VK_DEBUG_REPORT_ERROR_BIT_EXT|VK_DEBUG_REPORT_WARNING_BIT_EXT|VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT,
     .pfnCallback = &VulkanDebugLogCallback,
-    .pUserData = NULL,
+    .pUserData   = NULL,
   };
   if (enable_debug_layers) {
     instance_info.pNext = &callback_info;
@@ -516,10 +516,10 @@ CreateLogicalDevice(int enable_debug_layers,
 {
   float queue_priorities[] = { 1.0f };
     VkDeviceQueueCreateInfo queueInfo = {
-    .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-    .queueFamilyIndex = g_device->graphics_queue_family,
-    .queueCount = 1,
-    .pQueuePriorities = queue_priorities,
+      .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+      .queueFamilyIndex = g_device->graphics_queue_family,
+      .queueCount = 1,
+      .pQueuePriorities = queue_priorities,
   };
 
   if (num_device_extensions) {
@@ -558,12 +558,12 @@ CreateLogicalDevice(int enable_debug_layers,
   }
 
   VkDeviceCreateInfo device_info = {
-    .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-    .queueCreateInfoCount = 1,
-    .pQueueCreateInfos = &queueInfo,
+    .sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+    .queueCreateInfoCount    = 1,
+    .pQueueCreateInfos       = &queueInfo,
     .ppEnabledExtensionNames = g_device->enabled_device_extensions,
-    .enabledExtensionCount = g_device->num_enabled_device_extensions,
-    .pEnabledFeatures = &g_device->features,
+    .enabledExtensionCount   = g_device->num_enabled_device_extensions,
+    .pEnabledFeatures        = &g_device->features,
   };
   return vkCreateDevice(g_device->physical_device, &device_info, NULL, &g_device->logical_device);
 }
@@ -574,9 +574,9 @@ DebugMarkObject(VkDebugReportObjectTypeEXT type, uint64_t obj, const char* name)
   VkResult err = VK_SUCCESS;
   if (g_device->debug_marker_enabled) {
     VkDebugMarkerObjectNameInfoEXT object_name_info = {
-      .sType = VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT,
-      .objectType = type,
-      .object = obj,
+      .sType       = VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT,
+      .objectType  = type,
+      .object      = obj,
       .pObjectName = name,
     };
     err = vkDebugMarkerSetObjectNameEXT(g_device->logical_device, &object_name_info);
@@ -588,8 +588,8 @@ INTERNAL VkResult
 CreateDeviceCommandPool()
 {
   VkCommandPoolCreateInfo command_pool_info = {
-    .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-    .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+    .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+    .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
     .queueFamilyIndex = g_device->graphics_queue_family,
   };
   VkResult err = vkCreateCommandPool(g_device->logical_device, &command_pool_info, NULL,
@@ -771,13 +771,13 @@ CreateDevice(int enable_debug_layers, uint32_t gpu_id,
     LOG_ERROR("failed to create descriptor pool with error %s", ToString_VkResult(err));
   }
 
-  g_device->shader_info_type = TYPE_INFO(Shader_Info, &HashShaderInfo, &CompareShaderInfo);
-  g_device->ds_layout_info_type = TYPE_INFO(DS_Layout_Info, &HashDSL_Info, &CompareDSL_Infos);
-  g_device->sampler_info_type = TYPE_INFO(Sampler_Info, &HashSamplerInfo, &CompareSamplerInfo);
+  g_device->shader_info_type          = TYPE_INFO(Shader_Info, &HashShaderInfo, &CompareShaderInfo);
+  g_device->ds_layout_info_type       = TYPE_INFO(DS_Layout_Info, &HashDSL_Info, &CompareDSL_Infos);
+  g_device->sampler_info_type         = TYPE_INFO(Sampler_Info, &HashSamplerInfo, &CompareSamplerInfo);
   g_device->pipeline_layout_info_type = TYPE_INFO(Pipeline_Layout_Info, &HashPipelineLayoutInfo, &ComparePipelineLayoutInfo);
-  const size_t num_shaders = 32;
-  const size_t num_ds_layouts = 16;
-  const size_t num_samplers = 8;
+  const size_t num_shaders          = 32;
+  const size_t num_ds_layouts       = 16;
+  const size_t num_samplers         = 8;
   const size_t num_pipeline_layouts = 16;
   // this just allocates a hash table of needed size
 #define INIT_HT(type)   FHT_Init(&g_device->type##_cache, \
@@ -831,7 +831,7 @@ DestroyDevice(int free_memory)
   }
 
   vkDestroyDescriptorPool(g_device->logical_device, g_device->dynamic_ds_pool, NULL);
-  vkDestroyDescriptorPool(g_device->logical_device, g_device->static_ds_pool, NULL);
+  vkDestroyDescriptorPool(g_device->logical_device, g_device->static_ds_pool,  NULL);
 
   vkDestroyCommandPool(g_device->logical_device, g_device->command_pool, NULL);
 
@@ -861,9 +861,9 @@ INTERNAL VkResult
 CreateBuffer(VkBuffer* buffer, VkDeviceSize size, VkBufferUsageFlags usage, const char* marker)
 {
   VkBufferCreateInfo buffer_info = {
-    .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-    .size = size,
-    .usage = usage,
+    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+    .size        = size,
+    .usage       = usage,
     .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
   };
   VkResult err = vkCreateBuffer(g_device->logical_device, &buffer_info, NULL, buffer);
@@ -949,9 +949,9 @@ AllocateCommandBuffers(VkCommandBuffer* cmds, uint32_t count, VkCommandBufferLev
                        const char* marker)
 {
   VkCommandBufferAllocateInfo alloc_info = {
-    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-    .commandPool = g_device->command_pool,
-    .level = level,
+    .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+    .commandPool        = g_device->command_pool,
+    .level              = level,
     .commandBufferCount = count,
   };
   VkResult err = vkAllocateCommandBuffers(g_device->logical_device, &alloc_info, cmds);
@@ -1565,16 +1565,16 @@ GetSampler(VkFilter filter, VkSamplerAddressMode mode, VkBorderColor border_colo
   }
   // create a new sampler
   VkSamplerCreateInfo sampler_info = {
-    .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-    .magFilter = filter,
-    .minFilter = filter,
-    .mipmapMode = (filter == VK_FILTER_NEAREST) ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR,
+    .sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+    .magFilter    = filter,
+    .minFilter    = filter,
+    .mipmapMode   = (filter == VK_FILTER_NEAREST) ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR,
     .addressModeU = mode,
     .addressModeV = mode,
     .addressModeW = mode,
-    .minLod = 0.0f,
-    .maxLod = 1.0f,
-    .borderColor = border_color
+    .minLod       = 0.0f,
+    .maxLod       = 1.0f,
+    .borderColor  = border_color
   };
   VkResult err = vkCreateSampler(g_device->logical_device, &sampler_info, NULL, &sampler.handle);
   if (err != VK_SUCCESS) {
@@ -1707,35 +1707,35 @@ CreateGraphicsPipelines(VkPipeline* pipelines, size_t count, const Pipeline_Desc
 {
   PROFILE_FUNCTION();
   // allocate some structures
-  VkGraphicsPipelineCreateInfo* create_infos = PersistentAllocate(count * sizeof(VkGraphicsPipelineCreateInfo));
-  VkPipelineShaderStageCreateInfo* stages = PersistentAllocate(2 * count * sizeof(VkPipelineShaderStageCreateInfo));
-  VkShaderModule* modules = PersistentAllocate(2 * count * sizeof(VkShaderModule));
-  const Shader_Reflect** reflects = PersistentAllocate(2 * count * sizeof(Shader_Reflect*));
-  VkPipelineVertexInputStateCreateInfo* vertex_input_states = PersistentAllocate(count * sizeof(VkPipelineVertexInputStateCreateInfo));
+  VkGraphicsPipelineCreateInfo* create_infos                    = PersistentAllocate(count * sizeof(VkGraphicsPipelineCreateInfo));
+  VkPipelineShaderStageCreateInfo* stages                       = PersistentAllocate(2 * count * sizeof(VkPipelineShaderStageCreateInfo));
+  VkShaderModule* modules                                       = PersistentAllocate(2 * count * sizeof(VkShaderModule));
+  const Shader_Reflect** reflects                               = PersistentAllocate(2 * count * sizeof(Shader_Reflect*));
+  VkPipelineVertexInputStateCreateInfo* vertex_input_states     = PersistentAllocate(count * sizeof(VkPipelineVertexInputStateCreateInfo));
   VkPipelineInputAssemblyStateCreateInfo* input_assembly_states = PersistentAllocate(count * sizeof(VkPipelineInputAssemblyStateCreateInfo));
-  VkPipelineViewportStateCreateInfo* viewport_states = PersistentAllocate(count * sizeof(VkPipelineViewportStateCreateInfo));
-  VkPipelineRasterizationStateCreateInfo* rasterization_states = PersistentAllocate(count * sizeof(VkPipelineRasterizationStateCreateInfo));
-  VkPipelineMultisampleStateCreateInfo* multisample_states = PersistentAllocate(count * sizeof(VkPipelineMultisampleStateCreateInfo));
-  VkPipelineDepthStencilStateCreateInfo* depth_stencil_states = PersistentAllocate(count * sizeof(VkPipelineDepthStencilStateCreateInfo));
-  VkPipelineColorBlendStateCreateInfo* color_blend_states = PersistentAllocate(count * sizeof(VkPipelineColorBlendStateCreateInfo));
-  VkPipelineDynamicStateCreateInfo* dynamic_states = PersistentAllocate(count * sizeof(VkPipelineDynamicStateCreateInfo));
+  VkPipelineViewportStateCreateInfo* viewport_states            = PersistentAllocate(count * sizeof(VkPipelineViewportStateCreateInfo));
+  VkPipelineRasterizationStateCreateInfo* rasterization_states  = PersistentAllocate(count * sizeof(VkPipelineRasterizationStateCreateInfo));
+  VkPipelineMultisampleStateCreateInfo* multisample_states      = PersistentAllocate(count * sizeof(VkPipelineMultisampleStateCreateInfo));
+  VkPipelineDepthStencilStateCreateInfo* depth_stencil_states   = PersistentAllocate(count * sizeof(VkPipelineDepthStencilStateCreateInfo));
+  VkPipelineColorBlendStateCreateInfo* color_blend_states       = PersistentAllocate(count * sizeof(VkPipelineColorBlendStateCreateInfo));
+  VkPipelineDynamicStateCreateInfo* dynamic_states              = PersistentAllocate(count * sizeof(VkPipelineDynamicStateCreateInfo));
   for (size_t i = 0; i < count; i++) {
 
     modules[2*i] = LoadShader(descs[i].vertex_shader, &reflects[2*i]);
     stages[2*i] = (VkPipelineShaderStageCreateInfo) {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-      .stage = VK_SHADER_STAGE_VERTEX_BIT,
+      .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .stage  = VK_SHADER_STAGE_VERTEX_BIT,
       .module = modules[2*i],
-      .pName = "main"
+      .pName  = "main"
     };
     if (descs[i].fragment_shader) {
       // some pipelines may have not a fragment shader
       modules[2*i+1] = LoadShader(descs[i].fragment_shader, &reflects[2*i+1]);
       stages[2*i+1] = (VkPipelineShaderStageCreateInfo) {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage  = VK_SHADER_STAGE_FRAGMENT_BIT,
         .module = modules[2*i+1],
-        .pName = "main"
+        .pName  = "main"
       };
     }
 
@@ -1743,89 +1743,89 @@ CreateGraphicsPipelines(VkPipeline* pipelines, size_t count, const Pipeline_Desc
                                       (descs[i].fragment_shader) ? 2 : 1);
 
     vertex_input_states[i] = (VkPipelineVertexInputStateCreateInfo) {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-      .vertexBindingDescriptionCount = descs[i].vertex_binding_count,
-      .pVertexBindingDescriptions = descs[i].vertex_bindings,
+      .sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .vertexBindingDescriptionCount   = descs[i].vertex_binding_count,
+      .pVertexBindingDescriptions      = descs[i].vertex_bindings,
       .vertexAttributeDescriptionCount = descs[i].vertex_attribute_count,
-      .pVertexAttributeDescriptions = descs[i].vertex_attributes
+      .pVertexAttributeDescriptions    = descs[i].vertex_attributes
     };
     input_assembly_states[i] = (VkPipelineInputAssemblyStateCreateInfo) {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-      .topology = descs[i].topology,
+      .sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+      .topology               = descs[i].topology,
       // currently we don't use primitiveRestartEnable in lidaEngine
       .primitiveRestartEnable = VK_FALSE
     };
 
     viewport_states[i] = (VkPipelineViewportStateCreateInfo) {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+      .sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
       // currently we always 1 viewport and 1 scissor, maybe I should
       // add an option to use multiple scissors. I saw that ImGui uses
       // multiple scissors for rendering.
       .viewportCount = 1,
-      .pViewports = descs[i].viewport,
-      .scissorCount = 1,
-      .pScissors = descs[i].scissor,
+      .pViewports    = descs[i].viewport,
+      .scissorCount  = 1,
+      .pScissors     = descs[i].scissor,
     };
 
     rasterization_states[i] = (VkPipelineRasterizationStateCreateInfo) {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-      .depthClampEnable = VK_FALSE,
+      .sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+      .depthClampEnable        = VK_FALSE,
       .rasterizerDiscardEnable = VK_FALSE,
-      .polygonMode = descs[i].polygonMode,
-      .cullMode = descs[i].cullMode,
+      .polygonMode             = descs[i].polygonMode,
+      .cullMode                = descs[i].cullMode,
       // we always use CCW
-      .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-      .depthBiasEnable = descs[i].depth_bias_enable,
-      .lineWidth = descs[i].line_width
+      .frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+      .depthBiasEnable         = descs[i].depth_bias_enable,
+      .lineWidth               = descs[i].line_width
     };
 
     multisample_states[i] = (VkPipelineMultisampleStateCreateInfo) {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+      .sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
       .rasterizationSamples = descs[i].msaa_samples,
-      .sampleShadingEnable = VK_FALSE,
+      .sampleShadingEnable  = VK_FALSE,
     };
 
     depth_stencil_states[i] = (VkPipelineDepthStencilStateCreateInfo) {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-      .depthTestEnable = descs[i].depth_test,
-      .depthWriteEnable = descs[i].depth_write,
-      .depthCompareOp = descs[i].depth_compare_op,
+      .sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+      .depthTestEnable       = descs[i].depth_test,
+      .depthWriteEnable      = descs[i].depth_write,
+      .depthCompareOp        = descs[i].depth_compare_op,
       // we're not using depth bounds
       .depthBoundsTestEnable = VK_FALSE,
     };
 
     color_blend_states[i] = (VkPipelineColorBlendStateCreateInfo) {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-      .logicOpEnable = descs[i].blend_logic_enable,
-      .logicOp = descs[i].blend_logic_op,
+      .sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+      .logicOpEnable   = descs[i].blend_logic_enable,
+      .logicOp         = descs[i].blend_logic_op,
       .attachmentCount = descs[i].attachment_count,
-      .pAttachments = descs[i].attachments,
+      .pAttachments    = descs[i].attachments,
     };
 
     memcpy(color_blend_states[i].blendConstants, descs[i].blend_constants, sizeof(float)*4);
     dynamic_states[i] = (VkPipelineDynamicStateCreateInfo) {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+      .sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
       .dynamicStateCount = descs[i].dynamic_state_count,
-      .pDynamicStates = descs[i].dynamic_states,
+      .pDynamicStates    = descs[i].dynamic_states,
     };
 
     create_infos[i] = (VkGraphicsPipelineCreateInfo) {
-      .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-      .stageCount = (descs[i].fragment_shader) ? 2 : 1,
-      .pStages = &stages[i*2],
-      .pVertexInputState = &vertex_input_states[i],
+      .sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+      .stageCount          = (descs[i].fragment_shader) ? 2 : 1,
+      .pStages             = &stages[i*2],
+      .pVertexInputState   = &vertex_input_states[i],
       .pInputAssemblyState = &input_assembly_states[i],
-      .pViewportState = &viewport_states[i],
+      .pViewportState      = &viewport_states[i],
       .pRasterizationState = &rasterization_states[i],
-      .pMultisampleState = &multisample_states[i],
+      .pMultisampleState   = &multisample_states[i],
       // I think it's pretty convenient to specify depth_write = 0 and
       // depth_test = 0 to say that pipeline doesn't use depth buffer.
-      .pDepthStencilState = (descs[i].depth_write || descs[i].depth_test) ? &depth_stencil_states[i] : NULL,
-      .pColorBlendState = &color_blend_states[i],
-      .pDynamicState = &dynamic_states[i],
-      .layout = layouts[i],
-      .renderPass = descs[i].render_pass,
-      .subpass = descs[i].subpass
+      .pDepthStencilState  = (descs[i].depth_write || descs[i].depth_test) ? &depth_stencil_states[i] : NULL,
+      .pColorBlendState    = &color_blend_states[i],
+      .pDynamicState       = &dynamic_states[i],
+      .layout              = layouts[i],
+      .renderPass          = descs[i].render_pass,
+      .subpass             = descs[i].subpass
     };
 
   }
@@ -1874,10 +1874,10 @@ CreateComputePipelines(VkPipeline* pipelines, size_t count, const char* shaders[
     create_infos[i] = (VkComputePipelineCreateInfo) {
       .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
       .stage = (VkPipelineShaderStageCreateInfo) {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+        .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage  = VK_SHADER_STAGE_COMPUTE_BIT,
         .module = modules[i],
-        .pName = "main"
+        .pName  = "main"
       },
       .layout = layouts[i]
     };
@@ -1913,10 +1913,10 @@ AllocateDescriptorSets(const VkDescriptorSetLayoutBinding* bindings, size_t num_
   for (size_t i = 0; i < num_sets; i++)
     layouts[i] = layout;
   VkDescriptorSetAllocateInfo allocate_info = {
-    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-      .descriptorPool = (dynamic) ? g_device->dynamic_ds_pool : g_device->static_ds_pool,
-      .descriptorSetCount = num_sets,
-      .pSetLayouts = layouts,
+    .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+    .descriptorPool     = (dynamic) ? g_device->dynamic_ds_pool : g_device->static_ds_pool,
+    .descriptorSetCount = num_sets,
+    .pSetLayouts        = layouts,
   };
   VkResult err = vkAllocateDescriptorSets(g_device->logical_device, &allocate_info, sets);
   if (err != VK_SUCCESS) {
