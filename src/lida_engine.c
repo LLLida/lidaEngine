@@ -16,7 +16,7 @@
 
 #include "lida_platform.h"
 
-#define LIDA_ENGINE_VERSION 202303
+#define LIDA_ENGINE_VERSION 202304
 #define INTERNAL static
 #define GLOBAL static
 
@@ -534,7 +534,6 @@ EngineUpdateAndRender()
         "main"
       };
       for (uint32_t i = 0; i < ARR_SIZE(passes); i++) {
-        // (queryResults[i+1] - queryResults[i]) * period / 1_000_000.0f;
         float time = (timestamps[i+1] - timestamps[i]) * period / 1000000.0f;
         buff += stbsp_sprintf(buff, "%s=%.3fms ", passes[i], time);
       }
