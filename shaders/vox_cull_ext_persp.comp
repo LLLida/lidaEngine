@@ -75,7 +75,10 @@ layout (std140, set = 0, binding = 4) writeonly buffer Draw_Counts {
   Draw_Count draw_count[];
 };
 
+layout (set = 1, binding = 0) uniform sampler2D depth_pyramid;
+
 PUSH_CONSTANT Pass_Info {
+  mat4 projview_matrix;
   vec3 camera_front;
   uint cull_mask;
   vec3 camera_position;
@@ -125,6 +128,65 @@ void main() {
   box[0] = rotate(vec3(d.half_size_x, 0.0, 0.0), transform.rotation);
   box[1] = rotate(vec3(0.0, d.half_size_y, 0.0), transform.rotation);
   box[2] = rotate(vec3(0.0, 0.0, d.half_size_z), transform.rotation);
+
+  // check if camera is outside of bounding sphere
+  float radius = transform.scale * max(d.half_size_x*d.half_size_x+d.half_size_y+d.half_size_y,
+                                       max(d.half_size_x*d.half_size_x+d.half_size_z+d.half_size_z,
+                                           d.half_size_z*d.half_size_z+d.half_size_y+d.half_size_y));
+  vec3 diff = transform.position - camera_position;
+  float dist = dot(diff, diff);
+  if (dist > radius) {
+    // perform occlussion culling
+
+    // bounding rect
+    vec2 aabb_min = { 1.0, 1.0 };
+    vec2 aabb_max = { -1.0, -1.0 };
+    float max_depth = 0.0;
+
+    const vec3 muls[8] = {
+      { -1.0f, -1.0f, -1.0f },
+      { -1.0f, -1.0f, 1.0f },
+      { -1.0f, 1.0f, -1.0f },
+      { -1.0f, 1.0f, 1.0f },
+      { 1.0f, -1.0f, -1.0f },
+      { 1.0f, -1.0f, 1.0f },
+      { 1.0f, 1.0f, -1.0f },
+      { 1.0f, 1.0f, 1.0f },
+    };
+
+    for (int i = 0; i < 8; i++) {
+      // calculate OBB point
+      vec3 basis[3];
+      basis[0] = box[0] * muls[i].x * transform.scale;
+      basis[1] = box[1] * muls[i].y * transform.scale;
+      basis[2] = box[2] * muls[i].z * transform.scale;
+      vec3 point;
+      point.x = basis[0].x + basis[1].x + basis[2].x + transform.position.x;
+      point.y = basis[0].y + basis[1].y + basis[2].y + transform.position.y;
+      point.z = basis[0].z + basis[1].z + basis[2].z + transform.position.z;
+      // project OBB point
+      vec4 ndc = projview_matrix * vec4(point, 1.0);
+      ndc.xyz /= ndc.w;
+      aabb_min.x = min(aabb_min.x, ndc.x);
+      aabb_min.y = min(aabb_min.y, ndc.y);
+      aabb_max.x = max(aabb_max.x, ndc.x);
+      aabb_max.y = max(aabb_max.y, ndc.y);
+      max_depth = max(max_depth, ndc.z);
+    }
+    // convert to UV space
+    aabb_min = aabb_min * 0.5 + 0.5;
+    aabb_max = aabb_max * 0.5 + 0.5;
+    // compute depth level
+    vec2 pyramid_size = textureSize(depth_pyramid, 0);
+    float width = (aabb_max.x - aabb_min.x) * pyramid_size.x;
+    float height = (aabb_max.y - aabb_min.y) * pyramid_size.y;
+    float level = floor(log2(max(width, height)));
+    // do culling
+    vec2 pos = (aabb_min + aabb_max) * 0.5;
+    float depth = textureLod(depth_pyramid, pos, 0).r;
+    if (depth > max_depth)
+      return;
+  }
 
   uint last_written_vertex = 0xffffffff;
   uint last_id;

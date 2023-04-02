@@ -77,6 +77,7 @@ layout (std140, set = 0, binding = 4) writeonly buffer Draw_Counts {
 };
 
 PUSH_CONSTANT Pass_Info {
+  mat4 projview_matrix;
   vec3 camera_front;
   uint cull_mask;
   vec3 camera_position;

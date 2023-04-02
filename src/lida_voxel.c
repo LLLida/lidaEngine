@@ -929,7 +929,7 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
   drawer->enabled_KHR_draw_indirect_count = 0;
   for (uint32_t i = 0; i < g_device->num_enabled_device_extensions; i++) {
     if (strcmp(g_device->enabled_device_extensions[i], VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME) == 0) {
-      drawer->enabled_KHR_draw_indirect_count = 1;
+      // drawer->enabled_KHR_draw_indirect_count = 1;
       break;
     }
   }
@@ -1219,6 +1219,7 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
     struct {
+      Mat4 projview_matrix;
       Vec3 camera_front;
       uint32_t cull_mask;
       Vec3 camera_position;
@@ -1233,9 +1234,15 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
       EID pipeline_id = (mesh_passes[i].flags & MESH_PASS_PERSP) ? g_voxel_pipeline_compute_ext_persp : g_voxel_pipeline_compute_ext_ortho;
       if (pipeline_id != last) {
         prog = GetComponent(Compute_Pipeline, pipeline_id);
-        cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
+        if (mesh_passes[i].flags & MESH_PASS_PERSP) {
+          VkDescriptorSet sets[2] = { drawer->ds_set, g_forward_pass->depth_pyramid_read_set };
+          cmdBindCompute(cmd, prog, 2, sets);
+        } else {
+          cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
+        }
         last = pipeline_id;
       }
+      memcpy(&push_constant.projview_matrix, &mesh_passes[i].projview_matrix, sizeof(Mat4));
       push_constant.cull_mask = mesh_passes[i].cull_mask;
       push_constant.camera_front = mesh_passes[i].camera_dir;
       push_constant.camera_position = mesh_passes[i].camera_pos;
@@ -1249,6 +1256,7 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
     }
   } else {
     struct {
+      Mat4 projview_matrix;
       Vec3 camera_front;
       uint32_t cull_mask;
       Vec3 camera_position;
@@ -1261,9 +1269,15 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
       EID pipeline_id = (mesh_passes[i].flags & MESH_PASS_PERSP) ? g_voxel_pipeline_compute_persp : g_voxel_pipeline_compute_ortho;
       if (pipeline_id != last) {
         prog = GetComponent(Compute_Pipeline, pipeline_id);
-        cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
+        if (mesh_passes[i].flags & MESH_PASS_PERSP) {
+          VkDescriptorSet sets[2] = { drawer->ds_set, g_forward_pass->depth_pyramid_read_set };
+          cmdBindCompute(cmd, prog, 2, sets);
+        } else {
+          cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
+        }
         last = pipeline_id;
       }
+      memcpy(&push_constant.projview_matrix, &mesh_passes[i].projview_matrix, sizeof(Mat4));
       push_constant.cull_mask = mesh_passes[i].cull_mask;
       push_constant.camera_front = mesh_passes[i].camera_dir;
       push_constant.camera_position = mesh_passes[i].camera_pos;
