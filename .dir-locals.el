@@ -3,5 +3,5 @@
 
 ((c-mode . ((eval . (c-set-offset 'inextern-lang 0))
             (c-basic-offset . 2)
-            ))
+            (c-doc-comment-style . 'doxygen)))
  )

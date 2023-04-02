@@ -486,37 +486,41 @@ EngineUpdateAndRender()
       DrawText(&g_context->quad_renderer, font, buff, &text_size, color, &pos);
     }
     // draw rects for debugging occlusion culling
-    FOREACH_COMPONENT(Voxel_Grid) {
-      Transform* transform = GetComponent(Transform, entities[i]);
-      OBB* obb = GetComponent(OBB, entities[i]);
-      float radius2 = 0.0f;
-      for (int i = 0; i < 8; i++) {
-        Vec3 diff = VEC3_SUB(obb->corners[i], transform->position);
-        float d = VEC3_DOT(diff, diff);
-        if (d > radius2) {
-          radius2 = d;
+    if (*GetVar_Int(g_config, "Render.debug_ss_aabb") == 1) {
+      FOREACH_COMPONENT(Voxel_Grid) {
+        Voxel_Cached* cached = GetComponent(Voxel_Cached, entities[i]);
+        if (cached && (cached->cull_mask & 2) == 0)
+          continue;
+        Transform* transform = GetComponent(Transform, entities[i]);
+        OBB* obb = GetComponent(OBB, entities[i]);
+        float radius2 = 0.0f;
+        for (int i = 0; i < 8; i++) {
+          Vec3 diff = VEC3_SUB(obb->corners[i], transform->position);
+          float d = VEC3_DOT(diff, diff);
+          if (d > radius2) {
+            radius2 = d;
+          }
         }
+        Vec3 dist = VEC3_SUB(transform->position, camera->position);
+        float tsquared = VEC3_DOT(dist, dist);
+        if (tsquared <= radius2)
+          continue;
+        Vec4 rect = { 1.0f, 1.0f, -1.0f, -1.0f };
+        for (int i = 0; i < 8; i++) {
+          Vec4 pos = { obb->corners[i].x, obb->corners[i].y, obb->corners[i].z, 1.0f };
+          Mat4_Mul_Vec4(&camera->projview_matrix, &pos, &pos);
+          pos.x /= pos.w;
+          pos.y /= pos.w;
+          if (pos.x < rect.x) rect.x = pos.x;
+          if (pos.y < rect.y) rect.y = pos.y;
+          if (pos.x > rect.z) rect.z = pos.x;
+          if (pos.y > rect.w) rect.w = pos.y;
+        }
+        DrawQuad(&g_context->quad_renderer,
+                 &VEC2_CREATE(rect.x*0.5+0.5, rect.y*0.5+0.5),
+                 &VEC2_CREATE(0.5*(rect.z-rect.x), 0.5*(rect.w-rect.y)),
+                 PACK_COLOR(120, 180, 120, 50), 1);
       }
-      Vec3 dist = VEC3_SUB(transform->position, camera->position);
-      float tsquared = VEC3_DOT(dist, dist);
-      if (tsquared <= radius2)
-        continue;
-      Vec4 rect = { 1.0f, 1.0f, -1.0f, -1.0f };
-      for (int i = 0; i < 8; i++) {
-        Vec4 pos = { obb->corners[i].x, obb->corners[i].y, obb->corners[i].z, 1.0f };
-        Mat4_Mul_Vec4(&camera->projview_matrix, &pos, &pos);
-        pos.x /= pos.w;
-        pos.y /= pos.w;
-        if (pos.x < rect.x) rect.x = pos.x;
-        if (pos.y < rect.y) rect.y = pos.y;
-        if (pos.x > rect.z) rect.z = pos.x;
-        if (pos.y > rect.w) rect.w = pos.y;
-      }
-      /* LOG_DEBUG("rect: [%f %f %f %f]", rect.x, rect.y, rect.z, rect.w); */
-      DrawQuad(&g_context->quad_renderer,
-               &VEC2_CREATE(rect.x*0.5+0.5, rect.y*0.5+0.5),
-               &VEC2_CREATE(0.5*(rect.z-rect.x), 0.5*(rect.w-rect.y)),
-               PACK_COLOR(120, 180, 120, 150), 1);
     }
 
     // GPU timestamps

@@ -665,6 +665,10 @@ CreateVoxelBackend_Slow(void* backend, Video_Memory* cpu_memory, uint32_t max_ve
   return err;
 }
 
+/**
+   Start a new frame.
+   @param backend - pointer to Voxel_Backend_Slow
+**/
 INTERNAL void
 NewFrameVoxel_Slow(void* backend)
 {
