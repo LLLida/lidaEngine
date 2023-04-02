@@ -4,46 +4,7 @@
 layout (local_size_x = 64, local_size_y = 1) in;
 
 #include "common.h"
-
-struct Draw_Data {
-  float half_size_x;
-  float half_size_y;
-  float half_size_z;
-  uint first_vertex;
-  uint first_instance;
-  uint vertex_count0;
-  uint vertex_count1;
-  uint vertex_count2;
-  uint vertex_count3;
-  uint vertex_count4;
-  uint vertex_count5;
-  uint cull_mask;
-};
-
-struct Transform {
-  quat rotation;
-  vec3 position;
-  float scale;
-};
-
-struct Draw_Command {
-  uint index_count;
-  uint instance_count;
-  uint first_index;
-  uint vertex_offset;
-  uint first_instance;
-};
-
-struct Vertex_Count {
-  uint count0;
-  uint count1;
-  uint count2;
-  uint count3;
-  uint count4;
-  uint debug_data1;
-  uint debug_data2;
-  uint debug_data3;
-};
+#include "culling.h"
 
 // storage buffer
 layout (std140, set = 0, binding = 0) readonly buffer Storage_Buffer {

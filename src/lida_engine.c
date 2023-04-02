@@ -38,13 +38,13 @@
 
 typedef struct {
 
-  Allocator entity_allocator;
+  Allocator     entity_allocator;
   Quad_Renderer quad_renderer;
-  Font_Atlas font_atlas;
-  Camera camera;
-  Debug_Drawer debug_drawer;
-  Keymap root_keymap;
-  Keymap camera_keymap;
+  Font_Atlas    font_atlas;
+  Camera        camera;
+  Debug_Drawer  debug_drawer;
+  Keymap        root_keymap;
+  Keymap        camera_keymap;
 
   EID shadow_cull;
   EID main_cull;
@@ -61,7 +61,7 @@ typedef struct {
 
   uint32_t prev_time;
   uint32_t curr_time;
-  int render_mode;
+  int      render_mode;
   uint32_t voxel_draw_calls;
   uint32_t debug_depth_pyramid;
 
@@ -372,14 +372,14 @@ EngineUpdateAndRender()
   {
     Mat4 light_proj, light_view;
     float extent = *GetVar_Float(g_config, "Render.shadow_extent");
-    float near = *GetVar_Float(g_config, "Render.shadow_near");
-    float far = *GetVar_Float(g_config, "Render.shadow_far");
+    float near   = *GetVar_Float(g_config, "Render.shadow_near");
+    float far    = *GetVar_Float(g_config, "Render.shadow_far");
     OrthographicMatrix(-extent, extent, -extent, extent, near, far, &light_proj);
     // Vec3 light_pos = { 0.0f, 10.0f, 0.0f };
     // Vec3 light_target = { 0.05f, 11.0f, 0.1f };
-    Vec3 light_pos = VEC3_MUL(sc_data->sun_dir, 20.0f);
+    Vec3 light_pos    = VEC3_MUL(sc_data->sun_dir, 20.0f);
     Vec3 light_target = VEC3_ADD(light_pos, sc_data->sun_dir);
-    Vec3 up = { 1.0f, 0.0f, 0.0f };
+    Vec3 up           = { 1.0f, 0.0f, 0.0f };
     LookAtMatrix(&light_pos, &light_target, &up, &light_view);
     Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
     {

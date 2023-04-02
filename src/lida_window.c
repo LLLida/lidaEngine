@@ -11,36 +11,36 @@
  */
 
 typedef struct {
-  VkImage image;
-  VkImageView image_view;
+  VkImage       image;
+  VkImageView   image_view;
   VkFramebuffer framebuffer;
 } Window_Image;
 
 typedef struct {
   VkCommandBuffer cmd;
-  VkSemaphore image_available;
+  VkSemaphore     image_available;
   // measures time spent on GPU
-  VkQueryPool query_pool;
-  uint64_t submit_time;
+  VkQueryPool     query_pool;
+  uint64_t        submit_time;
 } Window_Frame;
 
 typedef struct {
 
-  VkSurfaceKHR surface;
-  VkSwapchainKHR swapchain;
-  VkRenderPass render_pass;
-  uint32_t num_images;
-  Window_Image* images;
-  Window_Frame frames[2];
-  VkSemaphore render_finished_semaphore;
-  VkFence resources_available_fence;
-  uint64_t frame_counter;
-  uint64_t last_submit;
-  float frames_per_second;
-  uint32_t current_image;
-  VkExtent2D swapchain_extent;
-  VkSurfaceFormatKHR format;
-  VkPresentModeKHR present_mode;
+  VkSurfaceKHR                surface;
+  VkSwapchainKHR              swapchain;
+  VkRenderPass                render_pass;
+  uint32_t                    num_images;
+  Window_Image*               images;
+  Window_Frame                frames[2];
+  VkSemaphore                 render_finished_semaphore;
+  VkFence                     resources_available_fence;
+  uint64_t                    frame_counter;
+  uint64_t                    last_submit;
+  float                       frames_per_second;
+  uint32_t                    current_image;
+  VkExtent2D                  swapchain_extent;
+  VkSurfaceFormatKHR          format;
+  VkPresentModeKHR            present_mode;
   VkCompositeAlphaFlagBitsKHR composite_alpha;
 
 } Vulkan_Window;
@@ -54,49 +54,49 @@ INTERNAL VkResult
 CreateMainPass()
 {
   VkAttachmentDescription attachment = {
-    .format = g_window->format.format,
-    .samples = VK_SAMPLE_COUNT_1_BIT,
-    .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+    .format        = g_window->format.format,
+    .samples       = VK_SAMPLE_COUNT_1_BIT,
+    .loadOp        = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+    .storeOp       = VK_ATTACHMENT_STORE_OP_STORE,
     .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-    .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+    .finalLayout   = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
   };
   VkAttachmentReference reference = {
     .attachment = 0,
-    .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    .layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
   };
   VkSubpassDescription subpass = {
-    .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+    .pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS,
     .colorAttachmentCount = 1,
-    .pColorAttachments = &reference,
+    .pColorAttachments    = &reference,
   };
   VkSubpassDependency dependencies[2];
   dependencies[0] = (VkSubpassDependency) {
-    .srcSubpass = VK_SUBPASS_EXTERNAL,
-    .dstSubpass = 0,
-    .srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-    .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-    .srcAccessMask = VK_ACCESS_MEMORY_READ_BIT,
-    .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+    .srcSubpass      = VK_SUBPASS_EXTERNAL,
+    .dstSubpass      = 0,
+    .srcStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+    .dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    .srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT,
+    .dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
     .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
   };
   dependencies[1] = (VkSubpassDependency) {
-    .srcSubpass = 0,
-    .dstSubpass = VK_SUBPASS_EXTERNAL,
-    .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-    .dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-    .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-    .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+    .srcSubpass      = 0,
+    .dstSubpass      = VK_SUBPASS_EXTERNAL,
+    .srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    .dstStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+    .srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+    .dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT,
     .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
   };
   VkRenderPassCreateInfo render_pass_info = {
-    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+    .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
     .attachmentCount = 1,
-    .pAttachments = &attachment,
-    .subpassCount = 1,
-    .pSubpasses = &subpass,
+    .pAttachments    = &attachment,
+    .subpassCount    = 1,
+    .pSubpasses      = &subpass,
     .dependencyCount = 2,
-    .pDependencies = dependencies,
+    .pDependencies   = dependencies,
   };
   return CreateRenderPass(&g_window->render_pass, &render_pass_info, "main-render-pass");
 }
@@ -428,18 +428,18 @@ BeginRenderingToWindow()
   VkRect2D render_area = { .offset = {0, 0},
                            .extent = g_window->swapchain_extent };
   VkRenderPassBeginInfo begin_info = {
-    .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-    .renderPass = g_window->render_pass,
-    .framebuffer = g_window->images[g_window->current_image].framebuffer,
-    .renderArea = render_area,
+    .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+    .renderPass      = g_window->render_pass,
+    .framebuffer     = g_window->images[g_window->current_image].framebuffer,
+    .renderArea      = render_area,
     .clearValueCount = 0,
   };
   vkCmdBeginRenderPass(frame->cmd, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
   VkViewport viewport = {
-    .x = 0.0f,
-    .y = 0.0f,
-    .width = (float)render_area.extent.width,
-    .height =  (float)render_area.extent.height,
+    .x        = 0.0f,
+    .y        = 0.0f,
+    .width    = (float)render_area.extent.width,
+    .height   = (float)render_area.extent.height,
     .minDepth = 0.0f,
     .maxDepth = 1.0f,
   };
@@ -469,14 +469,14 @@ PresentToScreen()
   // submit commands
   VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
   VkSubmitInfo submit_info = {
-    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-    .waitSemaphoreCount = 1,
-    .pWaitSemaphores = &frame->image_available,
-    .pWaitDstStageMask = wait_stages,
-    .commandBufferCount = 1,
-    .pCommandBuffers = &frame->cmd,
+    .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+    .waitSemaphoreCount   = 1,
+    .pWaitSemaphores      = &frame->image_available,
+    .pWaitDstStageMask    = wait_stages,
+    .commandBufferCount   = 1,
+    .pCommandBuffers      = &frame->cmd,
     .signalSemaphoreCount = 1,
-    .pSignalSemaphores = &g_window->render_finished_semaphore,
+    .pSignalSemaphores    = &g_window->render_finished_semaphore,
   };
   err = QueueSubmit(&submit_info, 1, g_window->resources_available_fence);
   if (err != VK_SUCCESS) {
@@ -490,13 +490,13 @@ PresentToScreen()
   // present image to screen
   VkResult present_results[1];
   VkPresentInfoKHR present_info = {
-    .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+    .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
     .waitSemaphoreCount = 1,
-    .pWaitSemaphores = &g_window->render_finished_semaphore,
-    .swapchainCount = 1,
-    .pSwapchains = &g_window->swapchain,
-    .pImageIndices = &g_window->current_image,
-    .pResults = present_results,
+    .pWaitSemaphores    = &g_window->render_finished_semaphore,
+    .swapchainCount     = 1,
+    .pSwapchains        = &g_window->swapchain,
+    .pImageIndices      = &g_window->current_image,
+    .pResults           = present_results,
   };
   err = QueuePresent(&present_info);
   if (err != VK_SUCCESS && err != VK_SUBOPTIMAL_KHR) {
@@ -514,8 +514,8 @@ GetTimestampsGPU(uint32_t count, uint64_t* results)
   if (frame->query_pool == VK_NULL_HANDLE) {
     // create query pool
     VkQueryPoolCreateInfo query_pool_info = {
-      .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
-      .queryType = VK_QUERY_TYPE_TIMESTAMP,
+      .sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+      .queryType  = VK_QUERY_TYPE_TIMESTAMP,
       .queryCount = count
     };
     VkResult err = vkCreateQueryPool(g_device->logical_device, &query_pool_info, NULL,

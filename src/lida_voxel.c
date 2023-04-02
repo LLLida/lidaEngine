@@ -929,7 +929,7 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
   drawer->enabled_KHR_draw_indirect_count = 0;
   for (uint32_t i = 0; i < g_device->num_enabled_device_extensions; i++) {
     if (strcmp(g_device->enabled_device_extensions[i], VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME) == 0) {
-      // drawer->enabled_KHR_draw_indirect_count = 1;
+      drawer->enabled_KHR_draw_indirect_count = 1;
       break;
     }
   }
@@ -1045,15 +1045,15 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
     buffer_infos[i] = (VkDescriptorBufferInfo) {
       .buffer = buffers[i],
       .offset = 0,
-      .range = VK_WHOLE_SIZE
+      .range  = VK_WHOLE_SIZE
     };
     write_sets[i] = (VkWriteDescriptorSet) {
-      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-      .dstSet = drawer->ds_set,
-      .dstBinding = i,
+      .sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet          = drawer->ds_set,
+      .dstBinding      = i,
       .descriptorCount = 1,
-      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-      .pBufferInfo = &buffer_infos[i]
+      .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      .pBufferInfo     = &buffer_infos[i]
     };
   }
   UpdateDescriptorSets(write_sets, count);

@@ -1135,6 +1135,6 @@ CMD_spawn_random_vox_models(uint32_t num, const char** args)
     QuatFromAxisAngle(&axis, angle, &transform->rotation);
     // just add OBB
     AddComponent(g_ecs, OBB, entity);
-    LOG_INFO("spawned at [%.3f %.3f %.3f]", transform->position.x, transform->position.y, transform->position.z);
+    LOG_INFO("spawned '%s' at [%.3f %.3f %.3f]", buff+offsets[id], transform->position.x, transform->position.y, transform->position.z);
   }
 }
