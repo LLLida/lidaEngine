@@ -3,13 +3,14 @@
 
 * Features
 
- * rendering with Vulkan API;
+ * rendering with =Vulkan API=;
  * custom voxel rendering algorithm;
+ * GPU driven rendering with frustum and occlusion culling;
  * all memory used by CPU side is preallocated at startup(1 malloc for entire engine);
  * probably one of the simplest and fastest Entity Component System out there;
  * CVar system;
  * hot loadable shaders, voxel models, configuration variables;
- * efficient text rendering with FreeType2;
+ * efficient text rendering with =FreeType2=;
  * builtin console(press "~");
 
 * Build instructions
