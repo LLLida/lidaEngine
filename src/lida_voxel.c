@@ -182,6 +182,8 @@ EID g_voxel_pipeline_compute_ext_persp;
 
 /// Voxel grid
 
+// CLEANUP: do we really need this function? I think it's better to
+// just recreate voxel grids when needed.
 INTERNAL int
 ReallocateVoxelGrid(Allocator* allocator, Voxel_Grid* grid, uint32_t w, uint32_t h, uint32_t d)
 {
@@ -1392,12 +1394,12 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
 
   VkResult err;
   // use fast backend if possible
-  if (g_device->features.multiDrawIndirect) {
-    err = SetVoxelBackend_Indirect(drawer, NULL);
-  } else {
+  // if (g_device->features.multiDrawIndirect) {
+  //   err = SetVoxelBackend_Indirect(drawer, NULL);
+  // } else {
+  //   err = SetVoxelBackend_Slow(drawer, NULL);
+  // }
     err = SetVoxelBackend_Slow(drawer, NULL);
-  }
-    // err = SetVoxelBackend_Slow(drawer, NULL);
 
   g_voxel_pipeline_colored = CreateEntity(g_ecs);
   g_voxel_pipeline_shadow = CreateEntity(g_ecs);
