@@ -5,27 +5,33 @@
 
 typedef struct {
 
+  VkImage image;
+  VkImageView mips[15];
+  uint32_t num_mips;
+  VkDescriptorSet reduce_sets[15];
+  VkDescriptorSet debug_sets[15];
+  VkDescriptorSet read_set;
+
+} Depth_Pyramid;
+
+typedef struct {
+
   Video_Memory gpu_memory;
   Video_Memory cpu_memory;
   VkImage color_image;
   VkImage depth_image;
   VkImage resolve_image;
-  VkImage depth_pyramid;
   VkImageView color_image_view;
   VkImageView depth_image_view;
   VkImageView resolve_image_view;
-  VkImageView depth_mips[15];
-  uint32_t num_depth_mips;
   VkFramebuffer framebuffer;
   VkRenderPass render_pass;
   VkBuffer uniform_buffer;
+  Depth_Pyramid depth_pyramid;
   size_t uniform_buffer_size;
   void* uniform_buffer_mapped;
   VkDescriptorSet scene_data_set;
   VkDescriptorSet resulting_image_set;
-  VkDescriptorSet depth_pyramid_sets[15];
-  VkDescriptorSet depth_pyramid_debug_sets[15];
-  VkDescriptorSet depth_pyramid_read_set;
   VkFormat color_format;
   VkFormat depth_format;
   VkSampleCountFlagBits msaa_samples;
@@ -257,6 +263,149 @@ FWD_CreateRenderPass(Forward_Pass* pass)
 }
 
 INTERNAL VkResult
+CreateDepthPyramidImage(Depth_Pyramid* pyramid, uint32_t width, uint32_t height)
+{
+  pyramid->num_mips = Log2_u32((width > height) ? width : height)+1;
+  VkImageCreateInfo image_info = {
+    .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+    .imageType = VK_IMAGE_TYPE_2D,
+    .format = VK_FORMAT_R32_SFLOAT,
+    .extent.width = NearestPow2(width/2),
+    .extent.height = NearestPow2(height/2),
+    .extent.depth = 1,
+    .mipLevels = pyramid->num_mips,
+    .arrayLayers = 1,
+    .samples = VK_SAMPLE_COUNT_1_BIT,
+    .usage = VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,
+    .tiling = VK_IMAGE_TILING_OPTIMAL,
+    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+  };
+  return CreateImage(&pyramid->image, &image_info, "depth-pyramid");
+}
+
+INTERNAL VkResult
+CreateDepthPyramidMips(Depth_Pyramid* pyramid)
+{
+  VkImageViewCreateInfo image_view_info = {
+    .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+    .viewType = VK_IMAGE_VIEW_TYPE_2D,
+    .image = pyramid->image,
+    .format = VK_FORMAT_R32_SFLOAT,
+    .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+ };
+  for (uint32_t i = 0; i < pyramid->num_mips; i++) {
+    image_view_info.subresourceRange.baseMipLevel = i;
+    char buff[32];
+    stbsp_sprintf(buff, "depth-mip[%u]", i);
+    VkResult err = CreateImageView(&pyramid->mips[i], &image_view_info, buff);
+    if (err != VK_SUCCESS) {
+      return err;
+    }
+  }
+  return VK_SUCCESS;
+}
+
+INTERNAL VkResult
+AllocateDepthPyramidDescriptorSets(Depth_Pyramid* pyramid, VkImageView depth_image_view)
+{
+  VkResult err;
+  VkDescriptorSetLayoutBinding bindings[2];
+  // allocate descriptor sets for depth reduction pass
+  bindings[0] = (VkDescriptorSetLayoutBinding) {
+    .binding         = 0,
+    .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .descriptorCount = 1,
+    .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
+  };
+  bindings[1] = (VkDescriptorSetLayoutBinding) {
+    .binding         = 1,
+    .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+    .descriptorCount = 1,
+    .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
+  };
+  err = AllocateDescriptorSets(bindings, 2, pyramid->reduce_sets, pyramid->num_mips, 1, "depth-pyramid-set");
+  if (err != VK_SUCCESS) return err;
+  // allocate descriptor sets for visualizing depth pyramid
+  bindings[0] = (VkDescriptorSetLayoutBinding) {
+    .binding         = 0,
+    .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .descriptorCount = 1,
+    .stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT,
+  };
+  err = AllocateDescriptorSets(bindings, 1, pyramid->debug_sets, pyramid->num_mips, 1, "depth-pyramid-debug-set");
+  if (err != VK_SUCCESS) return err;
+  bindings[0] = (VkDescriptorSetLayoutBinding) {
+    .binding         = 0,
+    .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .descriptorCount = 1,
+    .stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT,
+  };
+  err = AllocateDescriptorSets(bindings, 1, &pyramid->read_set, 1, 1, "depth-pyramid-read-set");
+  VkWriteDescriptorSet write_sets[46];
+  VkDescriptorImageInfo image_infos[46];
+  for (uint32_t i = 0; i < pyramid->num_mips; i++) {
+    // CLEANUP: I should make a macro, too much boilerplate...
+    image_infos[3*i] = (VkDescriptorImageInfo) {
+      .imageView = (i == 0) ? depth_image_view : pyramid->mips[i-1],
+      .imageLayout = (i == 0) ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL,
+      .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                            VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
+    };
+    write_sets[3*i] = (VkWriteDescriptorSet) {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = pyramid->reduce_sets[i],
+      .dstBinding = 0,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .pImageInfo = &image_infos[3*i]
+    };
+    image_infos[3*i+1] = (VkDescriptorImageInfo) {
+      .imageView = pyramid->mips[i],
+      .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+      .sampler = VK_NULL_HANDLE
+    };
+    write_sets[3*i+1] = (VkWriteDescriptorSet) {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = pyramid->reduce_sets[i],
+      .dstBinding = 1,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+      .pImageInfo = &image_infos[3*i+1]
+    };
+    image_infos[3*i+2] = (VkDescriptorImageInfo) {
+      .imageView = pyramid->mips[i],
+      .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+      .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                            VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
+    };
+    write_sets[3*i+2] = (VkWriteDescriptorSet) {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = pyramid->debug_sets[i],
+      .dstBinding = 0,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .pImageInfo = &image_infos[3*i+2]
+    };
+  }
+  image_infos[pyramid->num_mips*3] = (VkDescriptorImageInfo) {
+    .imageView = pyramid->mips[0],
+    .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+    .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                          VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
+  };
+  write_sets[pyramid->num_mips*3] = (VkWriteDescriptorSet) {
+    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    .dstSet = pyramid->read_set,
+    .dstBinding = 0,
+    .descriptorCount = 1,
+    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    .pImageInfo = &image_infos[pyramid->num_mips*3],
+  };
+  UpdateDescriptorSets(write_sets, pyramid->num_mips*3 + 1);
+  return err;
+}
+
+INTERNAL VkResult
 FWD_CreateAttachments(Forward_Pass* pass, uint32_t width, uint32_t height)
 {
   VkImageCreateInfo image_info = {
@@ -307,14 +456,7 @@ FWD_CreateAttachments(Forward_Pass* pass, uint32_t width, uint32_t height)
     pass->resolve_image = VK_NULL_HANDLE;
   }
   // create depth pyramid
-  image_info.format = VK_FORMAT_R32_SFLOAT;
-  image_info.extent.width = NearestPow2(width/2);
-  image_info.extent.height = NearestPow2(height/2);
-  image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_SAMPLED_BIT;
-  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-  pass->num_depth_mips = Log2_u32((width > height) ? width : height)+1;
-  image_info.mipLevels = pass->num_depth_mips;
-  err = CreateImage(&pass->depth_pyramid, &image_info, "depth-pyramid");
+  err = CreateDepthPyramidImage(&pass->depth_pyramid, width, height);
   if (err != VK_SUCCESS) {
       return err;
   }
@@ -326,7 +468,7 @@ FWD_CreateAttachments(Forward_Pass* pass, uint32_t width, uint32_t height)
   vkGetImageMemoryRequirements(g_device->logical_device,
                                pass->color_image, &image_requirements[1]);
   vkGetImageMemoryRequirements(g_device->logical_device,
-                               pass->depth_pyramid, &image_requirements[2]);
+                               pass->depth_pyramid.image, &image_requirements[2]);
   if (pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
     vkGetImageMemoryRequirements(g_device->logical_device,
                                  pass->resolve_image, &image_requirements[3]);
@@ -352,7 +494,7 @@ FWD_CreateAttachments(Forward_Pass* pass, uint32_t width, uint32_t height)
   // bind images to memory
   ImageBindToMemory(&pass->gpu_memory, pass->color_image, &image_requirements[0]);
   ImageBindToMemory(&pass->gpu_memory, pass->depth_image, &image_requirements[1]);
-  ImageBindToMemory(&pass->gpu_memory, pass->depth_pyramid, &image_requirements[2]);
+  ImageBindToMemory(&pass->gpu_memory, pass->depth_pyramid.image, &image_requirements[2]);
   if (pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
     ImageBindToMemory(&pass->gpu_memory, pass->resolve_image, &image_requirements[3]);
   }
@@ -386,17 +528,8 @@ FWD_CreateAttachments(Forward_Pass* pass, uint32_t width, uint32_t height)
   } else {
     pass->resolve_image_view = VK_NULL_HANDLE;
   }
-  for (uint32_t i = 0; i < pass->num_depth_mips; i++) {
-    image_view_info.image = pass->depth_pyramid;
-    image_view_info.format = VK_FORMAT_R32_SFLOAT;
-    image_view_info.subresourceRange = (VkImageSubresourceRange) { VK_IMAGE_ASPECT_COLOR_BIT, i, 1, 0, 1 };
-    char buff[32];
-    stbsp_sprintf(buff, "depth-mip[%u]", i);
-    err = CreateImageView(&pass->depth_mips[i], &image_view_info, buff);
-    if (err != VK_SUCCESS) {
-      return err;
-    }
-  }
+  err = CreateDepthPyramidMips(&pass->depth_pyramid);
+  if (err != VK_SUCCESS) return err;
   // create framebuffer
   VkImageView attachments[3] = { pass->color_image_view, pass->depth_image_view, pass->resolve_image_view };
   VkFramebufferCreateInfo framebuffer_info = {
@@ -467,35 +600,6 @@ FWD_AllocateDescriptorSets(Forward_Pass* pass)
       .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
     };
     err = AllocateDescriptorSets(bindings, 1, &pass->resulting_image_set, 1, 1, "forward/resulting-image");
-    // allocate descriptor sets for depth reduction pass
-    bindings[0] = (VkDescriptorSetLayoutBinding) {
-      .binding = 0,
-      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-      .descriptorCount = 1,
-      .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-    };
-    bindings[1] = (VkDescriptorSetLayoutBinding) {
-      .binding = 1,
-      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-      .descriptorCount = 1,
-      .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-    };
-    err = AllocateDescriptorSets(bindings, 2, pass->depth_pyramid_sets, pass->num_depth_mips, 1, "depth-pyramid-set");
-    // allocate descriptor sets for visualizing depth pyramid
-    bindings[0] = (VkDescriptorSetLayoutBinding) {
-      .binding = 0,
-      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-      .descriptorCount = 1,
-      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-    };
-    err = AllocateDescriptorSets(bindings, 1, pass->depth_pyramid_debug_sets, pass->num_depth_mips, 1, "depth-pyramid-debug-set");
-    bindings[0] = (VkDescriptorSetLayoutBinding) {
-      .binding = 0,
-      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-      .descriptorCount = 1,
-      .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-    };
-    err = AllocateDescriptorSets(bindings, 1, &pass->depth_pyramid_read_set, 1, 1, "depth-pyramid-read-set");
   }
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to allocate descriptor sets with error %s", ToString_VkResult(err));
@@ -531,73 +635,7 @@ FWD_AllocateDescriptorSets(Forward_Pass* pass)
     .pImageInfo = &image_info
   };
   UpdateDescriptorSets(write_sets, 2);
-  // TODO: udpate all descriptor sets in one call
-  {
-    VkWriteDescriptorSet write_sets[30];
-    VkDescriptorImageInfo image_infos[30];
-    for (uint32_t i = 0; i < pass->num_depth_mips; i++) {
-      image_infos[2*i] = (VkDescriptorImageInfo) {
-        .imageView = (i == 0) ? pass->depth_image_view : pass->depth_mips[i-1],
-        .imageLayout = (i == 0) ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL,
-        .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                              VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
-      };
-      image_infos[2*i+1] = (VkDescriptorImageInfo) {
-        .imageView = pass->depth_mips[i],
-        .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-        .sampler = VK_NULL_HANDLE
-      };
-      write_sets[2*i] = (VkWriteDescriptorSet) {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = pass->depth_pyramid_sets[i],
-        .dstBinding = 0,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImageInfo = &image_infos[2*i]
-      };
-      write_sets[2*i+1] = (VkWriteDescriptorSet) {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = pass->depth_pyramid_sets[i],
-        .dstBinding = 1,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-        .pImageInfo = &image_infos[2*i+1]
-      };
-    }
-    UpdateDescriptorSets(write_sets, pass->num_depth_mips * 2);
-    for (uint32_t i = 0; i < pass->num_depth_mips; i++) {
-      image_infos[i] = (VkDescriptorImageInfo) {
-        .imageView = pass->depth_mips[i],
-        .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-        .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                              VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
-      };
-      write_sets[i] = (VkWriteDescriptorSet) {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = pass->depth_pyramid_debug_sets[i],
-        .dstBinding = 0,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImageInfo = &image_infos[i]
-      };
-    }
-    UpdateDescriptorSets(write_sets, pass->num_depth_mips);
-    image_infos[0] = (VkDescriptorImageInfo) {
-      .imageView = pass->depth_mips[0],
-      .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-      .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                            VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
-    };
-    write_sets[0] = (VkWriteDescriptorSet) {
-      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-      .dstSet = pass->depth_pyramid_read_set,
-      .dstBinding = 0,
-      .descriptorCount = 1,
-      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-      .pImageInfo = &image_infos[0],
-    };
-    UpdateDescriptorSets(write_sets, 1);
-  }
+  err = AllocateDepthPyramidDescriptorSets(&pass->depth_pyramid, pass->depth_image_view);
   return err;
 }
 
@@ -811,13 +849,13 @@ DestroyForwardPass(Forward_Pass* pass)
   vkDestroyImageView(g_device->logical_device, pass->color_image_view, NULL);
   if (pass->resolve_image_view)
     vkDestroyImageView(g_device->logical_device, pass->resolve_image_view, NULL);
-  for (uint32_t i = 0; i < pass->num_depth_mips; i++)
-    vkDestroyImageView(g_device->logical_device, pass->depth_mips[i], NULL);
+  for (uint32_t i = 0; i < pass->depth_pyramid.num_mips; i++)
+    vkDestroyImageView(g_device->logical_device, pass->depth_pyramid.mips[i], NULL);
   vkDestroyImage(g_device->logical_device, pass->depth_image, NULL);
   vkDestroyImage(g_device->logical_device, pass->color_image, NULL);
   if (pass->resolve_image)
     vkDestroyImage(g_device->logical_device, pass->resolve_image, NULL);
-  vkDestroyImage(g_device->logical_device, pass->depth_pyramid, NULL);
+  vkDestroyImage(g_device->logical_device, pass->depth_pyramid.image, NULL);
   vkDestroyRenderPass(g_device->logical_device, pass->render_pass, NULL);
 
   FreeVideoMemory(&pass->cpu_memory);
@@ -1016,7 +1054,8 @@ cmdBindCompute(VkCommandBuffer cmd, const Compute_Pipeline* prog,
 }
 
 INTERNAL void
-DepthReductionPass(Forward_Pass* pass, VkCommandBuffer cmd, Compute_Pipeline* pipeline)
+DepthReductionPass(Depth_Pyramid* pyramid, VkCommandBuffer cmd, Compute_Pipeline* pipeline,
+                   uint32_t width, uint32_t height)
 {
   if (g_window->frame_counter == 0) {
     // transition depth pyramid mips to correct layouts
@@ -1026,11 +1065,11 @@ DepthReductionPass(Forward_Pass* pass, VkCommandBuffer cmd, Compute_Pipeline* pi
       .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
       .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
       .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-      .image = pass->depth_pyramid,
+      .image = pyramid->image,
       .subresourceRange = (VkImageSubresourceRange) {
         .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
         .baseMipLevel = 0,
-        .levelCount = pass->num_depth_mips,
+        .levelCount = pyramid->num_mips,
         .baseArrayLayer = 0,
         .layerCount = 1,
       }
@@ -1043,11 +1082,11 @@ DepthReductionPass(Forward_Pass* pass, VkCommandBuffer cmd, Compute_Pipeline* pi
   } else {
     // read from previous frame's depth
     cmdBindCompute(cmd, pipeline, 0, NULL);
-    uint32_t level_width = NearestPow2(g_window->swapchain_extent.width/2);
-    uint32_t level_height = NearestPow2(g_window->swapchain_extent.height/2);
-    for (uint32_t i = 0; i < pass->num_depth_mips; i++) {
+    uint32_t level_width = NearestPow2(width/2);
+    uint32_t level_height = NearestPow2(height/2);
+    for (uint32_t i = 0; i < pyramid->num_mips; i++) {
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->layout,
-                              0, 1, &pass->depth_pyramid_sets[i], 0, NULL);
+                              0, 1, &pyramid->reduce_sets[i], 0, NULL);
       vkCmdDispatch(cmd, level_width / 16, level_height / 16, 1);
 
       VkImageMemoryBarrier barrier = {
@@ -1056,7 +1095,7 @@ DepthReductionPass(Forward_Pass* pass, VkCommandBuffer cmd, Compute_Pipeline* pi
         .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
         .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
         .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-        .image = pass->depth_pyramid,
+        .image = pyramid->image,
         .subresourceRange = (VkImageSubresourceRange) {
           .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
           .baseMipLevel = i,

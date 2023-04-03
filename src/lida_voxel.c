@@ -1235,7 +1235,7 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
       if (pipeline_id != last) {
         prog = GetComponent(Compute_Pipeline, pipeline_id);
         if (mesh_passes[i].flags & MESH_PASS_PERSP) {
-          VkDescriptorSet sets[2] = { drawer->ds_set, g_forward_pass->depth_pyramid_read_set };
+          VkDescriptorSet sets[2] = { drawer->ds_set, g_forward_pass->depth_pyramid.read_set };
           cmdBindCompute(cmd, prog, 2, sets);
         } else {
           cmdBindCompute(cmd, prog, 1, &drawer->ds_set);
@@ -1270,7 +1270,7 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
       if (pipeline_id != last) {
         prog = GetComponent(Compute_Pipeline, pipeline_id);
         if (mesh_passes[i].flags & MESH_PASS_PERSP) {
-          VkDescriptorSet sets[2] = { drawer->ds_set, g_forward_pass->depth_pyramid_read_set };
+          VkDescriptorSet sets[2] = { drawer->ds_set, g_forward_pass->depth_pyramid.read_set };
           cmdBindCompute(cmd, prog, 2, sets);
         } else {
           cmdBindCompute(cmd, prog, 1, &drawer->ds_set);

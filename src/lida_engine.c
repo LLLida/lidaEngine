@@ -320,8 +320,8 @@ EngineUpdateAndRender()
     case 31:
       // get file notifications every 32 frame
       UpdateAssets(g_asset_manager);
-      g_profiler.enabled = *GetVar_Int(g_config, "Misc.profiling");
-      g_context->camera.fovy = RADIANS(*GetVar_Float(g_config, "Camera.fovy"));
+      g_profiler.enabled               = *GetVar_Int(g_config, "Misc.profiling");
+      g_context->camera.fovy           = RADIANS(*GetVar_Float(g_config, "Camera.fovy"));
       g_context->camera.rotation_speed = *GetVar_Float(g_config, "Camera.rotation_speed");
       g_context->camera.movement_speed = *GetVar_Float(g_config, "Camera.movement_speed");
 
@@ -558,7 +558,8 @@ EngineUpdateAndRender()
 
   {
     Compute_Pipeline* pip = GetComponent(Compute_Pipeline, g_context->depth_reduce_pipeline);
-    DepthReductionPass(g_forward_pass, cmd, pip);
+    DepthReductionPass(&g_forward_pass->depth_pyramid, cmd, pip,
+                       g_forward_pass->render_extent.width, g_forward_pass->render_extent.height);
   }
 
   CullPass(cmd, g_vox_drawer, ComponentData(Mesh_Pass), ComponentCount(Mesh_Pass));
@@ -629,7 +630,7 @@ EngineUpdateAndRender()
       ds_set = g_shadow_pass->shadow_set;
       break;
     case RENDER_MODE_DEPTH_PYRAMID:
-      ds_set = g_forward_pass->depth_pyramid_debug_sets[g_context->debug_depth_pyramid];
+      ds_set = g_forward_pass->depth_pyramid.debug_sets[g_context->debug_depth_pyramid];
       break;
     default:
       Assert(0);
@@ -734,7 +735,7 @@ RootKeymap_Pressed(PlatformKeyCode key, void* udata)
     case PlatformKey_O:
       // SHIFT-O cicles through depth pyramid
       if (modkey_shift) {
-        g_context->debug_depth_pyramid = (g_context->debug_depth_pyramid + 1) % g_forward_pass->num_depth_mips;
+        g_context->debug_depth_pyramid = (g_context->debug_depth_pyramid + 1) % g_forward_pass->depth_pyramid.num_mips;
       }
       break;
       // ALT-C goes to camera mode
