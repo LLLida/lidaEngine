@@ -262,6 +262,11 @@ FWD_CreateRenderPass(Forward_Pass* pass)
   return CreateRenderPass(&pass->render_pass, &render_pass_info, "forward/render-pass");
 }
 
+/**
+   Create image for depth pyramid.
+   @param width - width of origing depth buffer
+   @param height - height of origing depth buffer
+ */
 INTERNAL VkResult
 CreateDepthPyramidImage(Depth_Pyramid* pyramid, uint32_t width, uint32_t height)
 {

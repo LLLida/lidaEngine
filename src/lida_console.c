@@ -445,7 +445,7 @@ INTERNAL void CMD_get(uint32_t num, const char** args);
 INTERNAL void CMD_set(uint32_t num, const char** args);
 INTERNAL void CMD_list_vars(uint32_t num, const char** args);
 INTERNAL void CMD_clear_scene(uint32_t num, const char** args);
-INTERNAL void CMD_add_voxel(uint32_t num, const char** args);
+INTERNAL void CMD_load_voxel(uint32_t num, const char** args);
 INTERNAL void CMD_save_scene(uint32_t num, const char** args);
 INTERNAL void CMD_load_scene(uint32_t num, const char** args);
 INTERNAL void CMD_make_voxel_rotate(uint32_t num, const char** args);
@@ -510,8 +510,8 @@ InitConsole()
   ADD_COMMAND(clear_scene,
               "clear_scene\n"
               " Destroy all voxel models.");
-  ADD_COMMAND(add_voxel,
-              "add_voxel FILE X Y Z [S]\n"
+  ADD_COMMAND(load_voxel,
+              "load_voxel FILE X Y Z [S]\n"
               " Load voxel model from FILE and translate to position [X Y Z].\n"
               " S is scale. Default value is 1.0.");
   ADD_COMMAND(save_scene,
@@ -582,12 +582,15 @@ UpdateAndDrawConsole(Quad_Renderer* renderer, float dt)
   DrawConsole(renderer);
 }
 
+#define CMD_ARG_COUNT_MISMATCH(argnum) \
+  LOG_WARN("this command accepts %s arguments; see 'info %s'", argnum, __func__ + 3); \
+  return
+
 void
 CMD_info(uint32_t num, const char** args)
 {
   if (num > 1) {
-    LOG_WARN("command 'info' accepts 0 or 1 argument; see 'info info'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("0 or 1");
   }
   if (num == 0) {
     // list all commands
@@ -627,8 +630,7 @@ CMD_FPS(uint32_t num, const char** args)
 {
   (void)args;
   if (num != 0) {
-    LOG_WARN("command 'FPS' accepts no arguments; for detailed explanation type 'info FPS'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("no");
   }
   LOG_INFO("FPS=%f", g_window->frames_per_second);
 }
@@ -637,8 +639,7 @@ void
 CMD_get(uint32_t num, const char** args)
 {
   if (num != 1) {
-    LOG_WARN("command 'get' accepts only 1 argument; for detailed explanation type 'info get'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("only 1");
   }
   CVar* var = TST_Search(g_config, g_config->root, args[0]);
   if (var == NULL) {
@@ -668,8 +669,7 @@ void
 CMD_set(uint32_t num, const char** args)
 {
   if (num != 2) {
-    LOG_WARN("command 'get' accepts only 2 arguments; for detailed explanation type 'info set'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("only 2");
   }
   CVar* var = TST_Search(g_config, g_config->root, args[0]);
   if (var == NULL) {
@@ -720,8 +720,7 @@ void
 CMD_list_vars(uint32_t num, const char** args)
 {
   if (num > 1) {
-    LOG_WARN("command 'list_vars' accepts 0 or 1 argument; for detailed explanation type 'info list_vars'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("0 or 1");
   }
   if (num == 0) {
     ListVars(g_config, &list_vars_Traverse_Func, NULL);
@@ -735,8 +734,7 @@ CMD_clear_scene(uint32_t num, const char** args)
 {
   (void)args;
   if (num != 0) {
-    LOG_WARN("command 'clear_scene' accepts no arguments; see 'info clear_scene'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("no");
   }
   FOREACH_COMPONENT(Voxel_Grid) {
     FreeVoxelGrid(g_vox_allocator, &components[i]);
@@ -753,11 +751,10 @@ CMD_clear_scene(uint32_t num, const char** args)
 }
 
 void
-CMD_add_voxel(uint32_t num, const char** args)
+CMD_load_voxel(uint32_t num, const char** args)
 {
   if (num != 5 && num != 4) {
-    LOG_WARN("command 'add_voxel' accepts 4 arguments; see 'info add_voxel'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("4 or 5");
   }
   EID entity = CreateEntity(g_ecs);
   if (AddVoxelGridComponent(g_ecs, g_asset_manager, g_vox_allocator,
@@ -782,8 +779,7 @@ void
 CMD_make_voxel_rotate(uint32_t num, const char** args)
 {
   if (num != 4) {
-    LOG_WARN("command 'make_voxel_rotate' accepts 4 arguments; see 'info make_voxel_rotate'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("4");
   }
   EID entity = atoi(args[0]);
   Script* script = AddComponent(g_ecs, Script, entity);
@@ -805,8 +801,7 @@ CMD_list_entities(uint32_t num, const char** args)
 {
   (void)args;
   if (num > 0) {
-    LOG_WARN("command 'list_entities' accepts no arguments; see 'info list_entities'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("no");
   }
   uint32_t* entities = g_ecs->entities->ptr;
   for (EID eid = 0; eid < g_ecs->max_entities; eid++) {
@@ -820,8 +815,7 @@ void
 CMD_make_voxel_change(uint32_t num, const char** args)
 {
   if (num > 2) {
-    LOG_WARN("command 'make_voxel_rotate' accepts 1 argument; see 'info make_voxel_change'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("only 1");
   }
   EID entity = atoi(args[0]);
   Script* script = AddComponent(g_ecs, Script, entity);
@@ -843,8 +837,7 @@ void
 CMD_spawn_sphere(uint32_t num, const char** args)
 {
   if (num != 1 && num != 4 && num != 7 && num != 8) {
-    LOG_WARN("command 'spawn_sphere' accepts 1, 4, 7 or 8  arguments; see 'info spawn_sphere'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("1, 4, 7, or 8");
   }
   EID entity = CreateEntity(g_ecs);
   Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, entity);
@@ -885,8 +878,7 @@ void
 CMD_spawn_cube(uint32_t num, const char** args)
 {
   if (num != 3 && num != 6 && num != 9 && num != 10) {
-    LOG_WARN("command 'spawn_cube' accepts 3, 6, 9 or 10  arguments; see 'info spawn_cube'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("3, 5, 9, or 10");
   }
   EID entity = CreateEntity(g_ecs);
   uint32_t width = atoi(args[0]);
@@ -929,8 +921,7 @@ void
 CMD_remove_script(uint32_t num, const char** args)
 {
   if (num != 1) {
-    LOG_WARN("command 'remove_script' accepts 1 argument; see 'info remove_script'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("only 1");
   }
   EID entity = atoi(args[0]);
   RemoveComponent(g_ecs, Script, entity);
@@ -940,8 +931,7 @@ void
 CMD_set_voxel_backend(uint32_t num, const char** args)
 {
   if (num != 1) {
-    LOG_WARN("command 'set_voxel_backend' accepts only 1 argument; see 'info set_voxel_backend'");
-    return;
+    CMD_ARG_COUNT_MISMATCH("only 1");
   }
 
   if (strcmp(args[0], "indirect") == 0) {
@@ -957,8 +947,7 @@ void
 CMD_spawn_random_voxels(uint32_t num, const char** args)
 {
   if (num != 1) {
-    LOG_WARN("command spawn_random_voxels accepts only 1 argument; see spawn_random_voxels");
-    return;
+    CMD_ARG_COUNT_MISMATCH("only 1");
   }
   enum VOXEL_TYPE {
     VOXEL_TYPE_SPHERE,
@@ -1055,8 +1044,7 @@ void
 CMD_print_transform(uint32_t num, const char** args)
 {
   if (num != 1) {
-    LOG_WARN("command spawn_random_voxels accepts only 1 argument; see spawn_random_voxels");
-    return;
+    CMD_ARG_COUNT_MISMATCH("only 1");
   }
   EID entity = atoi(args[0]);
   Transform* transform = GetComponent(Transform, entity);
@@ -1077,8 +1065,7 @@ void
 CMD_remove_voxel(uint32_t num, const char** args)
 {
   if (num != 1) {
-    LOG_WARN("command remove_voxels accepts only 1 argument; see remove_voxels");
-    return;
+    CMD_ARG_COUNT_MISMATCH("only 1");
   }
   EID entity = atoi(args[0]);
   RemoveComponent(g_ecs, Voxel_Grid, entity);
@@ -1092,8 +1079,7 @@ void
 CMD_spawn_random_vox_models(uint32_t num, const char** args)
 {
   if (num != 1) {
-    LOG_WARN("command spawn_random_voxels accepts only 1 argument; see spawn_random_voxels");
-    return;
+    CMD_ARG_COUNT_MISMATCH("only 1");
   }
   const char* left = GetVar_String(g_config, "Misc.vox_models");
   const char* right = left;

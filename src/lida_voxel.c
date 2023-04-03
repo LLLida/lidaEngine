@@ -185,38 +185,20 @@ EID g_voxel_pipeline_compute_ext_persp;
 // CLEANUP: do we really need this function? I think it's better to
 // just recreate voxel grids when needed.
 INTERNAL int
-ReallocateVoxelGrid(Allocator* allocator, Voxel_Grid* grid, uint32_t w, uint32_t h, uint32_t d)
+AllocateVoxelGrid(Allocator* allocator, Voxel_Grid* grid, uint32_t w, uint32_t h, uint32_t d)
 {
-  Allocation* old_data = grid->data;
   grid->data = DoAllocation(allocator, w*h*d, "voxel-grid");
   if (grid->data == NULL) {
-    grid->data = old_data;
     LOG_WARN("out of memory");
     return -1;
   }
-  if (old_data) {
-    for (uint32_t i = 0; i < grid->depth; i++) {
-      for (uint32_t j = 0; j < grid->height; j++) {
-        memcpy((Voxel*)grid->data->ptr + i*w*h + j*w,
-               (Voxel*)old_data->ptr + i*grid->width*grid->height + j*grid->width,
-               grid->width);
-      }
-    }
-    FreeAllocation(allocator, old_data);
-  } else {
-    memset(grid->data->ptr, 0, w*h*d);
-  }
+  // In some cases this memset may be redundant.
+  // Do we need to introduce some kind of boolean argument for this function?
+  memset(grid->data->ptr, 0, w*h*d);
   grid->width = w;
   grid->height = h;
   grid->depth = d;
   return 0;
-}
-
-INTERNAL int
-AllocateVoxelGrid(Allocator* allocator, Voxel_Grid* grid, uint32_t w, uint32_t h, uint32_t d)
-{
-  grid->data = NULL;
-  return ReallocateVoxelGrid(allocator, grid, w, h, d);
 }
 
 INTERNAL void
@@ -1394,12 +1376,12 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
 
   VkResult err;
   // use fast backend if possible
-  // if (g_device->features.multiDrawIndirect) {
-  //   err = SetVoxelBackend_Indirect(drawer, NULL);
-  // } else {
-  //   err = SetVoxelBackend_Slow(drawer, NULL);
-  // }
+  if (g_device->features.multiDrawIndirect) {
+    err = SetVoxelBackend_Indirect(drawer, NULL);
+  } else {
     err = SetVoxelBackend_Slow(drawer, NULL);
+  }
+    // err = SetVoxelBackend_Slow(drawer, NULL);
 
   g_voxel_pipeline_colored = CreateEntity(g_ecs);
   g_voxel_pipeline_shadow = CreateEntity(g_ecs);
