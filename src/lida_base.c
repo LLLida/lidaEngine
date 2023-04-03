@@ -893,8 +893,11 @@ ProfilerStart()
   g_profiler.enabled = 1;
 }
 
-// save profile results to a json file
-// NOTE: use chrome://tracing to view it
+/**
+   save profile results to a json file.
+   NOTE: use chrome://tracing to view it
+   @param filename
+*/
 INTERNAL void
 ProfilerSaveJSON(const char* filename)
 {
