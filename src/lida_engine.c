@@ -104,7 +104,7 @@ INTERNAL void CreateDebugDrawPipeline(Pipeline_Desc* description);
 void
 EngineInit(const Engine_Startup_Info* info)
 {
-  const size_t total_memory = 16 * 1024 * 1024;
+  const size_t total_memory = 64 * 1024 * 1024;
   InitMemoryChunk(&g_persistent_memory, PlatformAllocateMemory(total_memory), total_memory);
 
   ProfilerStart();
@@ -118,11 +118,12 @@ EngineInit(const Engine_Startup_Info* info)
   CreateWindow(info->window_vsync);
 
   g_context = PersistentAllocate(sizeof(Engine_Context));
-#define INIT_ALLOCATOR(alloc, mb) InitAllocator(&g_context->alloc, MemoryAllocateRight(&g_persistent_memory, mb * 1024 * 1024), 1024*1024*mb)
-  INIT_ALLOCATOR(entity_allocator, 1);
+#define INIT_ALLOCATOR(alloc, mb) InitAllocator(alloc, MemoryAllocateRight(&g_persistent_memory, mb * 1024 * 1024), 1024*1024*mb)
+  INIT_ALLOCATOR(&g_context->entity_allocator, 1);
 
+  // 32 Mb for voxels
   g_vox_allocator = PersistentAllocate(sizeof(Allocator));
-  InitAllocator(g_vox_allocator, MemoryAllocateRight(&g_persistent_memory, 4 * 1024 * 1024), 4*1024*1024);
+  INIT_ALLOCATOR(g_vox_allocator, 32);
 
   g_ecs = PersistentAllocate(sizeof(ECS));
   CreateECS(&g_context->entity_allocator, g_ecs, 8);
@@ -171,8 +172,8 @@ EngineInit(const Engine_Startup_Info* info)
   g_random = PersistentAllocate(sizeof(Random_State));
   SeedRandom(g_random, 420, 420);
 
-  const uint32_t max_vertices = 1024*1024;
-  const uint32_t max_draws = 32;
+  const uint32_t max_vertices = 16*1024*1024;
+  const uint32_t max_draws = 64;
   g_vox_drawer = PersistentAllocate(sizeof(Voxel_Drawer));
   CreateVoxelDrawer(g_vox_drawer, max_vertices, max_draws);
 
@@ -488,6 +489,7 @@ EngineUpdateAndRender()
     // draw rects for debugging occlusion culling
     if (*GetVar_Int(g_config, "Render.debug_ss_aabb") == 1) {
       FOREACH_COMPONENT(Voxel_Grid) {
+        (void)components;
         Voxel_Cached* cached = GetComponent(Voxel_Cached, entities[i]);
         if (cached && (cached->cull_mask & 2) == 0)
           continue;
@@ -745,6 +747,13 @@ RootKeymap_Pressed(PlatformKeyCode key, void* udata)
         PlatformHideCursor();
       }
       break;
+    case PlatformKey_S:
+      // ALT-S spawns 10 random voxel models. This is to test how good
+      // is our mesh generation.
+      if (modkey_alt) {
+        const char* args = "10";
+        CMD_spawn_random_vox_models(1, &args);
+      }
 
     default:
       break;

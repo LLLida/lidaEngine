@@ -459,6 +459,7 @@ INTERNAL void CMD_spawn_random_voxels(uint32_t num, const char** args);
 INTERNAL void CMD_print_transform(uint32_t num, const char** args);
 INTERNAL void CMD_remove_voxel(uint32_t num, const char** args);
 INTERNAL void CMD_spawn_random_vox_models(uint32_t num, const char** args);
+INTERNAL void CMD_voxel_buff_statistics(uint32_t num, const char** args);
 
 
 /// public functions
@@ -565,7 +566,10 @@ InitConsole()
               " Remove voxel model from scene.");
   ADD_COMMAND(spawn_random_vox_models,
               "spawn_random_vox_models NUMBER\n"
-              " Spwan NUMBER random voxel models specified in CVar Misc.vox_models.");
+              " Spawn NUMBER random voxel models specified in CVar Misc.vox_models.");
+  ADD_COMMAND(voxel_buff_statistics,
+              "voxel_buff_statistics\n"
+              " Print memory statistics of voxels.");
 }
 
 INTERNAL void
@@ -782,6 +786,11 @@ CMD_make_voxel_rotate(uint32_t num, const char** args)
     CMD_ARG_COUNT_MISMATCH("4");
   }
   EID entity = atoi(args[0]);
+  Voxel_Grid* grid = GetComponent(Voxel_Grid, entity);
+  if (grid == NULL) {
+    LOG_WARN("entity %u is not an voxel grid", entity);
+    return;
+  }
   Script* script = AddComponent(g_ecs, Script, entity);
   if (script == NULL) {
     script = GetComponent(Script, entity);
@@ -1123,4 +1132,16 @@ CMD_spawn_random_vox_models(uint32_t num, const char** args)
     AddComponent(g_ecs, OBB, entity);
     LOG_INFO("spawned '%s' at [%.3f %.3f %.3f]", buff+offsets[id], transform->position.x, transform->position.y, transform->position.z);
   }
+}
+
+void
+CMD_voxel_buff_statistics(uint32_t num, const char** args)
+{
+  if (num != 0) {
+    CMD_ARG_COUNT_MISMATCH("no");
+  }
+  (void)args;
+  char buff[1024];
+  VoxelDrawerStatistics(g_vox_drawer, buff);
+  LOG_INFO("%s", buff);
 }

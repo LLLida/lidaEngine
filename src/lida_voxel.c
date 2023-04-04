@@ -9,7 +9,7 @@ typedef uint8_t Voxel;
 #define VX_USE_INDICES 1
 #define VX_USE_CULLING 1
 #define MAX_MESH_PASSES 8
-#define VOXEL_VERTEX_THRESHOLD 20*1024
+#define VOXEL_VERTEX_THRESHOLD 10*1024
 
 // stores voxels as plain 3D array
 typedef struct {
@@ -158,6 +158,7 @@ typedef struct {
   uint32_t (*render_voxels_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, uint32_t num_sets, VkDescriptorSet* sets, size_t num_draws);
   void (*cull_pass_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes, size_t num_draws);
   void (*destroy_func)(void* backend, Deletion_Queue* dq);
+  uint32_t (*stat_func)(void* backend, char* buff);
 
 } Voxel_Drawer;
 
@@ -900,6 +901,16 @@ DestroyVoxel_Slow(void* backend, Deletion_Queue* dq)
   }
 }
 
+INTERNAL uint32_t
+VoxelStatistics_Slow(void* backend, char* buff)
+{
+  Voxel_Backend_Slow* drawer = backend;
+  uint32_t count = 0;
+  count += stbsp_sprintf("[vertices: %u] ", buff, drawer->vertex_offset);
+  count += stbsp_sprintf("[draws: %u] ", buff, drawer->num_meshes);
+  return count;
+}
+
 
 /// 'Fast' backend with indirect drawing
 
@@ -917,6 +928,9 @@ CreateVoxelBackend_Indirect(void* backend, Video_Memory* cpu_memory, Video_Memor
       break;
     }
   }
+
+  // we occupy 2*max_draws in buffers
+  max_draws *= 2;
 
 #if !VX_USE_INDICES
   Assert(0 && "Indirect drawing without index buffers is not implemented.");
@@ -1299,6 +1313,16 @@ DestroyVoxel_Indirect(void* backend, Deletion_Queue* dq)
   }
 }
 
+INTERNAL uint32_t
+VoxelStatistics_Indirect(void* backend, char* buff)
+{
+  Voxel_Backend_Indirect* drawer = backend;
+  uint32_t count = 0;
+  count += stbsp_sprintf(buff + count, "[vertices: %u] ", (uint32_t)drawer->vertex_offset);
+  count += stbsp_sprintf(buff + count, "[draws: %u] ",    (uint32_t)drawer->draw_offset);
+  return count;
+}
+
 
 /// Voxel drawer
 
@@ -1327,6 +1351,7 @@ SetVoxelBackend_Slow(Voxel_Drawer* drawer, Deletion_Queue* dq)
   drawer->render_voxels_func = RenderVoxels_Slow;
   drawer->cull_pass_func = CullPass_Slow;
   drawer->destroy_func = DestroyVoxel_Slow;
+  drawer->stat_func = VoxelStatistics_Slow;
 
   LOG_INFO("classic voxel drawing backend set");
   return err;
@@ -1357,6 +1382,7 @@ SetVoxelBackend_Indirect(Voxel_Drawer* drawer, Deletion_Queue* dq)
   drawer->render_voxels_func = RenderVoxels_Indirect;
   drawer->cull_pass_func = CullPass_Indirect;
   drawer->destroy_func = DestroyVoxel_Indirect;
+  drawer->stat_func = VoxelStatistics_Indirect;
 
   LOG_INFO("indirect voxel drawing backend set");
   return err;
@@ -1427,6 +1453,12 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
 {
   return drawer->render_voxels_func(&drawer->backend, cmd, mesh_pass,
                                     num_sets, sets, drawer->num_draws);
+}
+
+INTERNAL uint32_t
+VoxelDrawerStatistics(Voxel_Drawer* drawer, char* buff)
+{
+  return drawer->stat_func(&drawer->backend, buff);
 }
 
 INTERNAL void
