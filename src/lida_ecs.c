@@ -38,7 +38,7 @@ typedef struct {
 
 ECS* g_ecs;
 
-#define ENTITY_DEAD_MASK 0x8000
+#define ENTITY_DEAD_MASK (1<<31)
 #define ENTITY_ALIVE_MASK (~ENTITY_DEAD_MASK)
 
 #define ENTITY_NIL UINT32_MAX
@@ -49,6 +49,8 @@ ECS* g_ecs;
 INTERNAL void
 ClearSparseSet(Allocator* allocator, Sparse_Set* set)
 {
+  if (set->dense == NULL)
+    return;
   FreeAllocation(allocator, set->dense);
   FreeAllocation(allocator, set->packed);
   FreeAllocation(allocator, set->sparse);
@@ -272,20 +274,42 @@ AddComponent_ECS(ECS* ecs, Sparse_Set* set, EID entity)
   return ret;
 }
 
-INTERNAL void
+/**
+   Return 0 if successfully removed component, other value if not.
+ */
+INTERNAL int
 RemoveComponent_ECS(ECS* ecs, Sparse_Set* set, EID entity)
 {
   if (EraseFromSparseSet(set, entity) == 0) {
     uint32_t* entities = ecs->entities->ptr;
     entities[entity]--;
+    return 0;
   }
+  return -1;
+}
+
+INTERNAL void
+DestroyAllComponents_ECS(ECS* ecs, Sparse_Set* set)
+{
+  // remove components from sparse set
+  if (set->size > 0) {
+    uint32_t i = 0;
+    while (i < set->size) {
+      EID entity = ((EID*)set->dense->ptr)[i];
+      if (RemoveComponent_ECS(ecs, set, entity) != 0) {
+        i++;
+      }
+    }
+  }
+  // clear sparse set
+  ClearSparseSet((ecs)->allocator, set);
 }
 
 #define DECLARE_COMPONENT(type) DECLARE_TYPE(type); \
   GLOBAL Sparse_Set g_sparse_set_##type
 #define REGISTER_COMPONENT(type) REGISTER_TYPE(type, NULL, NULL);    \
   g_sparse_set_##type .type_info = GET_TYPE_INFO(type)
-#define UNREGISTER_COMPONENT(ecs, type) ClearSparseSet((ecs)->allocator, &g_sparse_set_##type)
+#define UNREGISTER_COMPONENT(ecs, type) DestroyAllComponents_ECS(ecs, &g_sparse_set_##type)
 
 #define GetComponent(type, entity) (type*)SearchSparseSet(&g_sparse_set_##type, entity)
 // NULL is returned if entity already has this component

@@ -86,7 +86,7 @@ SaveScene(const Camera* camera, const char* filename)
       strncpy(ss.name, script->name, sizeof(ss.name)-1);
       PlatformWriteToFile(file, &ss, sizeof(Script_Serialized));
     }
-    PlatformWriteToFile(file, grid->data->ptr, grid->width*grid->height*grid->depth);
+    PlatformWriteToFile(file, grid->data->ptr, VoxelGridBytes(grid));
     // TODO: pad to 8 or 16 bytes
   }
 
@@ -116,7 +116,11 @@ LoadScene(ECS* ecs, Allocator* va, Camera* camera, Script_Manager* sm, const cha
     for (uint32_t i = 0; i < info->num_vox_components; i++) {
       EID entity = CreateEntity(ecs);
 
+#if VX_USE_BLOCKS
+      uint32_t model_data_bytes = ALIGN_TO(model->w, 4)*ALIGN_TO(model->h, 4)*ALIGN_TO(model->d, 4);
+#else
       uint32_t model_data_bytes = model->w*model->h*model->d;
+#endif
 
       Voxel_Grid* vox = AddComponent(ecs, Voxel_Grid, entity);
       // load palette
@@ -151,7 +155,7 @@ LoadScene(ECS* ecs, Allocator* va, Camera* camera, Script_Manager* sm, const cha
 
       // load voxel data
       memcpy(vox->data->ptr, model_data, model_data_bytes);
-      vox->hash = HashMemory64(vox->data->ptr, model_data_bytes);
+      RehashVoxelGrid(vox);
 
       model = (void*)((uint8_t*)model_data + model_data_bytes);
     }

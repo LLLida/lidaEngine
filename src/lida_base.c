@@ -35,6 +35,10 @@
 
 #define MEM_ALIGN_OFF(ptr, pow2) (((~(uintptr_t)(ptr))+1) & (pow2-1))
 #define ALIGN_MASK(number, mask) (((number)+(mask))&~(mask))
+/**
+   Align a number to alignment.
+   NOTE: alignment must be a power of 2.
+ */
 #define ALIGN_TO(number, alignment) ALIGN_MASK(number, (alignment)-1)
 
 typedef struct {

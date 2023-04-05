@@ -460,6 +460,7 @@ INTERNAL void CMD_print_transform(uint32_t num, const char** args);
 INTERNAL void CMD_remove_voxel(uint32_t num, const char** args);
 INTERNAL void CMD_spawn_random_vox_models(uint32_t num, const char** args);
 INTERNAL void CMD_voxel_buff_statistics(uint32_t num, const char** args);
+INTERNAL void CMD_spawn_melon_floor(uint32_t num, const char** args);
 
 
 /// public functions
@@ -570,6 +571,10 @@ InitConsole()
   ADD_COMMAND(voxel_buff_statistics,
               "voxel_buff_statistics\n"
               " Print memory statistics of voxels.");
+  ADD_COMMAND(spawn_melon_floor,
+              "spawn_melon_floor [TYPE]\n"
+              " Spawn a floor with melon colors.\n"
+              " TYPE is either 'melon'(default) or 'chess'.");
 }
 
 INTERNAL void
@@ -814,7 +819,7 @@ CMD_list_entities(uint32_t num, const char** args)
   }
   uint32_t* entities = g_ecs->entities->ptr;
   for (EID eid = 0; eid < g_ecs->max_entities; eid++) {
-    if (entities[eid] & ENTITY_ALIVE_MASK) {
+    if ((entities[eid] & ENTITY_DEAD_MASK) == 0) {
       LOG_INFO("entity %u has %u components", eid, entities[eid]);
     }
   }
@@ -862,7 +867,7 @@ CMD_spawn_sphere(uint32_t num, const char** args)
   }
   GenerateVoxelSphere(grid, radius, 1);
   // don't forget to update hash
-  grid->hash = HashMemory64(grid->data->ptr, grid->width*grid->height*grid->depth);
+  RehashVoxelGrid(grid);
   Transform* transform = AddComponent(g_ecs, Transform, entity);
   transform->rotation = QUAT_IDENTITY();
   if (num < 4) {
@@ -905,7 +910,7 @@ CMD_spawn_cube(uint32_t num, const char** args)
   }
   FillVoxelGrid(grid, 1);
   // don't forget to update hash
-  grid->hash = HashMemory64(grid->data->ptr, grid->width*grid->height*grid->depth);
+  RehashVoxelGrid(grid);
   Transform* transform = AddComponent(g_ecs, Transform, entity);
   transform->rotation = QUAT_IDENTITY();
   if (num < 6) {
@@ -1029,7 +1034,7 @@ CMD_spawn_random_voxels(uint32_t num, const char** args)
 
       default: assert(0);
       }
-    grid->hash = HashMemory64(grid->data->ptr, grid->width*grid->height*grid->depth);
+    RehashVoxelGrid(grid);
     // create transform
     Transform* transform = AddComponent(g_ecs, Transform, entity);
     transform->scale = (float)(Random(g_random)%5+1);
@@ -1144,4 +1149,49 @@ CMD_voxel_buff_statistics(uint32_t num, const char** args)
   char buff[1024];
   VoxelDrawerStatistics(g_vox_drawer, buff);
   LOG_INFO("%s", buff);
+}
+
+void CMD_spawn_melon_floor(uint32_t num, const char** args)
+{
+  if (num > 1) {
+    CMD_ARG_COUNT_MISMATCH("0 or 1");
+  }
+  (void)args;
+  EID melon = CreateEntity(g_ecs);
+  Voxel_Grid* vox = AddComponent(g_ecs, Voxel_Grid, melon);
+  AllocateVoxelGrid(g_vox_allocator, vox, 128, 4, 128);
+  // арбузовое счастье
+  vox->palette[1] = 0x00004C00;
+  vox->palette[2] = 0x00003C00;
+  // NOTE: we can write voxels directly because bounds are divisible by 4
+  Voxel* voxels = vox->data->ptr;
+  if (num == 0 || strcmp(args[0], "melon") == 0) {
+    for (size_t i = 0; i < 32; i++)
+      for (size_t j = 0; j < 32; j++) {
+        if (i&1) {
+          memset(&voxels[(i + j * 32) << 6], 1, 64);
+        } else {
+          memset(&voxels[(i + j * 32) << 6], 2, 64);
+        }
+      }
+  } else  {
+    if (strcmp(args[0], "chess") != 0) {
+      LOG_WARN("unrecognised option %s", args[0]);
+    }
+    for (size_t i = 0; i < 32; i++)
+      for (size_t j = 0; j < 32; j++) {
+        if ((i+j)&1) {
+          memset(&voxels[(i + j * 32) << 6], 2, 64);
+        } else {
+          memset(&voxels[(i + j * 32) << 6], 1, 64);
+        }
+      }
+  }
+  RehashVoxelGrid(vox);
+  Transform* transform = AddComponent(g_ecs, Transform, melon);
+  transform->rotation = QUAT_IDENTITY();
+  transform->position = VEC3_CREATE(0.0f, -8.0f, 0.0f);
+  transform->scale = 4.0f;
+  // just add OBB
+  AddComponent(g_ecs, OBB, melon);
 }

@@ -5,11 +5,15 @@
 
  */
 
-typedef uint8_t Voxel;
 #define VX_USE_INDICES 1
 #define VX_USE_CULLING 1
+#define VX_USE_BLOCKS 1
 #define MAX_MESH_PASSES 8
 #define VOXEL_VERTEX_THRESHOLD 10*1024
+
+typedef uint8_t Voxel;
+
+typedef Voxel Voxel_Block[64];
 
 // stores voxels as plain 3D array
 typedef struct {
@@ -164,10 +168,18 @@ typedef struct {
 
 Voxel_Drawer* g_vox_drawer;
 
+#define VOX_BLOCK_DIM(x) ((x)>>2)
+#define VOX_DIM_IN_VOXEL(x) ((x)&3)
+#define GetVoxelBlock(grid, x, y, z) ((Voxel_Block*)(grid)->data->ptr)[VOX_BLOCK_DIM(x) + VOX_BLOCK_DIM(y)*VOX_BLOCK_DIM((grid)->width) + VOX_BLOCK_DIM(z)*VOX_BLOCK_DIM((grid)->width)*VOX_BLOCK_DIM((grid)->height)]
+
+#if VX_USE_BLOCKS
+#define GetInVoxelGrid(grid, x, y, z) (GetVoxelBlock(grid, x, y, z))[VOX_DIM_IN_VOXEL(x) + (VOX_DIM_IN_VOXEL(y)<<2) + (VOX_DIM_IN_VOXEL(z)<<4)]
+#else
 // NOTE: this doesn't do bounds checking
 // NOTE: setting a voxel value with this macro is unsafe, hash won't be correct,
 // consider using SetInVoxelGrid
 #define GetInVoxelGrid(grid, x, y, z) ((Voxel*)(grid)->data->ptr)[(x) + (y)*(grid)->width + (z)*(grid)->width*(grid)->height]
+#endif
 
 Allocator* g_vox_allocator;
 
@@ -188,6 +200,21 @@ EID g_voxel_pipeline_compute_ext_persp;
 INTERNAL int
 AllocateVoxelGrid(Allocator* allocator, Voxel_Grid* grid, uint32_t w, uint32_t h, uint32_t d)
 {
+#if VX_USE_BLOCKS
+  uint32_t wa = ALIGN_TO(w, 4);
+  uint32_t ha = ALIGN_TO(h, 4);
+  uint32_t da = ALIGN_TO(d, 4);
+  grid->data = DoAllocation(allocator, wa*ha*da, "voxel-grid");
+  if (grid->data == NULL) {
+    LOG_WARN("out of memory");
+    return -1;
+  }
+  memset(grid->data->ptr, 0, wa*ha*da);
+  grid->width = w;
+  grid->height = h;
+  grid->depth = d;
+  return 0;
+#else
   grid->data = DoAllocation(allocator, w*h*d, "voxel-grid");
   if (grid->data == NULL) {
     LOG_WARN("out of memory");
@@ -200,6 +227,7 @@ AllocateVoxelGrid(Allocator* allocator, Voxel_Grid* grid, uint32_t w, uint32_t h
   grid->height = h;
   grid->depth = d;
   return 0;
+#endif
 }
 
 INTERNAL void
@@ -209,6 +237,28 @@ FreeVoxelGrid(Allocator* allocator, Voxel_Grid* grid)
     FreeAllocation(allocator, grid->data);
     grid->data = NULL;
   }
+}
+
+/**
+   Get number of bytes occupied by a voxel grid's data.
+ */
+INTERNAL uint32_t
+VoxelGridBytes(Voxel_Grid* grid)
+{
+#if VX_USE_BLOCKS
+  uint32_t wa = ALIGN_TO(grid->width, 4);
+  uint32_t ha = ALIGN_TO(grid->height, 4);
+  uint32_t da = ALIGN_TO(grid->depth, 4);
+  return wa*ha*da;
+#else
+  return grid->width * grid->height * grid->depth;
+#endif
+}
+
+INTERNAL void
+RehashVoxelGrid(Voxel_Grid* grid)
+{
+  grid->hash = HashMemory64(grid->data->ptr, VoxelGridBytes(grid));
 }
 
 INTERNAL void
@@ -416,6 +466,7 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
                             )
 {
   PROFILE_FUNCTION();
+  // uint32_t start_time = PlatformGetTicks();
   // TODO: my dream is to make this function execute fast, processing
   // 4 or 8 voxels at same time
   Vertex_X3C* const first_vertex = vertices;
@@ -514,7 +565,7 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
       }
   }
   PersistentRelease(merged_mask);
-  // LOG_DEBUG("wrote %u vertices", (uint32_t)(vertices - first_vertex));
+  // LOG_DEBUG("took %u ms to generate %u vertices", PlatformGetTicks() - start_time, (uint32_t)(vertices - first_vertex));
   return vertices - first_vertex;
 }
 
@@ -544,7 +595,7 @@ LoadVoxelGrid(Allocator* allocator, Voxel_Grid* grid, const uint8_t* buffer, uin
     }
   }
   ogt_vox_destroy_scene(scene);
-  grid->hash = HashMemory64(grid->data->ptr, grid->width * grid->height * grid->depth);
+  RehashVoxelGrid(grid);
   return 0;
 }
 
@@ -1206,7 +1257,7 @@ CullPass_Indirect(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
                   size_t num_draws)
 {
   Voxel_Backend_Indirect* drawer = backend;
-  Compute_Pipeline* prog;
+  Compute_Pipeline* prog = NULL;
   if (drawer->enabled_KHR_draw_indirect_count) {
     // fill draw counts with 0
     uint32_t dst_offset = MAX_MESH_PASSES * num_draws * 3 * 32;
@@ -1672,5 +1723,11 @@ GenerateVoxelSphere(Voxel_Grid* grid, int radius, Voxel fill)
 INTERNAL void
 FillVoxelGrid(Voxel_Grid* grid, Voxel fill)
 {
-  memset(grid->data->ptr, fill, grid->width*grid->height*grid->depth);
+#if VX_USE_BLOCKS
+  // NOTE: this may be wrong as padding in blocks get filled too
+  // this would produce incorrect hashes. But I literally don't care😎
+  memset(grid->data->ptr, fill, VoxelGridBytes(grid));
+#else
+  memset(grid->data->ptr, fill, VoxelGridBytes(grid));
+#endif
 }
