@@ -173,7 +173,21 @@ Voxel_Drawer* g_vox_drawer;
 #define GetVoxelBlock(grid, x, y, z) ((Voxel_Block*)(grid)->data->ptr)[VOX_BLOCK_DIM(x) + VOX_BLOCK_DIM(y)*VOX_BLOCK_DIM((grid)->width) + VOX_BLOCK_DIM(z)*VOX_BLOCK_DIM((grid)->width)*VOX_BLOCK_DIM((grid)->height)]
 
 #if VX_USE_BLOCKS
-#define GetInVoxelGrid(grid, x, y, z) (GetVoxelBlock(grid, x, y, z))[VOX_DIM_IN_VOXEL(x) + (VOX_DIM_IN_VOXEL(y)<<2) + (VOX_DIM_IN_VOXEL(z)<<4)]
+// #define GetInVoxelGrid(grid, x, y, z) (GetVoxelBlock(grid, x, y, z))[VOX_DIM_IN_VOXEL(x) + (VOX_DIM_IN_VOXEL(y)<<2) + (VOX_DIM_IN_VOXEL(z)<<4)]
+
+INTERNAL Voxel*
+GetInVoxelGridImpl(const Voxel_Grid* grid, uint32_t x, uint32_t y, uint32_t z)
+{
+  Voxel* start = grid->data->ptr;
+  uint32_t dimw = ALIGN_TO(grid->width, 4);
+  dimw = VOX_BLOCK_DIM(dimw);
+  uint32_t dimh = ALIGN_TO(grid->height, 4);
+  dimh = VOX_BLOCK_DIM(dimh);
+  Voxel* block = start + (VOX_BLOCK_DIM(x) + VOX_BLOCK_DIM(y)*dimw + dimw*dimh*VOX_BLOCK_DIM(z))*64;
+  return block + (VOX_DIM_IN_VOXEL(x) + VOX_DIM_IN_VOXEL(y)*4 + VOX_DIM_IN_VOXEL(z)*16);
+}
+#define GetInVoxelGrid(grid, x, y, z) (*GetInVoxelGridImpl(grid, x, y, z))
+
 #else
 // NOTE: this doesn't do bounds checking
 // NOTE: setting a voxel value with this macro is unsafe, hash won't be correct,
@@ -1152,6 +1166,8 @@ RegenerateVoxel_Indirect(void* backend, Voxel_Cached* cached, const Voxel_Grid* 
 #if VX_USE_INDICES
     draw->vertex_count[i] = GenerateVoxelGridMeshGreedy(grid, drawer->pVertices + drawer->vertex_offset, i,
                                                         base_index, drawer->pIndices + index_offset);
+    // draw->vertex_count[i] = GenerateVoxelGridMeshNaive(grid, drawer->pVertices + drawer->vertex_offset, i,
+                                                       // base_index, drawer->pIndices + index_offset);
 #else
     Assert(0 && "not implemented for vertices only ");
 #endif
@@ -1707,7 +1723,6 @@ GenerateVoxelSphere(Voxel_Grid* grid, int radius, Voxel fill)
     LOG_WARN("radius doesn't match grid's extents");
     return;
   }
-
   for (int z = 0; z < radius*2+1; z++)
     for (int y = 0; y < radius*2+1; y++)
       for (int x = 0; x < radius*2+1; x++) {
@@ -1730,4 +1745,50 @@ FillVoxelGrid(Voxel_Grid* grid, Voxel fill)
 #else
   memset(grid->data->ptr, fill, VoxelGridBytes(grid));
 #endif
+}
+
+/**
+   This should not be used.
+   I made this for debugging voxel blocks.
+ */
+INTERNAL void
+DebugDrawVoxelBlocks(Debug_Drawer* debug_drawer, const Voxel_Grid* grid, const OBB* obb)
+{
+  const uint32_t indices[24] = {
+    0, 1,
+    1, 3,
+    3, 2,
+    2, 0,
+
+    4, 5,
+    5, 7,
+    7, 6,
+    6, 4,
+
+    0, 4,
+    1, 5,
+    2, 6,
+    3, 7
+  };
+  const uint32_t colors[] = {
+    PACK_COLOR(255, 255, 0, 255),
+    PACK_COLOR(0, 255, 0, 255),
+  };
+  float sx = 4.0f / grid->width;
+  float sy = 4.0f / grid->height;
+  float sz = 4.0f / grid->depth;
+  for (size_t i = 0; i < ARR_SIZE(indices); i += 2) {
+    Vec3 a = obb->corners[indices[i]];
+    Vec3 d = VEC3_SUB(obb->corners[indices[i+1]], obb->corners[indices[i]]);
+    d.x *= sx;
+    d.y *= sy;
+    d.z *= sz;
+    for (uint32_t j = 0; j < grid->width/4; j++) {
+      Vec3 b = VEC3_ADD(a, d);
+      AddDebugLine(debug_drawer,
+                   &a, &b,
+                   colors[j&1]);
+      a = b;
+    }
+  }
 }

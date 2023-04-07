@@ -199,7 +199,8 @@ EngineInit(const Engine_Startup_Info* info)
   g_context->depth_reduce_pipeline = CreateEntity(g_ecs);
   ADD_PIPELINE(g_context->depth_reduce_pipeline, "depth_reduce.comp.spv");
 
-  CreateDebugDrawer(&g_context->debug_drawer, 1024);
+  // CreateDebugDrawer(&g_context->debug_drawer, 1024);
+  CreateDebugDrawer(&g_context->debug_drawer, 128*1024);
 
   g_script_manager = PersistentAllocate(sizeof(Script_Manager));
   InitScripts(g_script_manager);
@@ -435,7 +436,8 @@ EngineUpdateAndRender()
     // draw wireframe
     int* opt = GetVar_Int(g_config, "Render.debug_voxel_obb");
     if (opt && *opt) {
-      DebugDrawOBB(&g_context->debug_drawer, obb);
+      // DebugDrawOBB(&g_context->debug_drawer, obb);
+      DebugDrawVoxelBlocks(&g_context->debug_drawer, &components[i], obb);
     }
   }
 
