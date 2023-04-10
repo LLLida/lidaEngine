@@ -211,7 +211,8 @@ EngineInit(const Engine_Startup_Info* info)
   {
     // run CMD by hand. I know this looks ugly but it gets job done.
     const char* args[] = { GetVar_String(g_config, "Misc.initial_scene") };
-    CMD_load_scene(1, args);
+    if (args[0])
+      CMD_load_scene(1, args);
   }
 
   g_deletion_queue = PersistentAllocate(sizeof(Deletion_Queue));

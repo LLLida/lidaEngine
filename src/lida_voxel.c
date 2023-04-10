@@ -7,7 +7,7 @@
 
 #define VX_USE_INDICES 1
 #define VX_USE_CULLING 1
-#define VX_USE_BLOCKS 1
+#define VX_USE_BLOCKS 0
 #define MAX_MESH_PASSES 8
 #define VOXEL_VERTEX_THRESHOLD 10*1024
 
