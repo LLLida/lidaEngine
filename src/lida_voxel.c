@@ -2,14 +2,14 @@
   lida_voxel.c
 
   Voxel loading, creation, rendering etc.
-
+  https://www.youtube.com/watch?v=dQw4w9WgXcQ
  */
 
 #define VX_USE_INDICES 1
 #define VX_USE_CULLING 1
 #define VX_USE_BLOCKS 0
 #define MAX_MESH_PASSES 8
-#define VOXEL_VERTEX_THRESHOLD 10*1024
+#define VOXEL_VERTEX_THRESHOLD 8*1024
 
 typedef uint8_t Voxel;
 
@@ -27,6 +27,17 @@ typedef struct {
 
 } Voxel_Grid;
 DECLARE_COMPONENT(Voxel_Grid);
+
+typedef struct {
+
+  EID grid;
+  uint64_t hash;
+  uint32_t first_vertex;
+  uint32_t offsets[6];
+  int cull_mask;
+
+} Voxel_View;
+DECLARE_COMPONENT(Voxel_View);
 
 typedef struct {
 
@@ -75,16 +86,6 @@ typedef struct {
 
 } Mesh_Pass;
 DECLARE_COMPONENT(Mesh_Pass);
-
-typedef struct {
-
-  uint64_t hash;
-  uint32_t first_vertex;
-  uint32_t offsets[6];
-  int cull_mask;
-
-} Voxel_Cached;
-DECLARE_COMPONENT(Voxel_Cached);
 
 typedef struct {
 
@@ -157,8 +158,8 @@ typedef struct {
 
   void (*new_frame_func)(void* backend);
   void (*clear_cache_func)(void* backend);
-  void (*regenerate_mesh_func)(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid);
-  void (*push_mesh_func)(void* backend, ECS* ecs, EID entity);
+  void (*regenerate_mesh_func)(void* backend, Voxel_View* cached, const Voxel_Grid* grid);
+  void (*push_mesh_func)(void* backend, EID entity);
   uint32_t (*render_voxels_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass, uint32_t num_sets, VkDescriptorSet* sets, size_t num_draws);
   void (*cull_pass_func)(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_passes, uint32_t num_passes, size_t num_draws);
   void (*destroy_func)(void* backend, Deletion_Queue* dq);
@@ -257,7 +258,7 @@ FreeVoxelGrid(Allocator* allocator, Voxel_Grid* grid)
    Get number of bytes occupied by a voxel grid's data.
  */
 INTERNAL uint32_t
-VoxelGridBytes(Voxel_Grid* grid)
+VoxelGridBytes(const Voxel_Grid* grid)
 {
 #if VX_USE_BLOCKS
   uint32_t wa = ALIGN_TO(grid->width, 4);
@@ -489,6 +490,99 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
   const uint32_t dims[3] = { grid->width, grid->height, grid->depth };
   const int d = face >> 1;
   const int u = (d+1)%3, v = (d+2)%3;
+#if 0
+  // iterate each block
+  Voxel* block = (Voxel*)grid->data->ptr;
+  for (uint32_t gz = 0; gz < grid->depth; gz += 4)
+    for (uint32_t gy = 0; gy < grid->height; gy += 4)
+      for (uint32_t gx = 0; gx < grid->width; gx += 4) {
+        for (uint32_t layer = 0; layer < 4; layer++) {
+          uint16_t merged_mask = 0;
+          // try to merge voxels in block
+          for (uint32_t j = 0; j < 4; j++)
+            for (uint32_t i = 0; i < 4; i++) {
+              if (merged_mask & (1 << (i + j*4)))
+                continue;
+              int pos[3];
+              pos[d] = layer;
+              pos[u] = i;
+              pos[v] = j;
+              Voxel start_voxel = block[pos[0] + (pos[1] << 2) + (pos[2] << 4)];
+              if (start_voxel == 0) {
+                // skip air
+                continue;
+              }
+              const int start_pos[3] = { pos[0], pos[1], pos[2] };
+              int min_i = 4;
+              while (pos[v] < 4) {
+                pos[u] = i;
+                // TODO: try to use local adressation
+                if (block[pos[0] + (pos[1]<<2) + (pos[2]<<4)] != start_voxel ||
+                    GetInVoxelGridChecked(grid,
+                                          pos[0] + gx + vox_normals[face].x,
+                                          pos[1] + gy + vox_normals[face].y,
+                                          pos[2] + gz + vox_normals[face].z) != 0)
+                  break;
+                pos[u]++;
+                while (pos[u] < min_i &&
+                       block[pos[0] + (pos[1]<<2) + (pos[2]<<4)] == start_voxel &&
+                       GetInVoxelGridChecked(grid,
+                                             pos[0] + gx + vox_normals[face].x,
+                                             pos[1] + gy + vox_normals[face].y,
+                                             pos[2] + gz + vox_normals[face].z) == 0) {
+                  pos[u]++;
+                }
+                if (pos[u] < min_i) min_i = pos[u];
+                pos[v]++;
+              }
+              if (min_i == start_pos[u] ||
+                  pos[v] == start_pos[v]) {
+                continue;
+              }
+              int offset[3] = { 0 };
+              offset[u] = min_i - start_pos[u];
+              offset[v] = pos[v] - start_pos[v];
+#if VX_USE_INDICES
+              // write 4 vertices and 6 indices for this quad
+              for (uint32_t i = 0; i < 6; i++) {
+                *(indices++) = base_index + (vertices - first_vertex) + vox_indices[i];
+              }
+              for (uint32_t vert_index = 0; vert_index < 4; vert_index++) {
+                int vert_pos[3] = { gz + start_pos[0] + offset[0] * (int)vox_positions[face*4 + vert_index].x,
+                                    gy + start_pos[1] + offset[1] * (int)vox_positions[face*4 + vert_index].y,
+                                    gx + start_pos[2] + offset[2] * (int)vox_positions[face*4 + vert_index].z };
+                vert_pos[d] += face & 1;
+                *(vertices++) = (Vertex_X3C) {
+                  .position.x = vert_pos[0] * inv_size - half_size.x,
+                  .position.y = vert_pos[1] * inv_size - half_size.y,
+                  .position.z = vert_pos[2] * inv_size - half_size.z,
+                  .color = grid->palette[start_voxel]
+                };
+              }
+#else
+              // write 6 vertices for this quad
+              for (uint32_t vert_index = 0; vert_index < 6; vert_index++) {
+                int vert_pos[3] = { gz + (int)start_pos[0] + (int)offset[0] * (int)vox_positions[face*6 + vert_index].x,
+                                    gy + (int)start_pos[1] + (int)offset[1] * (int)vox_positions[face*6 + vert_index].y,
+                                    gx + (int)start_pos[2] + (int)offset[2] * (int)vox_positions[face*6 + vert_index].z };
+                vert_pos[d] += face & 1;
+                vertices[vert_index].position.x = vert_pos[0] * inv_size - half_size.x;
+                vertices[vert_index].position.y = vert_pos[1] * inv_size - half_size.y;
+                vertices[vert_index].position.z = vert_pos[2] * inv_size - half_size.z;
+                vertices[vert_index].color = grid->palette[start_voxel];
+              }
+              vertices += 6;
+#endif
+              // mark merged voxels
+              for (int jj = j; jj < pos[v]; jj++)
+                for (int ii = i; ii < min_i; ii++)
+                  merged_mask |= (1 << (ii + jj*4));
+            }
+        }
+
+        block += 64;
+      }
+#else
   char* merged_mask = (char*)PersistentAllocate(dims[u]*dims[v]);
   // on each layer we try to merge voxels as much as possible
   for (uint32_t layer = 0; layer < dims[d]; layer++) {
@@ -579,6 +673,7 @@ GenerateVoxelGridMeshGreedy(const Voxel_Grid* grid, Vertex_X3C* vertices, int fa
       }
   }
   PersistentRelease(merged_mask);
+#endif
   // LOG_DEBUG("took %u ms to generate %u vertices", PlatformGetTicks() - start_time, (uint32_t)(vertices - first_vertex));
   return vertices - first_vertex;
 }
@@ -740,7 +835,7 @@ ClearCacheVoxel_Slow(void* backend)
 }
 
 INTERNAL void
-RegenerateVoxel_Slow(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid)
+RegenerateVoxel_Slow(void* backend, Voxel_View* cached, const Voxel_Grid* grid)
 {
   Voxel_Backend_Slow* drawer = backend;
   cached->hash = grid->hash;
@@ -792,7 +887,7 @@ RegenerateVoxel_Slow(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid
 }
 
 INTERNAL void
-PushMeshVoxel_Slow(void* backend, ECS* ecs, EID entity)
+PushMeshVoxel_Slow(void* backend, EID entity)
 {
   Voxel_Backend_Slow* drawer = backend;
   // add transform
@@ -800,17 +895,17 @@ PushMeshVoxel_Slow(void* backend, ECS* ecs, EID entity)
   memcpy(&drawer->pTransforms[drawer->transform_offset],
          transform, sizeof(Transform));
   EID* meshes = drawer->meshes->ptr;
-  Voxel_Grid* grid = GetComponent(Voxel_Grid, entity);
   VX_Draw_Command* draws = drawer->draws->ptr;
 
   // try to use cache
-  Voxel_Cached* cached = GetComponent(Voxel_Cached, entity);
-  if (cached) {
-    if (cached->hash != grid->hash || cached->first_vertex > drawer->vertex_offset) {
-      // regenerate if grid changed
-      RegenerateVoxel_Slow(drawer, cached, grid);
-      goto end;
-    }
+  Voxel_View* cached = GetComponent(Voxel_View, entity);
+  assert(cached);
+  const Voxel_Grid* grid = GetComponent(Voxel_Grid, cached->grid);
+  assert(grid);
+  if (cached->hash != grid->hash || cached->first_vertex > drawer->vertex_offset) {
+    // regenerate if grid changed
+    RegenerateVoxel_Slow(drawer, cached, grid);
+  } else {
     uint32_t vertex_offset = cached->first_vertex;
     for (uint32_t i = 0; i < 6; i++) {
       VX_Draw_Command* command = &draws[drawer->num_draws++];
@@ -819,21 +914,15 @@ PushMeshVoxel_Slow(void* backend, ECS* ecs, EID entity)
       command->firstInstance = drawer->transform_offset - drawer->start_transform_offset;
       vertex_offset += cached->offsets[i];
     }
-  } else {
-    // didn't succeed, generate new vertices
-    cached = AddComponent(ecs, Voxel_Cached, entity);
-    RegenerateVoxel_Slow(drawer, cached, grid);
   }
- end:
-  {
-    // write vertex count
-    VX_Vertex_Count* table = &drawer->pVertexCounts[drawer->transform_offset];
-    table->count0 = cached->first_vertex + cached->offsets[0];
-    table->count1 = table->count0 + cached->offsets[1];
-    table->count2 = table->count1 + cached->offsets[2];
-    table->count3 = table->count2 + cached->offsets[3];
-    table->count4 = table->count3 + cached->offsets[4];
-  }
+  // write vertex count
+  VX_Vertex_Count* table = &drawer->pVertexCounts[drawer->transform_offset];
+  table->count0 = cached->first_vertex + cached->offsets[0];
+  table->count1 = table->count0 + cached->offsets[1];
+  table->count2 = table->count1 + cached->offsets[2];
+  table->count3 = table->count2 + cached->offsets[3];
+  table->count4 = table->count3 + cached->offsets[4];
+
   drawer->transform_offset++;
   meshes[drawer->num_meshes++] = entity;
 }
@@ -869,7 +958,7 @@ RenderVoxels_Slow(void* backend, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
   VX_Draw_Command draw_commands[3];
   for (uint32_t i = 0; i < drawer->num_meshes; i++) {
     EID mesh = meshes[i];
-    Voxel_Cached* cached = GetComponent(Voxel_Cached, mesh);
+    Voxel_View* cached = GetComponent(Voxel_View, mesh);
     if ((cached->cull_mask & mesh_pass->cull_mask) == 0) {
       continue;
     }
@@ -1144,7 +1233,7 @@ ClearCacheVoxel_Indirect(void* backend)
 }
 
 INTERNAL void
-RegenerateVoxel_Indirect(void* backend, Voxel_Cached* cached, const Voxel_Grid* grid)
+RegenerateVoxel_Indirect(void* backend, Voxel_View* cached, const Voxel_Grid* grid)
 {
   Voxel_Backend_Indirect* drawer = backend;
 
@@ -1179,23 +1268,23 @@ RegenerateVoxel_Indirect(void* backend, Voxel_Cached* cached, const Voxel_Grid* 
 }
 
 INTERNAL void
-PushMeshVoxel_Indirect(void* backend, ECS* ecs, EID entity)
+PushMeshVoxel_Indirect(void* backend, EID entity)
 {
   Voxel_Backend_Indirect* drawer = backend;
   // add transform
   Transform* transform = GetComponent(Transform, entity);
   memcpy(&drawer->pTransforms[drawer->transform_offset],
          transform, sizeof(Transform));
-  Voxel_Grid* grid = GetComponent(Voxel_Grid, entity);
 
   // try to use cache
-  Voxel_Cached* cached = GetComponent(Voxel_Cached, entity);
-  if (cached) {
-    if (cached->hash != grid->hash || cached->first_vertex > drawer->vertex_offset) {
-      // regenerate if grid changed
-      RegenerateVoxel_Indirect(drawer, cached, grid);
-      goto end;
-    }
+  Voxel_View* cached = GetComponent(Voxel_View, entity);
+  assert(cached);
+  const Voxel_Grid* grid = GetComponent(Voxel_Grid, cached->grid);
+  assert(grid);
+  if (cached->hash != grid->hash || cached->first_vertex > drawer->vertex_offset) {
+    // regenerate if grid changed
+    RegenerateVoxel_Indirect(drawer, cached, grid);
+  } else {
     VX_Draw_Data* draw = &drawer->pDraws[drawer->draw_offset++];
     CalculateVoxelGridSize(grid, &draw->half_size);
     draw->first_vertex = cached->first_vertex;
@@ -1205,12 +1294,7 @@ PushMeshVoxel_Indirect(void* backend, ECS* ecs, EID entity)
     for (uint32_t i = 0; i < 6; i++) {
       draw->vertex_count[i] = cached->offsets[i];
     }
-  } else {
-    // didn't succeed, generate new vertices
-    cached = AddComponent(ecs, Voxel_Cached, entity);
-    RegenerateVoxel_Indirect(drawer, cached, grid);
   }
- end:
   drawer->transform_offset++;
 }
 
@@ -1397,7 +1481,7 @@ INTERNAL VkResult
 SetVoxelBackend_Slow(Voxel_Drawer* drawer, Deletion_Queue* dq)
 {
   // HACK: this works for now, but we'd want to do something better
-  FOREACH_COMPONENT(Voxel_Cached) {
+  FOREACH_COMPONENT(Voxel_View) {
     components[i].first_vertex = UINT32_MAX;
   }
 
@@ -1428,7 +1512,7 @@ INTERNAL VkResult
 SetVoxelBackend_Indirect(Voxel_Drawer* drawer, Deletion_Queue* dq)
 {
   // HACK: this works for now, but we'd want to do something better
-  FOREACH_COMPONENT(Voxel_Cached) {
+  FOREACH_COMPONENT(Voxel_View) {
     components[i].first_vertex = UINT32_MAX;
   }
 
@@ -1508,9 +1592,9 @@ ClearVoxelDrawerCache(Voxel_Drawer* drawer)
 }
 
 INTERNAL void
-PushMeshToVoxelDrawer(Voxel_Drawer* drawer, ECS* ecs, EID entity)
+PushMeshToVoxelDrawer(Voxel_Drawer* drawer, EID entity)
 {
-  drawer->push_mesh_func(&drawer->backend, ecs, entity);
+  drawer->push_mesh_func(&drawer->backend, entity);
   drawer->num_draws++;
 }
 

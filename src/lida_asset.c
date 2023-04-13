@@ -133,7 +133,7 @@ GetAssetByName(Asset_Manager* am, const char* name)
   if (asset) {
     return asset->id;
   }
-  return (EID)-1;
+  return ENTITY_NIL;
 }
 
 // 0 is returned on success
@@ -182,6 +182,20 @@ AddVoxelGridComponent(ECS* ecs, Asset_Manager* am, Allocator* allocator,
   AddAsset(am, entity, name, &g_sparse_set_Voxel_Grid,
            VoxelGrid_ReloadFunc, allocator);
   return vox;
+}
+
+INTERNAL Voxel_View*
+LoadVoxModel(ECS* ecs, Asset_Manager* am, Allocator* allocator,
+             EID entity, const char* name)
+{
+  Voxel_View* cached = AddComponent(ecs, Voxel_View, entity);
+  cached->grid = GetAssetByName(am, name);
+  if (cached->grid == ENTITY_NIL) {
+    cached->grid = CreateEntity(ecs);
+    AddVoxelGridComponent(ecs, am, allocator, cached->grid, name);
+  }
+  cached->first_vertex = UINT32_MAX;
+  return cached;
 }
 
 INTERNAL Graphics_Pipeline*

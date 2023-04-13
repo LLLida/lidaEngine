@@ -80,7 +80,7 @@ GLOBAL Engine_Context* g_context;
 #define X_ALL_COMPONENTS()                      \
   X(Voxel_Grid);                                \
   X(Transform);                                 \
-  X(Voxel_Cached);                              \
+  X(Voxel_View);                                \
   X(OBB);                                       \
   X(Mesh_Pass);                                 \
   X(Graphics_Pipeline);                         \
@@ -104,7 +104,7 @@ INTERNAL void CreateDebugDrawPipeline(Pipeline_Desc* description);
 void
 EngineInit(const Engine_Startup_Info* info)
 {
-  const size_t total_memory = 64 * 1024 * 1024;
+  const size_t total_memory = 128 * 1024 * 1024;
   InitMemoryChunk(&g_persistent_memory, PlatformAllocateMemory(total_memory), total_memory);
 
   ProfilerStart();
@@ -121,9 +121,9 @@ EngineInit(const Engine_Startup_Info* info)
 #define INIT_ALLOCATOR(alloc, mb) InitAllocator(alloc, MemoryAllocateRight(&g_persistent_memory, mb * 1024 * 1024), 1024*1024*mb)
   INIT_ALLOCATOR(&g_context->entity_allocator, 1);
 
-  // 32 Mb for voxels
+  // 96 Mb for voxels
   g_vox_allocator = PersistentAllocate(sizeof(Allocator));
-  INIT_ALLOCATOR(g_vox_allocator, 32);
+  INIT_ALLOCATOR(g_vox_allocator, 96);
 
   g_ecs = PersistentAllocate(sizeof(ECS));
   CreateECS(&g_context->entity_allocator, g_ecs, 8);
@@ -173,7 +173,7 @@ EngineInit(const Engine_Startup_Info* info)
   SeedRandom(g_random, 420, 420);
 
   const uint32_t max_vertices = 16*1024*1024;
-  const uint32_t max_draws = 64;
+  const uint32_t max_draws = 512;
   g_vox_drawer = PersistentAllocate(sizeof(Voxel_Drawer));
   CreateVoxelDrawer(g_vox_drawer, max_vertices, max_draws);
 
@@ -208,7 +208,7 @@ EngineInit(const Engine_Startup_Info* info)
   g_context->arial_font = CreateEntity(g_ecs);
   g_context->pixel_font = CreateEntity(g_ecs);
 
-  {
+  if (0) {
     // run CMD by hand. I know this looks ugly but it gets job done.
     const char* args[] = { GetVar_String(g_config, "Misc.initial_scene") };
     if (args[0])
@@ -411,11 +411,12 @@ EngineUpdateAndRender()
   NewVoxelDrawerFrame(g_vox_drawer);
   NewDebugDrawerFrame(&g_context->debug_drawer);
 
-  FOREACH_COMPONENT(Voxel_Grid) {
+  FOREACH_COMPONENT(Voxel_View) {
     Transform* transform = GetComponent(Transform, entities[i]);
     OBB* obb = GetComponent(OBB, entities[i]);
+    Voxel_Grid* grid = GetComponent(Voxel_Grid, components[i].grid);
     // update OBB
-    CalculateVoxelGridOBB(&components[i], transform, obb);
+    CalculateVoxelGridOBB(grid, transform, obb);
     // frustum culling
     // TODO(render): set cached's cull_mask to 0
     int cull_mask = 0;
@@ -431,14 +432,14 @@ EngineUpdateAndRender()
     if (cull_mask == 0)
       continue;
     // draw
-    PushMeshToVoxelDrawer(g_vox_drawer, g_ecs, entities[i]);
-    Voxel_Cached* cached = GetComponent(Voxel_Cached, entities[i]);
+    PushMeshToVoxelDrawer(g_vox_drawer, entities[i]);
+    Voxel_View* cached = GetComponent(Voxel_View, entities[i]);
     cached->cull_mask = cull_mask;
     // draw wireframe
     int* opt = GetVar_Int(g_config, "Render.debug_voxel_obb");
     if (opt && *opt) {
       // DebugDrawOBB(&g_context->debug_drawer, obb);
-      DebugDrawVoxelBlocks(&g_context->debug_drawer, &components[i], obb);
+      DebugDrawVoxelBlocks(&g_context->debug_drawer, grid, obb);
     }
   }
 
@@ -493,7 +494,7 @@ EngineUpdateAndRender()
     if (*GetVar_Int(g_config, "Render.debug_ss_aabb") == 1) {
       FOREACH_COMPONENT(Voxel_Grid) {
         (void)components;
-        Voxel_Cached* cached = GetComponent(Voxel_Cached, entities[i]);
+        Voxel_View* cached = GetComponent(Voxel_View, entities[i]);
         if (cached && (cached->cull_mask & 2) == 0)
           continue;
         Transform* transform = GetComponent(Transform, entities[i]);

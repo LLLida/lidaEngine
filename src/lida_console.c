@@ -566,8 +566,9 @@ InitConsole()
               "remove_voxel ENITY\n"
               " Remove voxel model from scene.");
   ADD_COMMAND(spawn_random_vox_models,
-              "spawn_random_vox_models NUMBER\n"
-              " Spawn NUMBER random voxel models specified in CVar Misc.vox_models.");
+              "spawn_random_vox_models NUMBER [DISTRIB]\n"
+              " Spawn NUMBER random voxel models specified in CVar Misc.vox_models.\n"
+              " DISTRIB is width of distribution.");
   ADD_COMMAND(voxel_buff_statistics,
               "voxel_buff_statistics\n"
               " Print memory statistics of voxels.");
@@ -747,14 +748,12 @@ CMD_clear_scene(uint32_t num, const char** args)
   }
   FOREACH_COMPONENT(Voxel_Grid) {
     FreeVoxelGrid(g_vox_allocator, &components[i]);
-    if (GetComponent(Script, entities[i])) {
-      RemoveComponent(g_ecs, Script, entities[i]);
-    }
   }
   UNREGISTER_COMPONENT(g_ecs, Voxel_Grid);
+  UNREGISTER_COMPONENT(g_ecs, Script);
   UNREGISTER_COMPONENT(g_ecs, Transform);
   UNREGISTER_COMPONENT(g_ecs, OBB);
-  UNREGISTER_COMPONENT(g_ecs, Voxel_Cached);
+  UNREGISTER_COMPONENT(g_ecs, Voxel_View);
   DestroyEmptyEntities(g_ecs);
   ClearVoxelDrawerCache(g_vox_drawer);
 }
@@ -766,8 +765,8 @@ CMD_load_voxel(uint32_t num, const char** args)
     CMD_ARG_COUNT_MISMATCH("4 or 5");
   }
   EID entity = CreateEntity(g_ecs);
-  if (AddVoxelGridComponent(g_ecs, g_asset_manager, g_vox_allocator,
-                            entity, args[0]) == NULL) {
+  if (LoadVoxModel(g_ecs, g_asset_manager, g_vox_allocator,
+                   entity, args[0]) == NULL) {
     return;
   }
   Transform* transform = AddComponent(g_ecs, Transform, entity);
@@ -791,9 +790,9 @@ CMD_make_voxel_rotate(uint32_t num, const char** args)
     CMD_ARG_COUNT_MISMATCH("4");
   }
   EID entity = atoi(args[0]);
-  Voxel_Grid* grid = GetComponent(Voxel_Grid, entity);
-  if (grid == NULL) {
-    LOG_WARN("entity %u is not an voxel grid", entity);
+  Voxel_View* view = GetComponent(Voxel_View, entity);
+  if (view == NULL) {
+    LOG_WARN("entity %u is not an voxel model", entity);
     return;
   }
   Script* script = AddComponent(g_ecs, Script, entity);
@@ -854,7 +853,10 @@ CMD_spawn_sphere(uint32_t num, const char** args)
     CMD_ARG_COUNT_MISMATCH("1, 4, 7, or 8");
   }
   EID entity = CreateEntity(g_ecs);
-  Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, entity);
+  Voxel_View* view = AddComponent(g_ecs, Voxel_View, entity);
+  view->first_vertex = UINT32_MAX;
+  view->grid = CreateEntity(g_ecs);
+  Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, view->grid);
   int radius = atoi(args[0]);
   AllocateVoxelGrid(g_vox_allocator, grid, radius*2+1, radius*2+1, radius*2+1);
   if (num == 1) {
@@ -898,7 +900,10 @@ CMD_spawn_cube(uint32_t num, const char** args)
   uint32_t width = atoi(args[0]);
   uint32_t height = atoi(args[1]);
   uint32_t depth = atoi(args[2]);
-  Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, entity);
+  Voxel_View* view = AddComponent(g_ecs, Voxel_View, entity);
+  view->first_vertex = UINT32_MAX;
+  view->grid = CreateEntity(g_ecs);
+  Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, view->grid);
   AllocateVoxelGrid(g_vox_allocator, grid, width, height, depth);
   if (num == 3) {
     grid->palette[1] = PACK_COLOR(240, 240, 240, 255);
@@ -974,7 +979,10 @@ CMD_spawn_random_voxels(uint32_t num, const char** args)
   for (int i = 0; i < number; i++) {
     enum VOXEL_TYPE type = Random(g_random) % MAX_VOXEL_TYPES;
     EID entity = CreateEntity(g_ecs);
-    Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, entity);
+    Voxel_View* view = AddComponent(g_ecs, Voxel_View, entity);
+    view->first_vertex = UINT32_MAX;
+    view->grid = CreateEntity(g_ecs);
+    Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, view->grid);
     grid->palette[1] = Random(g_random);
     grid->palette[2] = Random(g_random);
     // generate voxel data
@@ -1082,9 +1090,11 @@ CMD_remove_voxel(uint32_t num, const char** args)
     CMD_ARG_COUNT_MISMATCH("only 1");
   }
   EID entity = atoi(args[0]);
-  RemoveComponent(g_ecs, Voxel_Grid, entity);
+  Voxel_View* cached = GetComponent(Voxel_View, entity);
+  RemoveComponent(g_ecs, Voxel_Grid, cached->grid);
+  RemoveComponent(g_ecs, Voxel_View, entity);
   RemoveComponent(g_ecs, OBB, entity);
-  RemoveComponent(g_ecs, Voxel_Cached, entity);
+  RemoveComponent(g_ecs, Voxel_View, entity);
   RemoveComponent(g_ecs, Script, entity);
   RemoveComponent(g_ecs, Transform, entity);
 }
@@ -1092,8 +1102,12 @@ CMD_remove_voxel(uint32_t num, const char** args)
 void
 CMD_spawn_random_vox_models(uint32_t num, const char** args)
 {
-  if (num != 1) {
-    CMD_ARG_COUNT_MISMATCH("only 1");
+  if (num != 1 && num != 2) {
+    CMD_ARG_COUNT_MISMATCH("1 or 2");
+  }
+  int distrib = 63;
+  if (num == 2) {
+    distrib = atoi(args[1]);
   }
   const char* left = GetVar_String(g_config, "Misc.vox_models");
   const char* right = left;
@@ -1118,14 +1132,13 @@ CMD_spawn_random_vox_models(uint32_t num, const char** args)
     uint32_t id = Random(g_random) % count;
     EID entity = CreateEntity(g_ecs);
     // load model from file
-    Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, entity);
-    LoadVoxelGridFromFile(g_vox_allocator, grid, buff + offsets[id]);
+    LoadVoxModel(g_ecs, g_asset_manager, g_vox_allocator, entity, buff+offsets[id]);
     // create transform
     Transform* transform = AddComponent(g_ecs, Transform, entity);
     transform->scale = (float)(Random(g_random)%5+3);
-    transform->position.x = (float)(Random(g_random)%63)-36.0f;
-    transform->position.y = (float)(Random(g_random)%10)-0.5f;
-    transform->position.z = (float)(Random(g_random)%63)-36.0f;
+    transform->position.x = (float)(Random(g_random)%distrib)-distrib*0.5f;
+    transform->position.y = (float)(Random(g_random)%(distrib/5))-0.5f;
+    transform->position.z = (float)(Random(g_random)%distrib)-distrib*0.5f;
     Vec3 axis;
     axis.x = (float)(Random(g_random)&255);
     axis.y = (float)(Random(g_random)&255);
@@ -1158,7 +1171,10 @@ void CMD_spawn_melon_floor(uint32_t num, const char** args)
   }
   (void)args;
   EID melon = CreateEntity(g_ecs);
-  Voxel_Grid* vox = AddComponent(g_ecs, Voxel_Grid, melon);
+  Voxel_View* view = AddComponent(g_ecs, Voxel_View, melon);
+  view->first_vertex = UINT32_MAX;
+  view->grid = CreateEntity(g_ecs);
+  Voxel_Grid* vox = AddComponent(g_ecs, Voxel_Grid, view->grid);
   AllocateVoxelGrid(g_vox_allocator, vox, 128, 4, 128);
   // арбузовое счастье
   vox->palette[1] = 0x00004C00;
@@ -1178,6 +1194,7 @@ void CMD_spawn_melon_floor(uint32_t num, const char** args)
     if (strcmp(args[0], "chess") != 0) {
       LOG_WARN("unrecognised option %s", args[0]);
     }
+#if VX_USE_BLOCKS
     for (size_t i = 0; i < 32; i++)
       for (size_t j = 0; j < 32; j++) {
         if ((i+j)&1) {
@@ -1186,6 +1203,22 @@ void CMD_spawn_melon_floor(uint32_t num, const char** args)
           memset(&voxels[(i + j * 32) << 6], 1, 64);
         }
       }
+#else
+    for (size_t i = 0; i < 32; i++)
+      for (size_t j = 0; j < 32; j++) {
+        Voxel color;
+        if ((i+j)&1) {
+          color = 2;
+        } else {
+          color = 1;
+        }
+        for (size_t z = 0; z < 4; z++)
+          for (size_t y = 0; y < 4; y++)
+            for (size_t x = 0; x < 4; x++) {
+              GetInVoxelGrid(vox, 4*j+x, y, 4*i+z) = color;
+            }
+      }
+#endif
   }
   RehashVoxelGrid(vox);
   Transform* transform = AddComponent(g_ecs, Transform, melon);
