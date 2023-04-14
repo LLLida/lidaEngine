@@ -77,53 +77,64 @@ int occlussion_cull(in Draw_Data d,
   float dist = dot(diff, diff);
   if (dist <= radius)
     return 0;
-      // bounding rect
-    vec2 aabb_min = { 1.0, 1.0 };
-    vec2 aabb_max = { -1.0, -1.0 };
-    float max_depth = 0.0;
+  // bounding rect
+  vec2 aabb_min = { 1.0, 1.0 };
+  vec2 aabb_max = { -1.0, -1.0 };
+  float max_depth = 0.0;
 
-    const vec3 muls[8] = {
-      { -1.0f, -1.0f, -1.0f },
-      { -1.0f, -1.0f, 1.0f },
-      { -1.0f, 1.0f, -1.0f },
-      { -1.0f, 1.0f, 1.0f },
-      { 1.0f, -1.0f, -1.0f },
-      { 1.0f, -1.0f, 1.0f },
-      { 1.0f, 1.0f, -1.0f },
-      { 1.0f, 1.0f, 1.0f },
-    };
+  const vec3 muls[8] = {
+    { -1.0f, -1.0f, -1.0f },
+    { -1.0f, -1.0f, 1.0f },
+    { -1.0f, 1.0f, -1.0f },
+    { -1.0f, 1.0f, 1.0f },
+    { 1.0f, -1.0f, -1.0f },
+    { 1.0f, -1.0f, 1.0f },
+    { 1.0f, 1.0f, -1.0f },
+    { 1.0f, 1.0f, 1.0f },
+  };
 
-    for (int i = 0; i < 8; i++) {
-      // project OBB point
-      vec4 ndc = projview_matrix * vec4(transform_point(muls[i], transform, box), 1.0);
-      ndc.xyz /= ndc.w;
-      aabb_min.x = min(aabb_min.x, ndc.x);
-      aabb_min.y = min(aabb_min.y, ndc.y);
-      aabb_max.x = max(aabb_max.x, ndc.x);
-      aabb_max.y = max(aabb_max.y, ndc.y);
-      max_depth = max(max_depth, ndc.z);
-    }
-    // convert to UV space
-    aabb_min = aabb_min * 0.5 + 0.5;
-    aabb_max = aabb_max * 0.5 + 0.5;
-    // compute depth level
-    vec2 pyramid_size = textureSize(depth_pyramid, 0);
-    float width = (aabb_max.x - aabb_min.x) * pyramid_size.x;
-    float height = (aabb_max.y - aabb_min.y) * pyramid_size.y;
-    float level = floor(log2(max(width, height)));
-    // do culling
-#if 0
-    vec2 pos = (aabb_min + aabb_max) * 0.5;
-    float depth = textureLod(depth_pyramid, pos, level).r;
-#else
-    float depth = min(min(textureLod(depth_pyramid, aabb_min, level).r,
-                          textureLod(depth_pyramid, vec2(aabb_min.x, aabb_max.y), level).r),
-                      min(textureLod(depth_pyramid, aabb_max, level).r,
-                          textureLod(depth_pyramid, vec2(aabb_max.x, aabb_min.y), level).r));
-#endif
-    if (depth > max_depth)
-      return 1;
-    return 0;
+  for (int i = 0; i < 8; i++) {
+    // project OBB point
+    vec4 ndc = projview_matrix * vec4(transform_point(muls[i], transform, box), 1.0);
+    ndc.xyz /= ndc.w;
+    aabb_min.x = min(aabb_min.x, ndc.x);
+    aabb_min.y = min(aabb_min.y, ndc.y);
+    aabb_max.x = max(aabb_max.x, ndc.x);
+    aabb_max.y = max(aabb_max.y, ndc.y);
+    max_depth = max(max_depth, ndc.z);
+  }
+  // convert to UV space
+  aabb_min = aabb_min * 0.5 + 0.5;
+  aabb_max = aabb_max * 0.5 + 0.5;
+
+  // compute depth level
+  vec2 pyramid_size = textureSize(depth_pyramid, 0);
+  float width = (aabb_max.x - aabb_min.x) * pyramid_size.x;
+  float height = (aabb_max.y - aabb_min.y) * pyramid_size.y;
+  // float level = floor(log2(max(width, height)));
+  float level = ceil(log2(max(width, height)));
+
+  // do culling
+  float mip = level;
+
+  // Texel footprint for the lower (finer-grained) level
+  float level_lower = max(mip - 1, 0);
+  vec2  scale       = vec2(exp2(-level_lower)) * pyramid_size;
+  vec2  a           = floor(aabb_min*scale);
+  vec2  b           = ceil(aabb_max*scale);
+  vec2  dims        = b - a;
+
+  // Use the lower level if we only touch <= 2 texels in both dimensions
+  if (dims.x < 2 && dims.y < 2)
+    mip = level_lower;
+  float depth = min(min(textureLod(depth_pyramid, aabb_min, mip).r,
+                        textureLod(depth_pyramid, vec2(aabb_min.x, aabb_max.y), mip).r),
+                    min(textureLod(depth_pyramid, aabb_max, mip).r,
+                        textureLod(depth_pyramid, vec2(aabb_max.x, aabb_min.y), mip).r));
+
+  if (depth > max_depth)
+    return 1;
+  return 0;
 }
 
 #endif
