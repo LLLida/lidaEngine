@@ -208,7 +208,7 @@ EngineInit(const Engine_Startup_Info* info)
   g_context->arial_font = CreateEntity(g_ecs);
   g_context->pixel_font = CreateEntity(g_ecs);
 
-  if (0) {
+  if (1) {
     // run CMD by hand. I know this looks ugly but it gets job done.
     const char* args[] = { GetVar_String(g_config, "Misc.initial_scene") };
     if (args[0])

@@ -194,7 +194,6 @@ LoadVoxModel(ECS* ecs, Asset_Manager* am, Allocator* allocator,
     cached->grid = CreateEntity(ecs);
     AddVoxelGridComponent(ecs, am, allocator, cached->grid, name);
   }
-  cached->first_vertex = UINT32_MAX;
   return cached;
 }
 

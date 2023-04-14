@@ -153,7 +153,6 @@ LoadScene(ECS* ecs, Allocator* va, Camera* camera, Script_Manager* sm, const cha
       EID entity = CreateEntity(ecs);
 
       Voxel_View* vox = AddComponent(ecs, Voxel_View, entity);
-      vox->first_vertex = UINT32_MAX;
       vox->grid = grid_ids[model->grid_id];
 
       // load transform

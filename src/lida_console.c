@@ -854,7 +854,6 @@ CMD_spawn_sphere(uint32_t num, const char** args)
   }
   EID entity = CreateEntity(g_ecs);
   Voxel_View* view = AddComponent(g_ecs, Voxel_View, entity);
-  view->first_vertex = UINT32_MAX;
   view->grid = CreateEntity(g_ecs);
   Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, view->grid);
   int radius = atoi(args[0]);
@@ -901,7 +900,6 @@ CMD_spawn_cube(uint32_t num, const char** args)
   uint32_t height = atoi(args[1]);
   uint32_t depth = atoi(args[2]);
   Voxel_View* view = AddComponent(g_ecs, Voxel_View, entity);
-  view->first_vertex = UINT32_MAX;
   view->grid = CreateEntity(g_ecs);
   Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, view->grid);
   AllocateVoxelGrid(g_vox_allocator, grid, width, height, depth);
@@ -980,7 +978,6 @@ CMD_spawn_random_voxels(uint32_t num, const char** args)
     enum VOXEL_TYPE type = Random(g_random) % MAX_VOXEL_TYPES;
     EID entity = CreateEntity(g_ecs);
     Voxel_View* view = AddComponent(g_ecs, Voxel_View, entity);
-    view->first_vertex = UINT32_MAX;
     view->grid = CreateEntity(g_ecs);
     Voxel_Grid* grid = AddComponent(g_ecs, Voxel_Grid, view->grid);
     grid->palette[1] = Random(g_random);
@@ -1148,7 +1145,7 @@ CMD_spawn_random_vox_models(uint32_t num, const char** args)
     QuatFromAxisAngle(&axis, angle, &transform->rotation);
     // just add OBB
     AddComponent(g_ecs, OBB, entity);
-    LOG_INFO("spawned '%s' at [%.3f %.3f %.3f]", buff+offsets[id], transform->position.x, transform->position.y, transform->position.z);
+    // LOG_INFO("spawned '%s' at [%.3f %.3f %.3f]", buff+offsets[id], transform->position.x, transform->position.y, transform->position.z);
   }
 }
 
@@ -1172,7 +1169,6 @@ void CMD_spawn_melon_floor(uint32_t num, const char** args)
   (void)args;
   EID melon = CreateEntity(g_ecs);
   Voxel_View* view = AddComponent(g_ecs, Voxel_View, melon);
-  view->first_vertex = UINT32_MAX;
   view->grid = CreateEntity(g_ecs);
   Voxel_Grid* vox = AddComponent(g_ecs, Voxel_Grid, view->grid);
   AllocateVoxelGrid(g_vox_allocator, vox, 128, 4, 128);
