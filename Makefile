@@ -5,7 +5,7 @@ DATADIR := data
 CC ?= gcc
 CXX ?= g++
 
-PLATFORM ?= lida_platform1
+PLATFORM ?= lida_platform_win32
 GLSLANG ?= glslangValidator
 
 CFLAGS = -O0 -g -Wall -Wextra -Wpedantic
@@ -27,8 +27,8 @@ LDFLAGS += $(shell pkg-config --libs sdl2)
 # uncomment if using ASAN
 # NOTE: don't forget to do 'make clean' before build if you changed flags!
 # NOTE: renderdoc doesn't work with ASAN enabled
-# CFLAGS += -fsanitize=address -fno-omit-frame-pointer
-# LDFLAGS += -fsanitize=address -fno-omit-frame-pointer -lrt
+CFLAGS += -fsanitize=address -fno-omit-frame-pointer
+LDFLAGS += -fsanitize=address -fno-omit-frame-pointer -lrt
 
 SHADERS := $(wildcard shaders/*.comp) $(wildcard shaders/*.vert) $(wildcard shaders/*.frag)
 SPIRVS := $(addprefix $(DATADIR)/, $(SHADERS:shaders/%=%.spv))

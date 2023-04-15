@@ -120,7 +120,7 @@ EngineInit(const Engine_Startup_Info* info)
 
   g_context = PersistentAllocate(sizeof(Engine_Context));
 #define INIT_ALLOCATOR(alloc, mb) InitAllocator(alloc, MemoryAllocateRight(&g_persistent_memory, mb * 1024 * 1024), 1024*1024*mb)
-  INIT_ALLOCATOR(&g_context->entity_allocator, 10);
+  INIT_ALLOCATOR(&g_context->entity_allocator, 20);
 
   // 96 Mb for voxels
   g_vox_allocator = PersistentAllocate(sizeof(Allocator));
@@ -174,7 +174,7 @@ EngineInit(const Engine_Startup_Info* info)
   SeedRandom(g_random, 420, 420);
 
   const uint32_t max_vertices = 16*1024*1024;
-  const uint32_t max_draws = 512;
+  const uint32_t max_draws = 10*1024;
   g_vox_drawer = PersistentAllocate(sizeof(Voxel_Drawer));
   CreateVoxelDrawer(g_vox_drawer, max_vertices, max_draws);
 
@@ -242,6 +242,8 @@ EngineInit(const Engine_Startup_Info* info)
     pass->cull_mask = 2;
     pass->flags = MESH_PASS_PERSP|MESH_PASS_USE_NORMALS;
   }
+  // TODO: for some reason this line of code causes our app to crash
+  // FixFragmentation(&g_context->entity_allocator);
 
   // create pipelines
   BatchCreateGraphicsPipelines();
@@ -474,12 +476,6 @@ EngineUpdateAndRender()
     Vec2 text_size = { 0.05f, 0.05f };
     uint32_t color = PACK_COLOR(220, 119, 0, 205);
     Font* font = GetComponent(Font, g_context->arial_font);
-    DrawText(&g_context->quad_renderer, font, "Banana", &text_size, color, &pos);
-    pos = (Vec2) { 0.04f, 0.7f };
-    text_size = (Vec2) { 0.05f, 0.05f };
-    color = PACK_COLOR(5, 9, 0, 205);
-    DrawText(&g_context->quad_renderer, font,
-             GetVar_String(g_config, "Misc.some_string"), &text_size, color, &pos);
 
     // draw call info
     {
@@ -549,13 +545,6 @@ EngineUpdateAndRender()
       DrawText(&g_context->quad_renderer, font, buffer, &text_size, color, &pos);
     }
 
-    pos = (Vec2) { 0.7f, 0.02f };
-    text_size = (Vec2) { 0.05f, 0.1f };
-    color = PACK_COLOR(4, 59, 200, 254);
-    DrawQuad(&g_context->quad_renderer, &pos, &text_size, color, 1);
-    pos = (Vec2) { 0.7f, 0.14f };
-    color = PACK_COLOR(4, 200, 59, 130);
-    DrawQuad(&g_context->quad_renderer, &pos, &text_size, color, 1);
     UpdateAndDrawConsole(&g_context->quad_renderer, dt);
   }
 

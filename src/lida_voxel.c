@@ -1502,14 +1502,14 @@ SetVoxelBackend_Slow(Voxel_Drawer* drawer, Deletion_Queue* dq)
   if (err != VK_SUCCESS)
     return err;
 
-  drawer->new_frame_func = NewFrameVoxel_Slow;
-  drawer->clear_cache_func = ClearCacheVoxel_Slow;
+  drawer->new_frame_func       = NewFrameVoxel_Slow;
+  drawer->clear_cache_func     = ClearCacheVoxel_Slow;
   drawer->regenerate_mesh_func = RegenerateVoxel_Slow;
-  drawer->push_mesh_func = PushMeshVoxel_Slow;
-  drawer->render_voxels_func = RenderVoxels_Slow;
-  drawer->cull_pass_func = CullPass_Slow;
-  drawer->destroy_func = DestroyVoxel_Slow;
-  drawer->stat_func = VoxelStatistics_Slow;
+  drawer->push_mesh_func       = PushMeshVoxel_Slow;
+  drawer->render_voxels_func   = RenderVoxels_Slow;
+  drawer->cull_pass_func       = CullPass_Slow;
+  drawer->destroy_func         = DestroyVoxel_Slow;
+  drawer->stat_func            = VoxelStatistics_Slow;
 
   LOG_INFO("classic voxel drawing backend set");
   return err;
