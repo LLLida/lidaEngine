@@ -64,6 +64,7 @@ typedef struct {
   int      render_mode;
   uint32_t voxel_draw_calls;
   uint32_t debug_depth_pyramid;
+  int      update_culler;
 
 } Engine_Context;
 
@@ -228,6 +229,7 @@ EngineInit(const Engine_Startup_Info* info)
   InitConsole();
   g_console->font = g_context->pixel_font;
 
+  g_context->update_culler = 1;
   {
     g_context->shadow_cull = CreateEntity(g_ecs);
     Mesh_Pass* pass = AddComponent(g_ecs, Mesh_Pass, g_context->shadow_cull);
@@ -355,7 +357,7 @@ EngineUpdateAndRender()
   CameraUpdateProjection(camera);
   CameraUpdateView(camera);
   Mat4_Mul(&camera->projection_matrix, &camera->view_matrix, &camera->projview_matrix);
-  {
+  if (g_context->update_culler) {
     Mesh_Pass* pass = GetComponent(Mesh_Pass, g_context->main_cull);
     memcpy(&pass->projview_matrix, &camera->projview_matrix, sizeof(Mat4));
     // PerspectiveMatrix(RADIANS(90.0f), camera->aspect_ratio, camera->z_near, &pass->projview_matrix);
@@ -367,10 +369,10 @@ EngineUpdateAndRender()
   memcpy(&sc_data->camera_projection, &camera->projection_matrix, sizeof(Mat4));
   memcpy(&sc_data->camera_view, &camera->view_matrix, sizeof(Mat4));
   memcpy(&sc_data->camera_projview, &camera->projview_matrix, sizeof(Mat4));
+  memcpy(&sc_data->camera_pos, &camera->position, sizeof(Vec3));
   sc_data->sun_dir = VEC3_CREATE(0.03f, 1.9f, 0.09f);
   sc_data->sun_ambient = 0.1f;
   Vec3_Normalize(&sc_data->sun_dir, &sc_data->sun_dir);
-  memcpy(&sc_data->camera_pos, &camera->position, sizeof(Vec3));
 
   {
     Mat4 light_proj, light_view;
@@ -418,16 +420,11 @@ EngineUpdateAndRender()
     // update OBB
     CalculateVoxelGridOBB(grid, transform, obb);
     // frustum culling
-    // TODO(render): set cached's cull_mask to 0
     int cull_mask = 0;
-    // TODO: iterate over Mesh_Pass'es
     {
-      Mesh_Pass* pass = GetComponent(Mesh_Pass, g_context->main_cull);
-      cull_mask |= TestFrustumOBB(&camera->projview_matrix, obb) * pass->cull_mask;
-    }
-    {
-      Mesh_Pass* pass = GetComponent(Mesh_Pass, g_context->shadow_cull);
-      cull_mask |= TestFrustumOBB(&sc_data->light_space, obb) * pass->cull_mask;
+      FOREACH_COMPONENT(Mesh_Pass) {
+        cull_mask |= TestFrustumOBB(&components[i].projview_matrix, obb) * components[i].cull_mask;
+      }
     }
     if (cull_mask == 0)
       continue;
@@ -447,37 +444,6 @@ EngineUpdateAndRender()
   AddDebugLine(&g_context->debug_drawer, &VEC3_CREATE(0.0, 0.0, 0.0), &VEC3_CREATE(3.0, 0.0, 0.0), PACK_COLOR(255, 0, 0, 255));
   AddDebugLine(&g_context->debug_drawer, &VEC3_CREATE(0.0, 0.0, 0.0), &VEC3_CREATE(0.0, 3.0, 0.0), PACK_COLOR(0, 255, 0, 255));
   AddDebugLine(&g_context->debug_drawer, &VEC3_CREATE(0.0, 0.0, 0.0), &VEC3_CREATE(0.0, 0.0, 3.0), PACK_COLOR(0, 0, 255, 255));
-
-  // // aboba
-  // if (ComponentCount(Voxel_View) > 0) {
-  //   EID floor = *ComponentIDs(Voxel_View);
-  //   Voxel_View* vox = GetComponent(Voxel_View, floor);
-  //   Transform* transform = GetComponent(Transform, floor);
-  //   Voxel_Grid* grid = GetComponent(Voxel_Grid, vox->grid);
-  //   Vec3 half_size;
-  //   float inv_size = CalculateVoxelGridSize(grid, &half_size);
-  //   float radius = 0.0;
-  //   if (half_size.x*half_size.x + half_size.y*half_size.y > radius) {
-  //     radius = half_size.x*half_size.x + half_size.y*half_size.y;
-  //   }
-  //   if (half_size.x*half_size.x + half_size.z*half_size.z > radius) {
-  //     radius = half_size.x*half_size.x + half_size.z*half_size.z;
-  //   }
-  //   if (half_size.z*half_size.z + half_size.y*half_size.y > radius) {
-  //     radius = half_size.z*half_size.z + half_size.y*half_size.y;
-  //   }
-  //   // LOG_DEBUG("radius=%f scale=%f", radius, transform->scale);
-  //   radius = sqrt(radius);
-  //   Vec3 cam_pos = g_context->camera.position;
-  //   cam_pos.x += 1.0f;
-  //   Vec3 diff = VEC3_SUB(cam_pos, transform->position);
-  //   Vec3_Normalize(&diff, &diff);
-  //   Vec3 dst = transform->position;
-  //   dst.x += diff.x * radius;
-  //   dst.y += diff.y * radius;
-  //   dst.z += diff.z * radius;
-  //   AddDebugLine(&g_context->debug_drawer, &transform->position, &dst, PACK_COLOR(0, 0, 0, 255));
-  // }
 
   enum {
     TIMESTAMP_SHADOW_PASS_BEGIN = 0,
@@ -766,6 +732,12 @@ RootKeymap_Pressed(PlatformKeyCode key, void* udata)
       {
         uint32_t s = FixFragmentation(g_vox_allocator);
         LOG_INFO("just saved %u bytes", s);
+      } break;
+      // '8' toggles updating culler
+    case PlatformKey_8:
+      {
+        g_context->update_culler = 1 - g_context->update_culler;
+        LOG_TRACE("toggled culler: %d", g_context->update_culler);
       } break;
       // '0' or '`' popups up console
     case PlatformKey_0:

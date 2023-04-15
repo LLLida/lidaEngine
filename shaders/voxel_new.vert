@@ -3,7 +3,7 @@
 
 #include "global.h"
 
-#define ENABLE_DEBUG 1
+#define ENABLE_DEBUG 0
 
 // vertex
 layout (location = 0) in vec3 inPosition;
@@ -20,12 +20,12 @@ layout (location = 6) in uint inCount1;
 layout (location = 7) in uint inCount2;
 layout (location = 8) in uint inCount3;
 layout (location = 9) in uint inCount4;
-#if ENABLE_DEBUG
+
 // debug data
 layout (location = 10) in uint debug_data1;
 layout (location = 11) in uint debug_data2; // depth pyramid mip
 layout (location = 12) in uint debug_data3;
-#endif
+
 
 // out
 layout (location = 0) out vec3 outPosition;
@@ -46,6 +46,7 @@ out gl_PerVertex {
   vec4 gl_Position;
 };
 
+#if ENABLE_DEBUG
 vec3 colors[16] = {
   vec3(1.0),           // mip 0
   vec3(0.2, 0.2, 1.0), // mip 1
@@ -64,6 +65,7 @@ vec3 colors[16] = {
   vec3(0.0, 0.0, 0.0), // mip 14
   vec3(0.9, 0.9, 1.0), // mip 15
 };
+#endif
 
 void main() {
   vec3 pos = doTransform(inPosition, inRotation, inTranslation, inScale);
