@@ -1159,6 +1159,20 @@ CMD_voxel_buff_statistics(uint32_t num, const char** args)
   char buff[1024];
   VoxelDrawerStatistics(g_vox_drawer, buff);
   LOG_INFO("%s", buff);
+  uint64_t unique_voxels = 0;
+  {
+    FOREACH_COMPONENT(Voxel_Grid) {
+      unique_voxels += VoxelGridBytes(&components[i]);
+    }
+  }
+  uint64_t num_voxels = 0;
+  {
+    FOREACH_COMPONENT(Voxel_View) {
+      Voxel_Grid* grid = GetComponent(Voxel_Grid, components[i].grid);
+      num_voxels += VoxelGridBytes(grid);
+    }
+  }
+  LOG_INFO("total voxels: %lu(unique: %lu)", num_voxels, unique_voxels);
 }
 
 void CMD_spawn_melon_floor(uint32_t num, const char** args)

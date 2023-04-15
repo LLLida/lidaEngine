@@ -57,7 +57,9 @@ typedef struct {
   uint32_t count2;
   uint32_t count3;
   uint32_t count4;
-  char padding[12];
+  uint32_t debug_data1;
+  uint32_t debug_data2;
+  uint32_t debug_data3;
 
 } VX_Vertex_Count;
 
@@ -155,6 +157,8 @@ typedef struct {
     Voxel_Backend_Slow slow;
     Voxel_Backend_Indirect indirect;
   } backend;
+  Pipeline_Stats pipeline_stats_fragment;
+  Pipeline_Stats pipeline_stats_shadow;
 
   void (*new_frame_func)(void* backend);
   void (*clear_cache_func)(void* backend);
@@ -1563,10 +1567,18 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
   }
     // err = SetVoxelBackend_Slow(drawer, NULL);
 
-  g_voxel_pipeline_colored = CreateEntity(g_ecs);
-  g_voxel_pipeline_shadow = CreateEntity(g_ecs);
-  g_voxel_pipeline_compute_ortho = CreateEntity(g_ecs);
-  g_voxel_pipeline_compute_persp = CreateEntity(g_ecs);
+  if (g_device->features.pipelineStatisticsQuery) {
+    CreatePipelineStats(&drawer->pipeline_stats_fragment);
+    CreatePipelineStats(&drawer->pipeline_stats_shadow);
+  } else {
+    memset(&drawer->pipeline_stats_fragment, 0, sizeof(Pipeline_Stats));
+    memset(&drawer->pipeline_stats_shadow,   0, sizeof(Pipeline_Stats));
+  }
+
+  g_voxel_pipeline_colored           = CreateEntity(g_ecs);
+  g_voxel_pipeline_shadow            = CreateEntity(g_ecs);
+  g_voxel_pipeline_compute_ortho     = CreateEntity(g_ecs);
+  g_voxel_pipeline_compute_persp     = CreateEntity(g_ecs);
   g_voxel_pipeline_compute_ext_ortho = CreateEntity(g_ecs);
   g_voxel_pipeline_compute_ext_persp = CreateEntity(g_ecs);
 
@@ -1576,6 +1588,10 @@ CreateVoxelDrawer(Voxel_Drawer* drawer, uint32_t max_vertices, uint32_t max_draw
 INTERNAL void
 DestroyVoxelDrawer(Voxel_Drawer* drawer)
 {
+  for (int i = 0; i < 2; i++) {
+    vkDestroyQueryPool(g_device->logical_device, drawer->pipeline_stats_fragment.query_pools[i], NULL);
+    vkDestroyQueryPool(g_device->logical_device, drawer->pipeline_stats_shadow.query_pools[i],   NULL);
+  }
   drawer->destroy_func(&drawer->backend, NULL);
   FreeVideoMemory(&drawer->gpu_memory);
   FreeVideoMemory(&drawer->cpu_memory);
@@ -1586,6 +1602,11 @@ NewVoxelDrawerFrame(Voxel_Drawer* drawer)
 {
   drawer->new_frame_func(&drawer->backend);
   drawer->num_draws = 0;
+  // get query results
+  if (g_window->frame_counter > 1) {
+    GetPipelineStats(&drawer->pipeline_stats_fragment);
+    GetPipelineStats(&drawer->pipeline_stats_shadow);
+  }
 }
 
 INTERNAL void
@@ -1612,6 +1633,10 @@ DrawVoxels(Voxel_Drawer* drawer, VkCommandBuffer cmd, const Mesh_Pass* mesh_pass
 INTERNAL uint32_t
 VoxelDrawerStatistics(Voxel_Drawer* drawer, char* buff)
 {
+  LOG_INFO("main pass:");
+  PrintPipelineStats(&drawer->pipeline_stats_fragment, "--");
+  LOG_INFO("shadow pass:");
+  PrintPipelineStats(&drawer->pipeline_stats_shadow, "--");
   return drawer->stat_func(&drawer->backend, buff);
 }
 
@@ -1669,6 +1694,9 @@ PipelineVoxelVertices2(const VkVertexInputAttributeDescription** attributes, uin
     { 7, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, count2) },
     { 8, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, count3) },
     { 9, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, count4) },
+    { 10, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, debug_data1) },
+    { 11, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, debug_data2) },
+    { 12, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, debug_data3) },
   };
   GLOBAL VkVertexInputAttributeDescription g_attributes2[4] = {
     { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex_X3C, position) },

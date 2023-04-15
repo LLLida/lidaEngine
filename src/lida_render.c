@@ -123,6 +123,13 @@ typedef struct {
 
 } Debug_Drawer;
 
+typedef struct {
+
+  VkQueryPool query_pools[2];
+  uint64_t results[6];
+
+} Pipeline_Stats;
+
 // we always pass color as uint32_t and decompress it on GPU
 #define PACK_COLOR(r, g, b, a) ((a) << 24) | ((b) << 16) | ((g) << 8) | (r)
 
@@ -1303,4 +1310,72 @@ PipelineDebugDrawVertices(const VkVertexInputAttributeDescription** attributes, 
   *num_bindings = ARR_SIZE(g_bindings);
   *attributes = g_attributes;
   *num_attributes = ARR_SIZE(g_attributes);
+}
+
+INTERNAL VkResult
+CreatePipelineStats(Pipeline_Stats* stats)
+{
+  VkQueryPoolCreateInfo query_pool_info = {
+    .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+    .queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS,
+    .pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_VERTICES_BIT | VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_PRIMITIVES_BIT | VK_QUERY_PIPELINE_STATISTIC_VERTEX_SHADER_INVOCATIONS_BIT |
+    VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT | VK_QUERY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES_BIT | VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT,
+    .queryCount = 6,
+  };
+  VkResult err;
+  for (int i = 0; i < 2; i++) {
+    err = vkCreateQueryPool(g_device->logical_device, &query_pool_info, NULL,
+                            &stats->query_pools[i]);
+    if (err != VK_SUCCESS) {
+      LOG_WARN("failed to create query pool for pipeline statistics with error %s",
+               ToString_VkResult(err));
+    }
+  }
+  return err;
+}
+
+INTERNAL VkResult
+GetPipelineStats(Pipeline_Stats* stats)
+{
+  return vkGetQueryPoolResults(g_device->logical_device,
+                               stats->query_pools[g_window->frame_counter & 1],
+                               0,
+                               1,
+                               6 * sizeof(uint64_t),
+                               stats->results,
+                               sizeof(uint64_t),
+                               VK_QUERY_RESULT_64_BIT);
+}
+
+INTERNAL void
+cmdResetPipelineStats(Pipeline_Stats* stats, VkCommandBuffer cmd)
+{
+  vkCmdResetQueryPool(cmd, stats->query_pools[g_window->frame_counter&1], 0, 6);
+}
+
+INTERNAL void
+cmdBeginPipelineStats(Pipeline_Stats* stats, VkCommandBuffer cmd)
+{
+  vkCmdBeginQuery(cmd, stats->query_pools[g_window->frame_counter&1], 0, 0);
+}
+
+INTERNAL void
+cmdEndPipelineStats(Pipeline_Stats* stats, VkCommandBuffer cmd)
+{
+  vkCmdEndQuery(cmd, stats->query_pools[g_window->frame_counter&1], 0);
+}
+
+INTERNAL void
+PrintPipelineStats(Pipeline_Stats* stats, const char* delim) {
+  const char* names[] = {
+    "Input assembly vertex count",
+    "Input assembly primitives count",
+    "Vertex shader invocations",
+    "Clipping stage primitives processed",
+    "Clipping stage primitives output",
+    "Fragment shader invocations"
+  };
+  for (int i = 0; i < 6; i++) {
+    LOG_INFO("%s%s: %lu", delim, names[i], stats->results[i]);
+  }
 }

@@ -119,7 +119,7 @@ EngineInit(const Engine_Startup_Info* info)
 
   g_context = PersistentAllocate(sizeof(Engine_Context));
 #define INIT_ALLOCATOR(alloc, mb) InitAllocator(alloc, MemoryAllocateRight(&g_persistent_memory, mb * 1024 * 1024), 1024*1024*mb)
-  INIT_ALLOCATOR(&g_context->entity_allocator, 1);
+  INIT_ALLOCATOR(&g_context->entity_allocator, 10);
 
   // 96 Mb for voxels
   g_vox_allocator = PersistentAllocate(sizeof(Allocator));
@@ -158,7 +158,7 @@ EngineInit(const Engine_Startup_Info* info)
   CreateBitmapRenderer(&g_context->quad_renderer);
   CreateFontAtlas(&g_context->quad_renderer, &g_context->font_atlas, 512, 128);
 
-  g_context->camera.z_near = 0.3f;
+  g_context->camera.z_near = 1.0f;
   g_context->camera.position = VEC3_CREATE(0.0f, 0.0f, -2.0f);
   g_context->camera.rotation = VEC3_CREATE(0.0f, 3.141f, 0.0f);
   g_context->camera.up = VEC3_CREATE(0.0f, 1.0f, 0.0f);
@@ -448,6 +448,37 @@ EngineUpdateAndRender()
   AddDebugLine(&g_context->debug_drawer, &VEC3_CREATE(0.0, 0.0, 0.0), &VEC3_CREATE(0.0, 3.0, 0.0), PACK_COLOR(0, 255, 0, 255));
   AddDebugLine(&g_context->debug_drawer, &VEC3_CREATE(0.0, 0.0, 0.0), &VEC3_CREATE(0.0, 0.0, 3.0), PACK_COLOR(0, 0, 255, 255));
 
+  // // aboba
+  // if (ComponentCount(Voxel_View) > 0) {
+  //   EID floor = *ComponentIDs(Voxel_View);
+  //   Voxel_View* vox = GetComponent(Voxel_View, floor);
+  //   Transform* transform = GetComponent(Transform, floor);
+  //   Voxel_Grid* grid = GetComponent(Voxel_Grid, vox->grid);
+  //   Vec3 half_size;
+  //   float inv_size = CalculateVoxelGridSize(grid, &half_size);
+  //   float radius = 0.0;
+  //   if (half_size.x*half_size.x + half_size.y*half_size.y > radius) {
+  //     radius = half_size.x*half_size.x + half_size.y*half_size.y;
+  //   }
+  //   if (half_size.x*half_size.x + half_size.z*half_size.z > radius) {
+  //     radius = half_size.x*half_size.x + half_size.z*half_size.z;
+  //   }
+  //   if (half_size.z*half_size.z + half_size.y*half_size.y > radius) {
+  //     radius = half_size.z*half_size.z + half_size.y*half_size.y;
+  //   }
+  //   // LOG_DEBUG("radius=%f scale=%f", radius, transform->scale);
+  //   radius = sqrt(radius);
+  //   Vec3 cam_pos = g_context->camera.position;
+  //   cam_pos.x += 1.0f;
+  //   Vec3 diff = VEC3_SUB(cam_pos, transform->position);
+  //   Vec3_Normalize(&diff, &diff);
+  //   Vec3 dst = transform->position;
+  //   dst.x += diff.x * radius;
+  //   dst.y += diff.y * radius;
+  //   dst.z += diff.z * radius;
+  //   AddDebugLine(&g_context->debug_drawer, &transform->position, &dst, PACK_COLOR(0, 0, 0, 255));
+  // }
+
   enum {
     TIMESTAMP_SHADOW_PASS_BEGIN = 0,
     // TIMESTAMP_CULL_PASS_BEGIN, // TODO: measure culling time
@@ -460,6 +491,9 @@ EngineUpdateAndRender()
   VkCommandBuffer cmd = BeginCommands();
   uint64_t timestamps[TIMESTAMP_COUNT];
   VkQueryPool query_pool = GetTimestampsGPU(TIMESTAMP_COUNT, timestamps);
+
+  cmdResetPipelineStats(&g_vox_drawer->pipeline_stats_fragment, cmd);
+  cmdResetPipelineStats(&g_vox_drawer->pipeline_stats_shadow,   cmd);
 
   if (g_window->frame_counter == 0) {
     Font* font = AddComponent(g_ecs, Font, g_context->arial_font);
@@ -492,10 +526,8 @@ EngineUpdateAndRender()
     }
     // draw rects for debugging occlusion culling
     if (*GetVar_Int(g_config, "Render.debug_ss_aabb") == 1) {
-      FOREACH_COMPONENT(Voxel_Grid) {
-        (void)components;
-        Voxel_View* cached = GetComponent(Voxel_View, entities[i]);
-        if (cached && (cached->cull_mask & 2) == 0)
+      FOREACH_COMPONENT(Voxel_View) {
+        if ((components[i].cull_mask & 2) == 0)
           continue;
         Transform* transform = GetComponent(Transform, entities[i]);
         OBB* obb = GetComponent(OBB, entities[i]);
@@ -526,6 +558,8 @@ EngineUpdateAndRender()
                  &VEC2_CREATE(rect.x*0.5+0.5, rect.y*0.5+0.5),
                  &VEC2_CREATE(0.5*(rect.z-rect.x), 0.5*(rect.w-rect.y)),
                  PACK_COLOR(120, 180, 120, 50), 1);
+        if (i == 200)
+          break;
       }
     }
 
@@ -575,11 +609,13 @@ EngineUpdateAndRender()
   // render to shadow map
   BeginShadowPass(g_shadow_pass, cmd);
   {
+    cmdBeginPipelineStats(&g_vox_drawer->pipeline_stats_shadow, cmd);
     float depth_bias_constant = *GetVar_Float(g_config, "Render.depth_bias_constant");
     float depth_bias_slope = *GetVar_Float(g_config, "Render.depth_bias_slope");
     vkCmdSetDepthBias(cmd, depth_bias_constant, 0.0f, depth_bias_slope);
     g_context->voxel_draw_calls += DrawVoxels(g_vox_drawer, cmd, GetComponent(Mesh_Pass, g_context->shadow_cull),
                                               1, &g_shadow_pass->scene_data_set);
+    cmdEndPipelineStats(&g_vox_drawer->pipeline_stats_shadow, cmd);
   }
   vkCmdEndRenderPass(cmd);
 
@@ -611,9 +647,11 @@ EngineUpdateAndRender()
                        0, sizeof(Vec4)*3 + sizeof(Vec3), &colors);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     // draw voxels
+    cmdBeginPipelineStats(&g_vox_drawer->pipeline_stats_fragment, cmd);
     VkDescriptorSet ds_sets[] = { ds_set, g_shadow_pass->shadow_set };
     g_context->voxel_draw_calls += DrawVoxels(g_vox_drawer, cmd, GetComponent(Mesh_Pass, g_context->main_cull),
                                               ARR_SIZE(ds_sets), ds_sets);
+    cmdEndPipelineStats(&g_vox_drawer->pipeline_stats_fragment, cmd);
     // draw debug lines
     prog = GetComponent(Graphics_Pipeline, g_context->debug_pipeline);
     // NOTE: forward_pass's descriptor set has VK_SHADER_STAGE_FRAGMENT_BIT, it doesn't fit us
