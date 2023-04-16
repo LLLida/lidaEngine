@@ -471,7 +471,6 @@ EngineUpdateAndRender()
     FontAtlasEndLoading(&g_context->font_atlas, cmd);
   } else {
     NewBitmapFrame(&g_context->quad_renderer);
-    DrawQuad(&g_context->quad_renderer, &VEC2_CREATE(0.04f, 0.36f), &VEC2_CREATE(0.3f, 0.05f), PACK_COLOR(23, 67, 240, 109), 1);
     Vec2 pos = { 0.04f, 0.4f };
     Vec2 text_size = { 0.05f, 0.05f };
     uint32_t color = PACK_COLOR(220, 119, 0, 205);
