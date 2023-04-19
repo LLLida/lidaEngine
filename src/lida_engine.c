@@ -576,7 +576,10 @@ EngineUpdateAndRender()
   vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool,
                       TIMESTAMP_FORWARD_PASS_BEGIN);
   // render scene to offscreen framebuffer
-  float clear_color[4] = { 0.08f, 0.2f, 0.25f, 1.0f };
+  float clear_color[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+  clear_color[0] = *GetVar_Float(g_config, "Render.bg_fill_color_r");
+  clear_color[1] = *GetVar_Float(g_config, "Render.bg_fill_color_g");
+  clear_color[2] = *GetVar_Float(g_config, "Render.bg_fill_color_b");
   BeginForwardPass(g_forward_pass, cmd, clear_color);
   {
     // draw triangles

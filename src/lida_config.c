@@ -47,7 +47,7 @@ struct Traverse_String_Info {
 typedef struct {
 
   Ternary_Tree_Node* root;
-  char buff[8192];
+  char buff[10240];
   uint32_t buff_offset;
 
 } Config_File;

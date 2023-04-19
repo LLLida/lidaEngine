@@ -1777,6 +1777,7 @@ CreateVoxelPipelineIndirect(Pipeline_Desc* description)
   *description = (Pipeline_Desc) {
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
     .polygonMode = VK_POLYGON_MODE_FILL,
+    // .polygonMode = VK_POLYGON_MODE_LINE,
     .cullMode = VK_CULL_MODE_NONE,
     // .cullMode = VK_CULL_MODE_FRONT_BIT,
     .depth_bias_enable = VK_FALSE,
