@@ -20,10 +20,8 @@ typedef struct {
   Video_Memory cpu_memory;
   VkImage color_image;
   VkImage depth_image;
-  VkImage resolve_image;
   VkImageView color_image_view;
   VkImageView depth_image_view;
-  VkImageView resolve_image_view;
   VkFramebuffer framebuffer;
   VkRenderPass render_pass;
   VkBuffer uniform_buffer;
@@ -34,7 +32,6 @@ typedef struct {
   VkDescriptorSet resulting_image_set;
   VkFormat color_format;
   VkFormat depth_format;
-  VkSampleCountFlagBits msaa_samples;
   VkExtent2D render_extent;
   VkMappedMemoryRange uniform_buffer_range;
 
@@ -173,7 +170,7 @@ ReallocateMemoryIfNeeded(Video_Memory* memory, Deletion_Queue* dq, const VkMemor
 }
 
 INTERNAL void
-FWD_ChooseFromats(Forward_Pass* pass, VkSampleCountFlagBits samples)
+FWD_ChooseFromats(Forward_Pass* pass)
 {
   VkFormat hdr_formats[] = {
     VK_FORMAT_R16G16B16A16_SFLOAT,
@@ -195,9 +192,7 @@ FWD_ChooseFromats(Forward_Pass* pass, VkSampleCountFlagBits samples)
                                            VK_IMAGE_TILING_OPTIMAL,
                                            VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT|
                                            VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
-  pass->msaa_samples = MaxSampleCount(samples);
-  LOG_TRACE("Renderer formats(samples=%d): color=%s, depth=%s",
-            (int)pass->msaa_samples,
+  LOG_TRACE("Renderer formats: color=%s, depth=%s",
             ToString_VkFormat(pass->color_format),
             ToString_VkFormat(pass->depth_format));
 }
@@ -208,7 +203,7 @@ FWD_CreateRenderPass(Forward_Pass* pass)
   VkAttachmentDescription attachments[3];
   attachments[0] = (VkAttachmentDescription) {
     .format = pass->color_format,
-    .samples = pass->msaa_samples,
+    .samples = VK_SAMPLE_COUNT_1_BIT,
     .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
     .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
     .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -216,37 +211,20 @@ FWD_CreateRenderPass(Forward_Pass* pass)
   };
   attachments[1] = (VkAttachmentDescription) {
     .format = pass->depth_format,
-    .samples = pass->msaa_samples,
+    .samples = VK_SAMPLE_COUNT_1_BIT,
     .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
     .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
     .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
     .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
   };
-  if (pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
-    // if we msaa is enabled then also configure resolve attachment
-    attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    attachments[2] = (VkAttachmentDescription) {
-      .format = pass->color_format,
-      .samples = VK_SAMPLE_COUNT_1_BIT,
-      .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-      .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-      .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    };
-  }
   VkAttachmentReference color_references[1];
   color_references[0] = (VkAttachmentReference) { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
   VkAttachmentReference depth_reference = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
-  VkAttachmentReference resolve_references[1];
-  resolve_references[0] = (VkAttachmentReference) { 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
   VkSubpassDescription subpass = {
     .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
     .colorAttachmentCount = ARR_SIZE(color_references),
     .pColorAttachments = color_references,
     .pDepthStencilAttachment = &depth_reference,
-    .pResolveAttachments = (pass->msaa_samples == VK_SAMPLE_COUNT_1_BIT) ? NULL : resolve_references,
   };
   VkSubpassDependency dependencies[2];
   dependencies[0] = (VkSubpassDependency) { VK_SUBPASS_EXTERNAL, 0,
@@ -259,7 +237,7 @@ FWD_CreateRenderPass(Forward_Pass* pass)
                       VK_DEPENDENCY_BY_REGION_BIT };
   VkRenderPassCreateInfo render_pass_info = {
     .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-    .attachmentCount = 2 + (pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT),
+    .attachmentCount = 2,
     .pAttachments = attachments,
     .subpassCount = 1,
     .pSubpasses = &subpass,
@@ -432,14 +410,8 @@ FWD_CreateAttachments(Forward_Pass* pass, uint32_t width, uint32_t height)
   // create color image
   image_info.format = pass->color_format;
   image_info.extent = (VkExtent3D) { width, height, 1 };
-  image_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-  if (pass->msaa_samples == VK_SAMPLE_COUNT_1_BIT) {
-    image_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
-  } else {
-    // TODO: try to use memory with LAZILY_ALLOCATED property
-    image_info.usage |= VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
-  }
-  image_info.samples = pass->msaa_samples;
+  image_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
   err = CreateImage(&pass->color_image, &image_info, "forward/color-image");
   if (err != VK_SUCCESS) {
     return err;
@@ -448,24 +420,10 @@ FWD_CreateAttachments(Forward_Pass* pass, uint32_t width, uint32_t height)
   image_info.format = pass->depth_format;
   image_info.extent = (VkExtent3D) { width, height, 1 };
   image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT;
-  image_info.samples = pass->msaa_samples;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
   err = CreateImage(&pass->depth_image, &image_info, "forward/depth-image");
   if (err != VK_SUCCESS) {
     return err;
-  }
-  // create resolve image if msaa_samples > 1
-  if (pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
-    // FIXME: should we use another format for resolve image?
-    image_info.format = pass->color_format;
-    image_info.extent = (VkExtent3D) { width, height, 1 };
-    image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
-    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-    err = CreateImage(&pass->resolve_image, &image_info, "forward/resolve-image");
-    if (err != VK_SUCCESS) {
-      return err;
-    }
-  } else {
-    pass->resolve_image = VK_NULL_HANDLE;
   }
   // create depth pyramid
   err = CreateDepthPyramidImage(&pass->depth_pyramid, width, height);
@@ -481,12 +439,8 @@ FWD_CreateAttachments(Forward_Pass* pass, uint32_t width, uint32_t height)
                                pass->color_image, &image_requirements[1]);
   vkGetImageMemoryRequirements(g_device->logical_device,
                                pass->depth_pyramid.image, &image_requirements[2]);
-  if (pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
-    vkGetImageMemoryRequirements(g_device->logical_device,
-                                 pass->resolve_image, &image_requirements[3]);
-  }
 
-  MergeMemoryRequirements(image_requirements, 3 + (pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT), &requirements);
+  MergeMemoryRequirements(image_requirements, 3, &requirements);
   if (requirements.size > pass->gpu_memory.size) {
     if (pass->gpu_memory.handle) {
       // free GPU memory
@@ -507,9 +461,6 @@ FWD_CreateAttachments(Forward_Pass* pass, uint32_t width, uint32_t height)
   ImageBindToMemory(&pass->gpu_memory, pass->color_image, &image_requirements[0]);
   ImageBindToMemory(&pass->gpu_memory, pass->depth_image, &image_requirements[1]);
   ImageBindToMemory(&pass->gpu_memory, pass->depth_pyramid.image, &image_requirements[2]);
-  if (pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
-    ImageBindToMemory(&pass->gpu_memory, pass->resolve_image, &image_requirements[3]);
-  }
   // create image views
   VkImageViewCreateInfo image_view_info = {
     .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -529,25 +480,14 @@ FWD_CreateAttachments(Forward_Pass* pass, uint32_t width, uint32_t height)
   if (err != VK_SUCCESS) {
     return err;
   }
-  if (pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
-    image_view_info.image = pass->resolve_image;
-    image_view_info.format = pass->color_format;
-    image_view_info.subresourceRange = (VkImageSubresourceRange) { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-    err = CreateImageView(&pass->resolve_image_view, &image_view_info, "forward/resolve-image-view");
-    if (err != VK_SUCCESS) {
-      return err;
-    }
-  } else {
-    pass->resolve_image_view = VK_NULL_HANDLE;
-  }
   err = CreateDepthPyramidMips(&pass->depth_pyramid);
   if (err != VK_SUCCESS) return err;
   // create framebuffer
-  VkImageView attachments[3] = { pass->color_image_view, pass->depth_image_view, pass->resolve_image_view };
+  VkImageView attachments[2] = { pass->color_image_view, pass->depth_image_view };
   VkFramebufferCreateInfo framebuffer_info = {
     .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
     .renderPass = pass->render_pass,
-    .attachmentCount = 2 + (pass->msaa_samples != VK_SAMPLE_COUNT_1_BIT),
+    .attachmentCount = 2,
     .pAttachments = attachments,
     .width = width,
     .height = height,
@@ -633,7 +573,7 @@ FWD_AllocateDescriptorSets(Forward_Pass* pass)
     .pBufferInfo = &buffer_info,
   };
   VkDescriptorImageInfo image_info = {
-    .imageView = (pass->msaa_samples == VK_SAMPLE_COUNT_1_BIT) ? pass->color_image_view : pass->resolve_image_view,
+    .imageView = pass->color_image_view,
     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
                           VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE)
@@ -821,12 +761,12 @@ SH_AllocateDescriptorSets(Shadow_Pass* pass, const Forward_Pass* fwd_pass)
 /// Functions used by other modules
 
 INTERNAL VkResult
-CreateForwardPass(Forward_Pass* pass, uint32_t width, uint32_t height, VkSampleCountFlagBits samples)
+CreateForwardPass(Forward_Pass* pass, uint32_t width, uint32_t height)
 {
   PROFILE_FUNCTION();
   memset(pass, 0, sizeof(Forward_Pass));
   pass->render_extent = (VkExtent2D) {width, height};
-  FWD_ChooseFromats(pass, samples);
+  FWD_ChooseFromats(pass);
   VkResult err = FWD_CreateRenderPass(pass);
   if (err != VK_SUCCESS) {
     LOG_ERROR("failed to create render pass with error %s", ToString_VkResult(err));
@@ -859,14 +799,10 @@ DestroyForwardPass(Forward_Pass* pass)
   vkDestroyFramebuffer(g_device->logical_device, pass->framebuffer, NULL);
   vkDestroyImageView(g_device->logical_device, pass->depth_image_view, NULL);
   vkDestroyImageView(g_device->logical_device, pass->color_image_view, NULL);
-  if (pass->resolve_image_view)
-    vkDestroyImageView(g_device->logical_device, pass->resolve_image_view, NULL);
   for (uint32_t i = 0; i < pass->depth_pyramid.num_mips; i++)
     vkDestroyImageView(g_device->logical_device, pass->depth_pyramid.mips[i], NULL);
   vkDestroyImage(g_device->logical_device, pass->depth_image, NULL);
   vkDestroyImage(g_device->logical_device, pass->color_image, NULL);
-  if (pass->resolve_image)
-    vkDestroyImage(g_device->logical_device, pass->resolve_image, NULL);
   vkDestroyImage(g_device->logical_device, pass->depth_pyramid.image, NULL);
   vkDestroyRenderPass(g_device->logical_device, pass->render_pass, NULL);
 
@@ -882,12 +818,8 @@ ResizeForwardPass(Forward_Pass* pass, uint32_t width, uint32_t height)
   vkDestroyFramebuffer(g_device->logical_device, pass->framebuffer, NULL);
   vkDestroyImageView(g_device->logical_device, pass->depth_image_view, NULL);
   vkDestroyImageView(g_device->logical_device, pass->color_image_view, NULL);
-  if (pass->resolve_image_view)
-    vkDestroyImageView(g_device->logical_device, pass->resolve_image_view, NULL);
   vkDestroyImage(g_device->logical_device, pass->depth_image, NULL);
   vkDestroyImage(g_device->logical_device, pass->color_image, NULL);
-  if (pass->resolve_image)
-    vkDestroyImage(g_device->logical_device, pass->resolve_image, NULL);
     // create attachments
   pass->render_extent = (VkExtent2D) {width, height};
   VkResult err = FWD_CreateAttachments(pass, width, height);
@@ -907,7 +839,7 @@ ResizeForwardPass(Forward_Pass* pass, uint32_t width, uint32_t height)
     LOG_ERROR("failed to allocate descriptor set with error %s", ToString_VkResult(err));
   }
   VkDescriptorImageInfo image_info = {
-    .imageView = (pass->msaa_samples == VK_SAMPLE_COUNT_1_BIT) ? pass->color_image_view : pass->resolve_image_view,
+    .imageView = pass->color_image_view,
     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
                           VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE)

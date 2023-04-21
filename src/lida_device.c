@@ -141,7 +141,6 @@ typedef struct {
   VkBool32 depth_bias_enable;
   float line_width;
 
-  VkSampleCountFlagBits msaa_samples;
   // TODO: support sample_shading_enable = VK_TRUE
   // VkBool32 sample_shading_enable;
   VkBool32 depth_test;
@@ -1781,7 +1780,8 @@ CreateGraphicsPipelines(VkPipeline* pipelines, size_t count, const Pipeline_Desc
 
     multisample_states[i] = (VkPipelineMultisampleStateCreateInfo) {
       .sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-      .rasterizationSamples = descs[i].msaa_samples,
+      // NOTE: we don't use MSAA in this engine
+      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
       .sampleShadingEnable  = VK_FALSE,
     };
 

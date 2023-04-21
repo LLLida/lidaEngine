@@ -141,10 +141,7 @@ EngineInit(const Engine_Startup_Info* info)
 
   g_forward_pass = PersistentAllocate(sizeof(Forward_Pass));
   CreateForwardPass(g_forward_pass,
-                    g_window->swapchain_extent.width, g_window->swapchain_extent.height,
-                    // NOTE: for now occlusion culling will work without MSAA,
-                    // in future we might considering moving to other AA algorithm or just supporting MSAA.
-                    VK_SAMPLE_COUNT_1_BIT);
+                    g_window->swapchain_extent.width, g_window->swapchain_extent.height);
 
   {
     // TODO: check for null
@@ -881,7 +878,6 @@ void CreateRectPipeline(Pipeline_Desc* description)
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_NONE,
     .depth_bias_enable = VK_FALSE,
-    .msaa_samples = VK_SAMPLE_COUNT_1_BIT,
     .blend_logic_enable = VK_FALSE,
     .attachment_count = 1,
     .attachments = &colorblend_attachment,
@@ -906,7 +902,6 @@ void CreateTrianglePipeline(Pipeline_Desc* description)
     .polygonMode = VK_POLYGON_MODE_FILL,
     .cullMode = VK_CULL_MODE_NONE,
     .depth_bias_enable = VK_FALSE,
-    .msaa_samples = g_forward_pass->msaa_samples,
     .depth_test = VK_TRUE,
     .depth_write = VK_TRUE,
     .depth_compare_op = VK_COMPARE_OP_GREATER,
@@ -934,7 +929,6 @@ void CreateDebugDrawPipeline(Pipeline_Desc* description)
     .cullMode = VK_CULL_MODE_NONE,
     .line_width = 1.0f,
     .depth_bias_enable = VK_FALSE,
-    .msaa_samples = g_forward_pass->msaa_samples,
     .depth_test = VK_TRUE,
     .depth_write = VK_TRUE,
     .depth_compare_op = VK_COMPARE_OP_GREATER,
