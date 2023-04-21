@@ -66,6 +66,12 @@ enum {
   CAMERA_PRESSED_DOWN = (1<<5),
 };
 
+enum {
+  CAMERA_TYPE_ORTHO,
+  CAMERA_TYPE_PERSP,
+};
+
+// TODO: get rid of some fields that some cameras won't use
 typedef struct {
 
   // NOTE: need to update before access
@@ -86,9 +92,12 @@ typedef struct {
   float aspect_ratio;
   float z_near;
 
+  uint32_t cull_mask;
   uint32_t pressed;
+  int type;
 
 } Camera;
+DECLARE_COMPONENT(Camera);
 
 // same as Vec2 but fields are ints
 typedef struct {

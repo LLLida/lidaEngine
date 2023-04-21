@@ -41,13 +41,12 @@ typedef struct {
   Allocator     entity_allocator;
   Quad_Renderer quad_renderer;
   Font_Atlas    font_atlas;
-  Camera        camera;
   Debug_Drawer  debug_drawer;
   Keymap        root_keymap;
   Keymap        camera_keymap;
 
-  EID shadow_cull;
-  EID main_cull;
+  EID shadow_camera;
+  EID main_camera;
 
   // pipelines
   EID rect_pipeline;
@@ -64,7 +63,6 @@ typedef struct {
   int      render_mode;
   uint32_t voxel_draw_calls;
   uint32_t debug_depth_pyramid;
-  int      update_culler;
 
 } Engine_Context;
 
@@ -83,7 +81,7 @@ GLOBAL Engine_Context* g_context;
   X(Transform);                                 \
   X(Voxel_View);                                \
   X(OBB);                                       \
-  X(Mesh_Pass);                                 \
+  X(Camera);                                    \
   X(Graphics_Pipeline);                         \
   X(Compute_Pipeline);                          \
   X(Font);                                      \
@@ -159,14 +157,6 @@ EngineInit(const Engine_Startup_Info* info)
   CreateBitmapRenderer(&g_context->quad_renderer);
   CreateFontAtlas(&g_context->quad_renderer, &g_context->font_atlas, 512, 128);
 
-  g_context->camera.z_near = 1.0f;
-  g_context->camera.position = VEC3_CREATE(0.0f, 0.0f, -2.0f);
-  g_context->camera.rotation = VEC3_CREATE(0.0f, 3.141f, 0.0f);
-  g_context->camera.up = VEC3_CREATE(0.0f, 1.0f, 0.0f);
-  g_context->camera.fovy = RADIANS(*GetVar_Float(g_config, "Camera.fovy"));
-  g_context->camera.rotation_speed = *GetVar_Float(g_config, "Camera.rotation_speed");
-  g_context->camera.movement_speed = *GetVar_Float(g_config, "Camera.movement_speed");
-
   g_context->prev_time = PlatformGetTicks();
   g_context->curr_time = g_context->prev_time;
 
@@ -209,6 +199,42 @@ EngineInit(const Engine_Startup_Info* info)
   g_context->arial_font = CreateEntity(g_ecs);
   g_context->pixel_font = CreateEntity(g_ecs);
 
+  g_deletion_queue = PersistentAllocate(sizeof(Deletion_Queue));
+  g_deletion_queue->left = 0;
+  g_deletion_queue->count = 0;
+
+
+  {
+    g_context->shadow_camera = CreateEntity(g_ecs);
+    Camera* camera = AddComponent(g_ecs, Camera, g_context->shadow_camera);
+    camera->cull_mask = 1;
+    camera->type = CAMERA_TYPE_ORTHO;
+  }
+  {
+    g_context->main_camera = CreateEntity(g_ecs);
+    Camera* camera = AddComponent(g_ecs, Camera, g_context->main_camera);
+    camera->cull_mask = 2;
+    camera->type = CAMERA_TYPE_PERSP;
+
+    camera->z_near = 1.0f;
+    camera->position = VEC3_CREATE(0.0f, 0.0f, -2.0f);
+    camera->rotation = VEC3_CREATE(0.0f, 3.141f, 0.0f);
+    camera->up = VEC3_CREATE(0.0f, 1.0f, 0.0f);
+    camera->fovy = RADIANS(*GetVar_Float(g_config, "Camera.fovy"));
+    camera->rotation_speed = *GetVar_Float(g_config, "Camera.rotation_speed");
+    camera->movement_speed = *GetVar_Float(g_config, "Camera.movement_speed");
+
+    g_context->camera_keymap = (Keymap) { &CameraKeymap_Pressed, &CameraKeymap_Released,
+                                          &CameraKeymap_Mouse, NULL, camera };
+  }
+
+  // keybindings
+  g_context->root_keymap = (Keymap) { &RootKeymap_Pressed, NULL, NULL, NULL, NULL };
+  BindKeymap(&g_context->root_keymap);
+
+  InitConsole();
+  g_console->font = g_context->pixel_font;
+
   if (1) {
     // run CMD by hand. I know this looks ugly but it gets job done.
     const char* args[] = { GetVar_String(g_config, "Misc.initial_scene") };
@@ -216,32 +242,6 @@ EngineInit(const Engine_Startup_Info* info)
       CMD_load_scene(1, args);
   }
 
-  g_deletion_queue = PersistentAllocate(sizeof(Deletion_Queue));
-  g_deletion_queue->left = 0;
-  g_deletion_queue->count = 0;
-
-  // keybindings
-  g_context->root_keymap = (Keymap) { &RootKeymap_Pressed, NULL, NULL, NULL, NULL };
-  g_context->camera_keymap = (Keymap) { &CameraKeymap_Pressed, &CameraKeymap_Released,
-                                        &CameraKeymap_Mouse, NULL, &g_context->camera };
-  BindKeymap(&g_context->root_keymap);
-
-  InitConsole();
-  g_console->font = g_context->pixel_font;
-
-  g_context->update_culler = 1;
-  {
-    g_context->shadow_cull = CreateEntity(g_ecs);
-    Mesh_Pass* pass = AddComponent(g_ecs, Mesh_Pass, g_context->shadow_cull);
-    pass->cull_mask = 1;
-    pass->flags = MESH_PASS_ORTHO;
-  }
-  {
-    g_context->main_cull = CreateEntity(g_ecs);
-    Mesh_Pass* pass = AddComponent(g_ecs, Mesh_Pass, g_context->main_cull);
-    pass->cull_mask = 2;
-    pass->flags = MESH_PASS_PERSP|MESH_PASS_USE_NORMALS;
-  }
   // TODO: for some reason this line of code causes our app to crash
   // FixFragmentation(&g_context->entity_allocator);
 
@@ -328,9 +328,12 @@ EngineUpdateAndRender()
       // get file notifications every 32 frame
       UpdateAssets(g_asset_manager);
       g_profiler.enabled               = *GetVar_Int(g_config, "Misc.profiling");
-      g_context->camera.fovy           = RADIANS(*GetVar_Float(g_config, "Camera.fovy"));
-      g_context->camera.rotation_speed = *GetVar_Float(g_config, "Camera.rotation_speed");
-      g_context->camera.movement_speed = *GetVar_Float(g_config, "Camera.movement_speed");
+      {
+        Camera* camera         = GetComponent(Camera, g_context->main_camera);
+        camera->fovy           = RADIANS(*GetVar_Float(g_config, "Camera.fovy"));
+        camera->rotation_speed = *GetVar_Float(g_config, "Camera.rotation_speed");
+        camera->movement_speed = *GetVar_Float(g_config, "Camera.movement_speed");
+      }
 
       uint32_t new_shadow_map_dim = *GetVar_Int(g_config, "Render.shadow_map_dim");
       if (new_shadow_map_dim != g_shadow_pass->extent.width) {
@@ -354,18 +357,11 @@ EngineUpdateAndRender()
     }
 
   // update camera position, rotation etc.
-  Camera* camera = &g_context->camera;
+  Camera* camera         = GetComponent(Camera, g_context->main_camera);
   CameraUpdate(camera, dt, g_window->swapchain_extent.width, g_window->swapchain_extent.height);
   CameraUpdateProjection(camera);
   CameraUpdateView(camera);
   Mat4_Mul(&camera->projection_matrix, &camera->view_matrix, &camera->projview_matrix);
-  if (g_context->update_culler) {
-    Mesh_Pass* pass = GetComponent(Mesh_Pass, g_context->main_cull);
-    memcpy(&pass->projview_matrix, &camera->projview_matrix, sizeof(Mat4));
-    // PerspectiveMatrix(RADIANS(90.0f), camera->aspect_ratio, camera->z_near, &pass->projview_matrix);
-    pass->camera_pos = g_context->camera.position;
-    pass->camera_dir = g_context->camera.front;
-  }
 
   Scene_Data_Struct* sc_data = g_forward_pass->uniform_buffer_mapped;
   memcpy(&sc_data->camera_projection, &camera->projection_matrix, sizeof(Mat4));
@@ -390,10 +386,10 @@ EngineUpdateAndRender()
     LookAtMatrix(&light_pos, &light_target, &up, &light_view);
     Mat4_Mul(&light_proj, &light_view, &sc_data->light_space);
     {
-      Mesh_Pass* pass = GetComponent(Mesh_Pass, g_context->shadow_cull);
-      memcpy(&pass->projview_matrix, &sc_data->light_space, sizeof(Mat4));
-      pass->camera_pos = light_pos;
-      Vec3_Normalize(&VEC3_MUL(light_target, -1.0f), &pass->camera_dir);
+      Camera* shadow_camera = GetComponent(Camera, g_context->shadow_camera);
+      memcpy(&shadow_camera->projview_matrix, &sc_data->light_space, sizeof(Mat4));
+      shadow_camera->position = light_pos;
+      Vec3_Normalize(&VEC3_MUL(light_target, -1.0f), &shadow_camera->front);
     }
   }
 
@@ -424,7 +420,7 @@ EngineUpdateAndRender()
     // frustum culling
     int cull_mask = 0;
     {
-      FOREACH_COMPONENT(Mesh_Pass) {
+      FOREACH_COMPONENT(Camera) {
         cull_mask |= TestFrustumOBB(&components[i].projview_matrix, obb) * components[i].cull_mask;
       }
     }
@@ -556,7 +552,7 @@ EngineUpdateAndRender()
                        g_forward_pass->render_extent.width, g_forward_pass->render_extent.height);
   }
 
-  CullPass(cmd, g_vox_drawer, ComponentData(Mesh_Pass), ComponentCount(Mesh_Pass));
+  CullPass(cmd, g_vox_drawer, ComponentData(Camera), ComponentCount(Camera));
 
   vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, query_pool,
                       TIMESTAMP_SHADOW_PASS_BEGIN);
@@ -567,7 +563,7 @@ EngineUpdateAndRender()
     float depth_bias_constant = *GetVar_Float(g_config, "Render.depth_bias_constant");
     float depth_bias_slope = *GetVar_Float(g_config, "Render.depth_bias_slope");
     vkCmdSetDepthBias(cmd, depth_bias_constant, 0.0f, depth_bias_slope);
-    g_context->voxel_draw_calls += DrawVoxels(g_vox_drawer, cmd, GetComponent(Mesh_Pass, g_context->shadow_cull),
+    g_context->voxel_draw_calls += DrawVoxels(g_vox_drawer, cmd, GetComponent(Camera, g_context->shadow_camera),
                                               1, &g_shadow_pass->scene_data_set);
     cmdEndPipelineStats(&g_vox_drawer->pipeline_stats_shadow, cmd);
   }
@@ -606,7 +602,7 @@ EngineUpdateAndRender()
     // draw voxels
     cmdBeginPipelineStats(&g_vox_drawer->pipeline_stats_fragment, cmd);
     VkDescriptorSet ds_sets[] = { ds_set, g_shadow_pass->shadow_set };
-    g_context->voxel_draw_calls += DrawVoxels(g_vox_drawer, cmd, GetComponent(Mesh_Pass, g_context->main_cull),
+    g_context->voxel_draw_calls += DrawVoxels(g_vox_drawer, cmd, GetComponent(Camera, g_context->main_camera),
                                               ARR_SIZE(ds_sets), ds_sets);
     cmdEndPipelineStats(&g_vox_drawer->pipeline_stats_fragment, cmd);
     // draw debug lines
@@ -714,21 +710,17 @@ RootKeymap_Pressed(PlatformKeyCode key, void* udata)
       break;
       // '5' prints camera stats
     case PlatformKey_5:
-      LOG_INFO("Camera.position=[%.3f %.3f %.3f]", g_context->camera.position.x, g_context->camera.position.y, g_context->camera.position.z);
-      LOG_INFO("Camera.front=[%.3f %.3f %.3f]", g_context->camera.front.x, g_context->camera.front.y, g_context->camera.front.z);
-      // TODO: print other fields such as fovy, etc.
-      break;
+      {
+        Camera* camera = GetComponent(Camera, g_context->main_camera);
+        LOG_INFO("Camera.position=[%.3f %.3f %.3f]", camera->position.x, camera->position.y, camera->position.z);
+        LOG_INFO("Camera.front=[%.3f %.3f %.3f]", camera->front.x, camera->front.y, camera->front.z);
+        // TODO: print other fields such as fovy, etc.
+      }break;
       // '7' shrinks memory
     case PlatformKey_7:
       {
         uint32_t s = FixFragmentation(g_vox_allocator);
         LOG_INFO("just saved %u bytes", s);
-      } break;
-      // '8' toggles updating culler
-    case PlatformKey_8:
-      {
-        g_context->update_culler = 1 - g_context->update_culler;
-        LOG_TRACE("toggled culler: %d", g_context->update_culler);
       } break;
       // '0' or '`' popups up console
     case PlatformKey_0:
@@ -858,7 +850,8 @@ CMD_save_scene(uint32_t num, const char** args)
     LOG_WARN("command 'save_scene' accepts 1 argument; see 'info save_scene'");
     return;
   }
-  SaveScene(&g_context->camera, args[0]);
+  Camera* camera = GetComponent(Camera, g_context->main_camera);
+  SaveScene(camera, args[0]);
 }
 
 void
@@ -868,7 +861,8 @@ CMD_load_scene(uint32_t num, const char** args)
     LOG_WARN("command 'load_scene' accepts 1 argument; see 'info load_scene'");
     return;
   }
-  LoadScene(g_ecs, g_vox_allocator, &g_context->camera, g_script_manager, args[0]);
+  Camera* camera = GetComponent(Camera, g_context->main_camera);
+  LoadScene(g_ecs, g_vox_allocator, camera, g_script_manager, args[0]);
 }
 
 
