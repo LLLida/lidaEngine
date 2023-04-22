@@ -14,16 +14,6 @@
 extern "C" {
 #endif
 
-// list of files we need to implement platform for:
-// DONE memory.c NOTE: we didn't write realloc
-// DONE main.cpp TODO: events
-// DONE ui.cc
-// DONE voxel.cc
-// DONE window.c NOTE: need to write imgui initialisation
-// DONE init.c NOTE: initialisation
-// DONE device.c
-// DONE base.c NOTE: file operations
-
 
 /// Keyboard
 
