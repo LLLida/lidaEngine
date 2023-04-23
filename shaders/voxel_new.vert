@@ -3,7 +3,7 @@
 
 #include "global.h"
 
-#define ENABLE_DEBUG 0
+#define ENABLE_DEBUG 1
 
 // vertex
 layout (location = 0) in vec3 inPosition;
@@ -24,7 +24,7 @@ layout (location = 9) in uint inCount4;
 // debug data
 layout (location = 10) in uint debug_data1;
 layout (location = 11) in uint debug_data2; // depth pyramid mip
-layout (location = 12) in uint debug_data3;
+layout (location = 12) in float debug_data3;
 
 
 // out
@@ -47,7 +47,8 @@ out gl_PerVertex {
 };
 
 #if ENABLE_DEBUG
-vec3 colors[16] = {
+
+const vec3 colors[16] = {
   vec3(1.0),           // mip 0
   vec3(0.2, 0.2, 1.0), // mip 1
   vec3(0.2, 1.0, 0.2), // mip 2
@@ -65,6 +66,7 @@ vec3 colors[16] = {
   vec3(0.0, 0.0, 0.0), // mip 14
   vec3(0.9, 0.9, 1.0), // mip 15
 };
+
 #endif
 
 void main() {
@@ -86,7 +88,8 @@ void main() {
   outNormal = normalize(rotate(normal, inRotation));
 #if ENABLE_DEBUG
   // outColor = vec4(vec3(0.1) * debug_data2, 1.0);
-  outColor = vec4(colors[debug_data2], 1.0);
+  // outColor = vec4(colors[debug_data2], 1.0);
+  outColor = vec4(debug_data3);
 #else
   outColor = decompress_color(inColor);
 #endif

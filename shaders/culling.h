@@ -42,7 +42,7 @@ struct Vertex_Count {
   uint count4;
   uint debug_data1;
   uint debug_data2;
-  uint debug_data3;
+  float debug_data3;
 };
 
 // stride: 16 bytes
@@ -85,13 +85,13 @@ int occlussion_cull(in Draw_Data d,
 
   const vec3 muls[8] = {
     { -1.0f, -1.0f, -1.0f },
-    { -1.0f, -1.0f, 1.0f },
-    { -1.0f, 1.0f, -1.0f },
-    { -1.0f, 1.0f, 1.0f },
-    { 1.0f, -1.0f, -1.0f },
-    { 1.0f, -1.0f, 1.0f },
-    { 1.0f, 1.0f, -1.0f },
-    { 1.0f, 1.0f, 1.0f },
+    { -1.0f, -1.0f,  1.0f },
+    { -1.0f,  1.0f, -1.0f },
+    { -1.0f,  1.0f,  1.0f },
+    {  1.0f, -1.0f, -1.0f },
+    {  1.0f, -1.0f,  1.0f },
+    {  1.0f,  1.0f, -1.0f },
+    {  1.0f,  1.0f,  1.0f },
   };
 
   for (int i = 0; i < 8; i++) {
@@ -146,7 +146,8 @@ int occlussion_cull_d(in Draw_Data d,
                       in mat4 projview_matrix,
                       in vec3 box[3],
                       in sampler2D depth_pyramid,
-                      out float mip) {
+                      out float mip,
+                      out float max_depth) {
   float radius = transform.scale * transform.scale *
     max(d.half_size_x*d.half_size_x + d.half_size_y*d.half_size_y,
         max(d.half_size_x*d.half_size_x + d.half_size_z*d.half_size_z,
@@ -158,7 +159,7 @@ int occlussion_cull_d(in Draw_Data d,
   // bounding rect
   vec2 aabb_min = { 1.0, 1.0 };
   vec2 aabb_max = { -1.0, -1.0 };
-  float max_depth = 0.0;
+  max_depth = 0.0;
 
   const vec3 muls[8] = {
     { -1.0f, -1.0f, -1.0f },
@@ -212,6 +213,7 @@ int occlussion_cull_d(in Draw_Data d,
 
   if (depth > max_depth)
     return 1;
+  max_depth = depth;            /* DEBUG */
   return 0;
 }
 

@@ -430,8 +430,8 @@ EngineUpdateAndRender()
     // draw wireframe
     int* opt = GetVar_Int(g_config, "Render.debug_voxel_obb");
     if (opt && *opt) {
-      // DebugDrawOBB(&g_context->debug_drawer, obb);
-      DebugDrawVoxelBlocks(&g_context->debug_drawer, grid, obb);
+      DebugDrawOBB(&g_context->debug_drawer, obb);
+      /* DebugDrawVoxelBlocks(&g_context->debug_drawer, grid, obb); */
     }
   }
 
@@ -874,18 +874,18 @@ void CreateRectPipeline(Pipeline_Desc* description)
   };
   static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
   *description = (Pipeline_Desc) {
-    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
-    .polygonMode = VK_POLYGON_MODE_FILL,
-    .cullMode = VK_CULL_MODE_NONE,
-    .depth_bias_enable = VK_FALSE,
-    .blend_logic_enable = VK_FALSE,
-    .attachment_count = 1,
-    .attachments = &colorblend_attachment,
+    .topology            = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
+    .polygonMode         = VK_POLYGON_MODE_FILL,
+    .cullMode            = VK_CULL_MODE_NONE,
+    .depth_bias_enable   = VK_FALSE,
+    .blend_logic_enable  = VK_FALSE,
+    .attachment_count    = 1,
+    .attachments         = &colorblend_attachment,
     .dynamic_state_count = ARR_SIZE(dynamic_states),
-    .dynamic_states = dynamic_states,
-    .render_pass = g_window->render_pass,
-    .subpass = 0,
-    .marker = "blit-3D-scene-fullscreen"
+    .dynamic_states      = dynamic_states,
+    .render_pass         = g_window->render_pass,
+    .subpass             = 0,
+    .marker              = "blit-3D-scene-fullscreen"
   };
 }
 
@@ -898,21 +898,21 @@ void CreateTrianglePipeline(Pipeline_Desc* description)
   static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 
   *description = (Pipeline_Desc) {
-    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-    .polygonMode = VK_POLYGON_MODE_FILL,
-    .cullMode = VK_CULL_MODE_NONE,
-    .depth_bias_enable = VK_FALSE,
-    .depth_test = VK_TRUE,
-    .depth_write = VK_TRUE,
-    .depth_compare_op = VK_COMPARE_OP_GREATER,
-    .blend_logic_enable = VK_FALSE,
-    .attachment_count = 1,
-    .attachments = &colorblend_attachment,
+    .topology            = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    .polygonMode         = VK_POLYGON_MODE_FILL,
+    .cullMode            = VK_CULL_MODE_NONE,
+    .depth_bias_enable   = VK_FALSE,
+    .depth_test          = VK_TRUE,
+    .depth_write         = VK_TRUE,
+    .depth_compare_op    = VK_COMPARE_OP_GREATER,
+    .blend_logic_enable  = VK_FALSE,
+    .attachment_count    = 1,
+    .attachments         = &colorblend_attachment,
     .dynamic_state_count = ARR_SIZE(dynamic_states),
-    .dynamic_states = dynamic_states,
-    .render_pass = g_forward_pass->render_pass,
-    .subpass = 0,
-    .marker = "draw-triangle-pipeline"
+    .dynamic_states      = dynamic_states,
+    .render_pass         = g_forward_pass->render_pass,
+    .subpass             = 0,
+    .marker              = "draw-triangle-pipeline"
   };
 }
 
@@ -924,22 +924,22 @@ void CreateDebugDrawPipeline(Pipeline_Desc* description)
   };
   static VkDynamicState dynamic_states[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
   *description = (Pipeline_Desc) {
-    .topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
-    .polygonMode = VK_POLYGON_MODE_FILL,
-    .cullMode = VK_CULL_MODE_NONE,
-    .line_width = 1.0f,
-    .depth_bias_enable = VK_FALSE,
-    .depth_test = VK_TRUE,
-    .depth_write = VK_TRUE,
-    .depth_compare_op = VK_COMPARE_OP_GREATER,
-    .blend_logic_enable = VK_FALSE,
-    .attachment_count = 1,
-    .attachments = &colorblend_attachment,
+    .topology            = VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
+    .polygonMode         = VK_POLYGON_MODE_FILL,
+    .cullMode            = VK_CULL_MODE_NONE,
+    .line_width          = 1.0f,
+    .depth_bias_enable   = VK_FALSE,
+    .depth_test          = VK_TRUE,
+    .depth_write         = VK_TRUE,
+    .depth_compare_op    = VK_COMPARE_OP_GREATER,
+    .blend_logic_enable  = VK_FALSE,
+    .attachment_count    = 1,
+    .attachments         = &colorblend_attachment,
     .dynamic_state_count = ARR_SIZE(dynamic_states),
-    .dynamic_states = dynamic_states,
-    .render_pass = g_forward_pass->render_pass,
-    .subpass = 0,
-    .marker = "debug-draw/pipeline"
+    .dynamic_states      = dynamic_states,
+    .render_pass         = g_forward_pass->render_pass,
+    .subpass             = 0,
+    .marker              = "debug-draw/pipeline"
   };
   PipelineDebugDrawVertices(&description->vertex_attributes, &description->vertex_attribute_count,
                             &description->vertex_bindings, &description->vertex_binding_count);

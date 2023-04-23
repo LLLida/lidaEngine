@@ -1681,7 +1681,7 @@ PipelineVoxelVertices2(const VkVertexInputAttributeDescription** attributes, uin
     { 9, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, count4) },
     { 10, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, debug_data1) },
     { 11, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, debug_data2) },
-    { 12, 2, VK_FORMAT_R32_UINT, offsetof(VX_Vertex_Count, debug_data3) },
+    { 12, 2, VK_FORMAT_R32_SFLOAT, offsetof(VX_Vertex_Count, debug_data3) },
   };
   GLOBAL VkVertexInputAttributeDescription g_attributes2[4] = {
     { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex_X3C, position) },
@@ -1745,8 +1745,8 @@ CreateVoxelPipelineClassic(Pipeline_Desc* description)
     .marker = "forward/voxel-pipeline"
   };
   PipelineVoxelVertices1(&description->vertex_attributes, &description->vertex_attribute_count,
-                        &description->vertex_bindings, &description->vertex_binding_count,
-                        1);
+                         &description->vertex_bindings, &description->vertex_binding_count,
+                         1);
 }
 
 INTERNAL void
