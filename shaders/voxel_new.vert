@@ -3,7 +3,7 @@
 
 #include "global.h"
 
-#define ENABLE_DEBUG 1
+#define ENABLE_DEBUG 0
 
 // vertex
 layout (location = 0) in vec3 inPosition;

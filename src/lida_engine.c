@@ -435,6 +435,21 @@ EngineUpdateAndRender()
     }
   }
 
+  {
+    FOREACH_COMPONENT(OBB) {
+      float dist;
+      Vec3 dir = VEC3_MUL(camera->front, -1.0f);
+      if (CheckRayHitOBB(&camera->position, &dir, &components[i], &dist)) {
+        Vec3 start = components[i].corners[0];
+        start.y *= 100.0f;
+        Vec3 end = components[i].corners[1];
+        end.y *= -100.0f;
+        AddDebugLine(&g_context->debug_drawer, &start, &end, PACK_COLOR(0, 0, 0, 255));
+      }
+      break;
+    }
+  }
+
   // draw axes
   AddDebugLine(&g_context->debug_drawer, &VEC3_CREATE(0.0, 0.0, 0.0), &VEC3_CREATE(3.0, 0.0, 0.0), PACK_COLOR(255, 0, 0, 255));
   AddDebugLine(&g_context->debug_drawer, &VEC3_CREATE(0.0, 0.0, 0.0), &VEC3_CREATE(0.0, 3.0, 0.0), PACK_COLOR(0, 255, 0, 255));
@@ -535,6 +550,14 @@ EngineUpdateAndRender()
       text_size = (Vec2) { 0.025f, 0.025f };
       color = PACK_COLOR(170, 255, 210, 160);
       DrawText(&g_context->quad_renderer, font, buffer, &text_size, color, &pos);
+    }
+
+    // draw cursor
+    if (IsKeymapBound(&g_context->camera_keymap)) {
+      DrawQuad(&g_context->quad_renderer,
+               &VEC2_CREATE(0.49f, 0.49f),
+               &VEC2_CREATE(0.01f, 0.01f),
+               PACK_COLOR(0, 0, 0, 150), 1);
     }
 
     UpdateAndDrawConsole(&g_context->quad_renderer, dt);

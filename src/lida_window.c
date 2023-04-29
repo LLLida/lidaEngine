@@ -4,9 +4,8 @@
 
   NOTE: in this file you will often see number 2. That's because we
   have double buffering in this engine. We record commands to command
-  while other frame is rendering. Then we wait that frame to be
+  buffer while other frame is rendering. Then we wait that frame to be
   finished and swap buffers.
-  I think doing '#define FRAMES 2' is redundant.
 
  */
 

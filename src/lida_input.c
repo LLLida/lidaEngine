@@ -49,6 +49,12 @@ UnbindKeymap()
   g_keymap_count--;
 }
 
+INTERNAL int
+IsKeymapBound(const Keymap* map)
+{
+  return memcmp(&g_keymap_stack[g_keymap_count-1], map, sizeof(Keymap)) == 0;
+}
+
 INTERNAL void
 KeyPressed(PlatformKeyCode key) {
   Assert(g_keymap_count > 0 && "No keymaps are bound");

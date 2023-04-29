@@ -535,6 +535,15 @@ CameraUpdate(Camera* camera, float dt, uint32_t window_width, uint32_t window_he
 }
 
 INTERNAL void
+GetCenterOBB(const OBB* obb, Vec3* center)
+{
+  // compute average value between corners
+  center->x = (obb->corners[0].x + obb->corners[7].x) / 2.0f;
+  center->y = (obb->corners[0].y + obb->corners[7].y) / 2.0f;
+  center->z = (obb->corners[0].z + obb->corners[7].z) / 2.0f;
+}
+
+INTERNAL void
 CalculateObjectOBB(const Vec3* half_size, const Transform* transform, OBB* obb)
 {
   Vec3 box[3];
@@ -641,5 +650,30 @@ TestFrustumOBB(const Mat4* projview, const OBB* obb)
       points[7].z < 0.0f) {
     return 0;
   }
+  return 1;
+}
+
+INTERNAL int
+CheckRayHitOBB(const Vec3* origin, const Vec3* dir, const OBB* obb, float* dist)
+{
+  Vec3 center;
+  GetCenterOBB(obb, &center);
+
+  // FIXME: this isn't correct at all. I just made a sample
+  // implementation to get things working. Obviously, when we would
+  // need proper mouse picking stuff we would want to implement a
+  // proper algorithm using SAT or transforming ray to unitcube space.
+
+  Vec3 q = VEC3_SUB(center, *origin);
+  Vec3_Normalize(&q, &q);
+  float angle = VEC3_DOT(*dir, q);
+  for (int i = 0; i < 8; i++) {
+    Vec3 t = VEC3_SUB(obb->corners[i], *origin);
+    Vec3_Normalize(&t, &t);
+    float p = VEC3_DOT(*dir, t);
+    if (angle < p)
+      return 0;
+  }
+  *dist = sqrtf(VEC3_DOT(q, q));
   return 1;
 }
