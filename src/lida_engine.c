@@ -63,6 +63,7 @@ typedef struct {
   int      render_mode;
   uint32_t voxel_draw_calls;
   uint32_t debug_depth_pyramid;
+  EID visible_entity;
 
 } Engine_Context;
 
@@ -436,17 +437,17 @@ EngineUpdateAndRender()
   }
 
   {
+    g_context->visible_entity = ENTITY_NIL;
+    float min_dist = 100000000.0f;
     FOREACH_COMPONENT(OBB) {
       float dist;
       Vec3 dir = VEC3_MUL(camera->front, -1.0f);
       if (CheckRayHitOBB(&camera->position, &dir, &components[i], &dist)) {
-        Vec3 start = components[i].corners[0];
-        start.y *= 100.0f;
-        Vec3 end = components[i].corners[1];
-        end.y *= -100.0f;
-        AddDebugLine(&g_context->debug_drawer, &start, &end, PACK_COLOR(0, 0, 0, 255));
+        if (dist < min_dist && dist > 0.0f) {
+          min_dist = dist;
+          g_context->visible_entity = entities[i];
+        }
       }
-      break;
     }
   }
 
@@ -741,6 +742,15 @@ RootKeymap_Pressed(PlatformKeyCode key, void* udata)
       {
         uint32_t s = FixFragmentation(g_vox_allocator);
         LOG_INFO("just saved %u bytes", s);
+      } break;
+    case PlatformKey_8:
+      {
+        LOG_INFO("visible entity: %u", g_context->visible_entity);
+        LOG_INFO("voxel: %u", g_context->visible_entity - (ComponentIDs(Voxel_View))[0]);
+        Transform* transform = GetComponent(Transform, g_context->visible_entity);
+        if (transform) {
+          LOG_INFO("position: [%f %f %f]", transform->position.x, transform->position.y, transform->position.z);
+        }
       } break;
       // '0' or '`' popups up console
     case PlatformKey_0:

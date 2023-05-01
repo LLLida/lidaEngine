@@ -193,23 +193,20 @@ int occlussion_cull_d(in Draw_Data d,
   // float level = floor(log2(max(width, height)));
   float level = ceil(log2(max(width, height)));
 
-  // do culling
-  mip = level;
+  // TODO: bla bla
 
-  // Texel footprint for the lower (finer-grained) level
-  float level_lower = max(mip - 1, 0);
-  vec2  scale       = vec2(exp2(-level_lower)) * pyramid_size;
-  vec2  a           = floor(aabb_min*scale);
-  vec2  b           = ceil(aabb_max*scale);
-  vec2  dims        = b - a;
-
-  // Use the lower level if we only touch <= 2 texels in both dimensions
-  if (dims.x < 2 && dims.y < 2)
-    mip = level_lower;
-  float depth = min(min(textureLod(depth_pyramid, aabb_min, mip).r,
-                        textureLod(depth_pyramid, vec2(aabb_min.x, aabb_max.y), mip).r),
-                    min(textureLod(depth_pyramid, aabb_max, mip).r,
-                        textureLod(depth_pyramid, vec2(aabb_max.x, aabb_min.y), mip).r));
+#if 0
+  float depth = min(min(textureLod(depth_pyramid, aabb_min, level).r,
+                        textureLod(depth_pyramid, vec2(aabb_min.x, aabb_max.y), level).r),
+                    min(textureLod(depth_pyramid, aabb_max, level).r,
+                        textureLod(depth_pyramid, vec2(aabb_max.x, aabb_min.y), level).r));
+#else
+  float depth1 = textureLod(depth_pyramid, aabb_min, level).r;
+  float depth2 = textureLod(depth_pyramid, vec2(aabb_min.x, aabb_max.y), level).r;
+  float depth3 = textureLod(depth_pyramid, aabb_max, level).r;
+  float depth4 = textureLod(depth_pyramid, vec2(aabb_max.x, aabb_min.y), level).r;
+  float depth = min(min(depth1, depth2), min(depth3, depth4));
+#endif
 
   if (depth > max_depth)
     return 1;

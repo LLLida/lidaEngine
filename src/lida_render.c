@@ -6,6 +6,7 @@
 typedef struct {
 
   VkImage image;
+  VkImageView image_view;
   VkImageView mips[15];
   uint32_t num_mips;
   VkDescriptorSet reduce_sets[15];
@@ -292,6 +293,13 @@ CreateDepthPyramidMips(Depth_Pyramid* pyramid)
       return err;
     }
   }
+  // create image view for culling pass
+  image_view_info.subresourceRange.baseMipLevel = 0;
+  image_view_info.subresourceRange.levelCount = pyramid->num_mips;
+  VkResult err = CreateImageView(&pyramid->image_view, &image_view_info, "depth-mip-main");
+  if (err != VK_SUCCESS) {
+    return err;
+  }
   return VK_SUCCESS;
 }
 
@@ -324,6 +332,7 @@ AllocateDepthPyramidDescriptorSets(Depth_Pyramid* pyramid, VkImageView depth_ima
   };
   err = AllocateDescriptorSets(bindings, 1, pyramid->debug_sets, pyramid->num_mips, 1, "depth-pyramid-debug-set");
   if (err != VK_SUCCESS) return err;
+  // allocate descriptor set for culling pass
   bindings[0] = (VkDescriptorSetLayoutBinding) {
     .binding         = 0,
     .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -339,7 +348,7 @@ AllocateDepthPyramidDescriptorSets(Depth_Pyramid* pyramid, VkImageView depth_ima
       .imageView = (i == 0) ? depth_image_view : pyramid->mips[i-1],
       .imageLayout = (i == 0) ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL,
       .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                            VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
+                            VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK, 1.0f)
     };
     write_sets[3*i] = (VkWriteDescriptorSet) {
       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -366,7 +375,7 @@ AllocateDepthPyramidDescriptorSets(Depth_Pyramid* pyramid, VkImageView depth_ima
       .imageView = pyramid->mips[i],
       .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
       .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                            VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
+                            VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK, 1.0f)
     };
     write_sets[3*i+2] = (VkWriteDescriptorSet) {
       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -381,7 +390,7 @@ AllocateDepthPyramidDescriptorSets(Depth_Pyramid* pyramid, VkImageView depth_ima
     .imageView = pyramid->mips[0],
     .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
     .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                          VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
+                          VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK, (float)pyramid->num_mips)
   };
   write_sets[pyramid->num_mips*3] = (VkWriteDescriptorSet) {
     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -576,7 +585,7 @@ FWD_AllocateDescriptorSets(Forward_Pass* pass)
     .imageView = pass->color_image_view,
     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                          VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE)
+                          VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE, 1.0f)
   };
   write_sets[1] = (VkWriteDescriptorSet) {
     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -743,7 +752,7 @@ SH_AllocateDescriptorSets(Shadow_Pass* pass, const Forward_Pass* fwd_pass)
     .imageView = pass->image_view,
     .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
     .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
-                          VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK)
+                          VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK, 1.0f)
   };
   write_sets[1] = (VkWriteDescriptorSet) {
     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -842,7 +851,7 @@ ResizeForwardPass(Forward_Pass* pass, uint32_t width, uint32_t height)
     .imageView = pass->color_image_view,
     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                          VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE)
+                          VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE, 1.0f)
   };
   VkWriteDescriptorSet write_set = {
     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
