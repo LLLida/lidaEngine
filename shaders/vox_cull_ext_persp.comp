@@ -82,8 +82,7 @@ void main() {
   box[1] = rotate(vec3(0.0, d.half_size_y, 0.0), transform.rotation);
   box[2] = rotate(vec3(0.0, 0.0, d.half_size_z), transform.rotation);
 
-  float mip; float max_depth;
-  if (occlussion_cull_d(d, transform, camera_position, projview_matrix, box, depth_pyramid, mip, max_depth) == 1)
+  if (occlussion_cull(d, transform, camera_position, projview_matrix, box, depth_pyramid) == 1)
     return;
 
   uint last_written_vertex = 0xffffffff;
@@ -125,6 +124,6 @@ void main() {
     vertex_counts[draw_offset + d.first_instance].count4 = (vertex_offset + d.vertex_count4); vertex_offset += d.vertex_count4;
   }
   vertex_counts[draw_offset + d.first_instance].debug_data1 = num_added;
-  vertex_counts[draw_offset + d.first_instance].debug_data2 = uint(mip);
-  vertex_counts[draw_offset + d.first_instance].debug_data3 = max_depth;
+  // vertex_counts[draw_offset + d.first_instance].debug_data2 = uint(mip);
+  // vertex_counts[draw_offset + d.first_instance].debug_data3 = max_depth;
 }

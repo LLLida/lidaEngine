@@ -387,7 +387,7 @@ AllocateDepthPyramidDescriptorSets(Depth_Pyramid* pyramid, VkImageView depth_ima
     };
   }
   image_infos[pyramid->num_mips*3] = (VkDescriptorImageInfo) {
-    .imageView = pyramid->mips[0],
+    .imageView = pyramid->image_view,
     .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
     .sampler = GetSampler(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
                           VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK, (float)pyramid->num_mips)
@@ -810,6 +810,7 @@ DestroyForwardPass(Forward_Pass* pass)
   vkDestroyImageView(g_device->logical_device, pass->color_image_view, NULL);
   for (uint32_t i = 0; i < pass->depth_pyramid.num_mips; i++)
     vkDestroyImageView(g_device->logical_device, pass->depth_pyramid.mips[i], NULL);
+  vkDestroyImageView(g_device->logical_device, pass->depth_pyramid.image_view, NULL);
   vkDestroyImage(g_device->logical_device, pass->depth_image, NULL);
   vkDestroyImage(g_device->logical_device, pass->color_image, NULL);
   vkDestroyImage(g_device->logical_device, pass->depth_pyramid.image, NULL);

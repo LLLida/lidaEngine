@@ -8,7 +8,7 @@ CXX ?= g++
 PLATFORM ?= lida_platform_win32
 GLSLANG ?= glslangValidator
 
-CFLAGS = -O0 -g -Wall -Wextra -Wpedantic
+CFLAGS = -O0 -g3 -Wall -Wextra -Wpedantic -Wno-unused-function
 # CFLAGS = -O3 -march=native -Wall -Wextra -Wpedantic
 CFLAGS += $(shell pkg-config --cflags freetype2)
 
